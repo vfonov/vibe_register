@@ -70,6 +70,16 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] GPU texture creation, upload, and destruction helpers
 - [x] Swapchain resize handling (`VK_ERROR_OUT_OF_DATE_KHR`, `VK_SUBOPTIMAL_KHR`)
 
+### Keyboard Shortcuts
+- [x] `R` — Reset All Views
+- [x] `Q` — Quit
+- [x] `C` — Toggle clean mode (hides Tools panel, volume controls, overlay controls; keeps only slice views with crosshairs and window titles)
+
+### Clean Mode
+- [x] Toggle via `C` key or "Clean Mode" button in Tools panel
+- [x] Hides: Tools panel, per-volume controls (dimensions, colour maps, range inputs), overlay blend controls
+- [x] Keeps: Volume window title bars (filenames), 3-plane slice views, crosshairs, overlay views
+
 ### Error Handling
 - [x] Exception-based error handling throughout
 - [x] Top-level exception handler with proper cleanup
@@ -171,7 +181,7 @@ new_register/
 │   ├── VulkanBackend.h
 │   └── VulkanHelpers.h
 ├── src/
-│   ├── main.cpp          (1998 lines — UI, state, rendering, main loop)
+│   ├── main.cpp          (2044 lines — UI, state, rendering, main loop)
 │   ├── VulkanBackend.cpp  (541 lines)
 │   ├── ColourMap.cpp      (395 lines)
 │   ├── VulkanHelpers.cpp  (322 lines)
@@ -182,10 +192,10 @@ new_register/
     └── test_colour_map.cpp
 ```
 
-Total: ~3615 lines of application code.
+Total: ~3661 lines of application code.
 
 ### Suggested Refactoring
-- `main.cpp` (1998 lines) should be decomposed into separate modules:
+- `main.cpp` (2044 lines) should be decomposed into separate modules:
   - `SliceView` — per-slice rendering, mouse interaction, crosshairs
   - `OverlayView` — multi-volume compositing and overlay panel
   - `UIState` — application state, volume collection, view state management

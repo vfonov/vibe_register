@@ -66,6 +66,7 @@ std::vector<std::string> g_VolumePaths;  // Full file paths (for config saving)
 std::vector<VolumeViewState> g_ViewStates;
 OverlayState g_Overlay;
 bool g_LayoutInitialized = false;
+bool g_CleanMode = false;  // Hide UI controls, show only slice views
 float g_DpiScale = 1.0f;  // Set after backend initialisation
 std::string g_LocalConfigPath;  // Path for "Save Local Config"
 
@@ -1313,7 +1314,7 @@ int main(int argc, char** argv)
     }
 
     // Fixed height for the controls section at the bottom of each column
-    const float controlsHeight = 160.0f * g_DpiScale;
+    const float controlsHeightBase = 160.0f * g_DpiScale;
 
     // Main loop
     while (!glfwWindowShouldClose(window))
@@ -1337,6 +1338,9 @@ int main(int argc, char** argv)
 
         // DockSpace with default layout
         ImGuiID dockspaceId = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
+
+        // In clean mode, controls are hidden so views use full height
+        const float controlsHeight = g_CleanMode ? 0.0f : controlsHeightBase;
 
         if (!g_LayoutInitialized && numVolumes > 0)
         {
@@ -1395,6 +1399,8 @@ int main(int argc, char** argv)
         }
 
         // --- Tools panel (left side) ---
+        if (!g_CleanMode)
+        {
         ImGui::Begin("Tools");
         {
             float btnWidth = ImGui::GetContentRegionAvail().x;
@@ -1484,6 +1490,17 @@ int main(int argc, char** argv)
                 if (hasOverlay)
                     UpdateAllOverlayTextures();
             }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(R)");
+
+            ImGui::Separator();
+
+            if (ImGui::Button("Clean Mode", ImVec2(btnWidth, 0)))
+            {
+                g_CleanMode = true;
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(C)");
 
             ImGui::Separator();
 
@@ -1491,8 +1508,31 @@ int main(int argc, char** argv)
             {
                 glfwSetWindowShouldClose(window, true);
             }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(Q)");
         }
         ImGui::End();
+        } // !g_CleanMode
+
+        // --- Global keyboard shortcuts ---
+        // Only fire when no text input is active
+        if (!ImGui::GetIO().WantTextInput)
+        {
+            if (ImGui::IsKeyPressed(ImGuiKey_R))
+            {
+                ResetViews();
+                if (hasOverlay)
+                    UpdateAllOverlayTextures();
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Q))
+            {
+                glfwSetWindowShouldClose(window, true);
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_C))
+            {
+                g_CleanMode = !g_CleanMode;
+            }
+        }
 
         // --- Render each volume's column window ---
         for (int vi = 0; vi < numVolumes; ++vi)
@@ -1534,7 +1574,9 @@ int main(int argc, char** argv)
                     }
                 }
 
-                // Controls section
+                // Controls section (hidden in clean mode)
+                if (!g_CleanMode)
+                {
                 ImGui::BeginChild("##controls", ImVec2(viewWidth, 0),
                                   ImGuiChildFlags_Borders);
                 {
@@ -1844,6 +1886,7 @@ int main(int argc, char** argv)
                     }
                 }
                 ImGui::EndChild();
+                } // !g_CleanMode
             }
             ImGui::End();
         }
@@ -1878,7 +1921,9 @@ int main(int argc, char** argv)
                             UpdateOverlayTexture(v);
                 }
 
-                // Controls: blending and per-volume alpha
+                // Controls: blending and per-volume alpha (hidden in clean mode)
+                if (!g_CleanMode)
+                {
                 ImGui::BeginChild("##overlay_controls",
                                   ImVec2(avail.x, 0),
                                   ImGuiChildFlags_Borders);
@@ -1945,6 +1990,7 @@ int main(int argc, char** argv)
                     }
                 }
                 ImGui::EndChild();
+                } // !g_CleanMode
             }
             ImGui::End();
         }
