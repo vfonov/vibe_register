@@ -74,11 +74,19 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] `R` — Reset All Views
 - [x] `Q` — Quit
 - [x] `C` — Toggle clean mode (hides Tools panel, volume controls, overlay controls; keeps only slice views with crosshairs and window titles)
+- [x] `P` — Screenshot (save window as PNG to current directory)
 
 ### Clean Mode
 - [x] Toggle via `C` key or "Clean Mode" button in Tools panel
 - [x] Hides: Tools panel, per-volume controls (dimensions, colour maps, range inputs), overlay blend controls, slice navigation sliders (+/- buttons and slider bars)
 - [x] Keeps: Volume window title bars (filenames), 3-plane slice views, crosshairs, overlay views
+
+### Screenshot
+- [x] Capture entire window to PNG via `P` key or "Screenshot" button in Tools panel
+- [x] Auto-incrementing filenames (`screenshot000001.png`, `screenshot000002.png`, ...) — never overwrites
+- [x] Prints filename to console on save
+- [x] Vulkan framebuffer readback with automatic BGRA→RGBA swizzle
+- [x] Uses `stb_image_write.h` for PNG encoding
 
 ### Error Handling
 - [x] Exception-based error handling throughout
@@ -181,8 +189,8 @@ new_register/
 │   ├── VulkanBackend.h
 │   └── VulkanHelpers.h
 ├── src/
-│   ├── main.cpp          (2044 lines — UI, state, rendering, main loop)
-│   ├── VulkanBackend.cpp  (541 lines)
+│   ├── main.cpp          (2102 lines — UI, state, rendering, main loop)
+│   ├── VulkanBackend.cpp  (710 lines)
 │   ├── ColourMap.cpp      (395 lines)
 │   ├── VulkanHelpers.cpp  (322 lines)
 │   ├── Volume.cpp         (210 lines)
@@ -192,10 +200,10 @@ new_register/
     └── test_colour_map.cpp
 ```
 
-Total: ~3661 lines of application code.
+Total: ~3886 lines of application code.
 
 ### Suggested Refactoring
-- `main.cpp` (2044 lines) should be decomposed into separate modules:
+- `main.cpp` (2102 lines) should be decomposed into separate modules:
   - `SliceView` — per-slice rendering, mouse interaction, crosshairs
   - `OverlayView` — multi-volume compositing and overlay panel
   - `UIState` — application state, volume collection, view state management
@@ -209,6 +217,7 @@ Total: ~3661 lines of application code.
 - `Vulkan` (system)
 - `Glaze` (FetchContent, v4.2.3)
 - `HDF5` (system, required by MINC2)
+- `stb_image_write` (single header, in `include/`)
 
 ### Build
 ```bash

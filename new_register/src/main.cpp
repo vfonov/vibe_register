@@ -9,10 +9,14 @@
 #include <cmath>
 #include <filesystem>
 #include <stdexcept>
+#include <format>
 
 #define GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 
 #include "AppConfig.h"
 #include "ColourMap.h"
@@ -78,6 +82,43 @@ void ResetViews();
 int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                     const Volume& vol, VolumeViewState& state);
 int RenderOverlayView(int viewIndex, const ImVec2& childSize);
+
+// --- Screenshot helper ---
+// Finds the next available filename (screenshot000001.png, screenshot000002.png, ...)
+// and saves the provided RGBA pixel data as a PNG file.
+// Returns the filename on success, or an empty string on failure.
+static std::string saveScreenshot(GraphicsBackend& backend)
+{
+    int width = 0, height = 0;
+    auto pixels = backend.captureScreenshot(width, height);
+    if (pixels.empty() || width <= 0 || height <= 0)
+    {
+        std::cerr << "Screenshot: failed to capture framebuffer\n";
+        return {};
+    }
+
+    // Find the next available filename
+    int index = 1;
+    std::string filename;
+    while (true)
+    {
+        filename = std::format("screenshot{:06d}.png", index);
+        if (!std::filesystem::exists(filename))
+            break;
+        ++index;
+    }
+
+    int ok = stbi_write_png(filename.c_str(), width, height, 4,
+                            pixels.data(), width * 4);
+    if (!ok)
+    {
+        std::cerr << "Screenshot: failed to write " << filename << "\n";
+        return {};
+    }
+
+    std::cout << "Screenshot saved: " << filename << "\n";
+    return filename;
+}
 
 // --- Resolve clamp colour for under/over range voxels ---
 // Returns a packed 0xAABBGGRR colour.
@@ -1499,6 +1540,13 @@ int main(int argc, char** argv)
             ImGui::SameLine();
             ImGui::TextDisabled("(R)");
 
+            if (ImGui::Button("Screenshot", ImVec2(btnWidth, 0)))
+            {
+                saveScreenshot(*backend);
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(P)");
+
             ImGui::Separator();
 
             if (ImGui::Button("Clean Mode", ImVec2(btnWidth, 0)))
@@ -1537,6 +1585,10 @@ int main(int argc, char** argv)
             if (ImGui::IsKeyPressed(ImGuiKey_C))
             {
                 g_CleanMode = !g_CleanMode;
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_P))
+            {
+                saveScreenshot(*backend);
             }
         }
 

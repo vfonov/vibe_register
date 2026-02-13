@@ -36,6 +36,8 @@ public:
 
     float contentScale() const override;
 
+    std::vector<uint8_t> captureScreenshot(int& width, int& height) override;
+
 private:
     // --- Vulkan handles ---
     VkAllocationCallbacks*   allocator_       = nullptr;

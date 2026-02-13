@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <cstdint>
+#include <vector>
 
 struct GLFWwindow;
 
@@ -71,6 +72,15 @@ public:
     /// displays, 2.0 on Retina / HiDPI).  Uses the larger of the X/Y
     /// scale values reported by the windowing system.
     virtual float contentScale() const = 0;
+
+    // --- Screenshot ---
+
+    /// Capture the current swapchain image as RGBA pixel data.
+    /// @param[out] width   Image width in pixels.
+    /// @param[out] height  Image height in pixels.
+    /// @return  Pixel data in RGBA8 format (4 bytes per pixel), or empty
+    ///          vector on failure.
+    virtual std::vector<uint8_t> captureScreenshot(int& width, int& height) = 0;
 
     // --- Factory ---
 
