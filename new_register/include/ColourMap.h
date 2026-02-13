@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string_view>
 
 /// Number of entries in each precomputed lookup table.
@@ -43,6 +44,10 @@ struct ColourLut
 
 /// Return the human-readable display name for a colour map type.
 std::string_view colourMapName(ColourMapType type);
+
+/// Look up a colour map type by its display name (as returned by colourMapName).
+/// Returns std::nullopt if the name is not recognised.
+std::optional<ColourMapType> colourMapByName(std::string_view name);
 
 /// Build (or return cached) the lookup table for the given colour map.
 /// The returned reference is valid for the lifetime of the program.

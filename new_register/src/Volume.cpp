@@ -1,6 +1,5 @@
 #include "Volume.h"
 #include <cmath>
-#include <iostream>
 #include <vector>
 #include <algorithm>
 #include <limits>
@@ -97,7 +96,7 @@ void Volume::generate_test_data()
             }
         }
     }
-    std::cerr << "Generated synthetic volume 256x256x256" << std::endl;
+
 }
 
 void Volume::load(const std::string& filename)
@@ -183,13 +182,6 @@ void Volume::load(const std::string& filename)
     {
         max_value = min_value + 1.0f;
     }
-
-    std::cerr << "Loaded volume: " << filename << "\n";
-    std::cerr << "  Dimensions: " << dimensions[0] << " x "
-              << dimensions[1] << " x " << dimensions[2] << "\n";
-    std::cerr << "  Step:  " << step[0] << " x " << step[1] << " x " << step[2] << " mm\n";
-    std::cerr << "  Start: " << start[0] << ", " << start[1] << ", " << start[2] << " mm\n";
-    std::cerr << "  Range: [" << min_value << ", " << max_value << "]\n";
 }
 
 float Volume::get(int x, int y, int z) const

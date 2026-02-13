@@ -13,6 +13,7 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include "AppConfig.h"
 #include "ColourMap.h"
 #include "GraphicsBackend.h"
 #include "Volume.h"
@@ -36,9 +37,11 @@ struct VolumeViewState
 // --- Application State ---
 std::vector<Volume> g_Volumes;
 std::vector<std::string> g_VolumeNames;  // Display names (file basenames)
+std::vector<std::string> g_VolumePaths;  // Full file paths (for config saving)
 std::vector<VolumeViewState> g_ViewStates;
 bool g_LayoutInitialized = false;
 float g_DpiScale = 1.0f;  // Set after backend initialisation
+std::string g_LocalConfigPath;  // Path for "Save Local Config"
 
 // --- Forward Declarations ---
 void UpdateSliceTexture(int volumeIndex, int viewIndex);
@@ -469,24 +472,81 @@ int main(int argc, char** argv)
     try
     {
 
-    // Load volumes
-    if (argc > 1)
+    // --- Parse CLI arguments ---
+    std::string cliConfigPath;  // --config <path>
+    std::vector<std::string> volumeFiles;
+    for (int i = 1; i < argc; ++i)
     {
-        for (int i = 1; i < argc; ++i)
+        std::string arg = argv[i];
+        if (arg == "--config" && i + 1 < argc)
         {
-            std::cerr << "Loading volume " << (i - 1) << ": " << argv[i] << "\n";
+            cliConfigPath = argv[++i];
+        }
+        else if (arg == "--help" || arg == "-h")
+        {
+            std::cerr << "Usage: new_register [--config <path>] [volume1.mnc ...]\n";
+            return 0;
+        }
+        else
+        {
+            volumeFiles.push_back(arg);
+        }
+    }
+
+    // --- Load and merge configs ---
+    AppConfig globalCfg;
+    try { globalCfg = loadConfig(globalConfigPath()); }
+    catch (const std::exception& e)
+    {
+        std::cerr << "Warning: " << e.what() << "\n";
+    }
+
+    // Determine local config path: --config flag takes priority, else ./config.json
+    if (!cliConfigPath.empty())
+    {
+        g_LocalConfigPath = cliConfigPath;
+    }
+    else if (std::filesystem::exists("config.json"))
+    {
+        g_LocalConfigPath = "config.json";
+    }
+
+    AppConfig localCfg;
+    if (!g_LocalConfigPath.empty())
+    {
+        try { localCfg = loadConfig(g_LocalConfigPath); }
+        catch (const std::exception& e)
+        {
+            std::cerr << "Warning: " << e.what() << "\n";
+        }
+    }
+
+    AppConfig mergedCfg = mergeConfigs(globalCfg, localCfg);
+
+    // --- Determine which volumes to load ---
+    // CLI filenames take priority; if none given, use config's volume list
+    if (volumeFiles.empty() && !mergedCfg.volumes.empty())
+    {
+        for (const auto& vc : mergedCfg.volumes)
+        {
+            if (!vc.path.empty())
+                volumeFiles.push_back(vc.path);
+        }
+    }
+
+    // Load volumes
+    if (!volumeFiles.empty())
+    {
+        for (const auto& path : volumeFiles)
+        {
             try
             {
                 Volume vol;
-                vol.load(argv[i]);
+                vol.load(path);
                 g_Volumes.push_back(std::move(vol));
+                g_VolumePaths.push_back(path);
                 g_VolumeNames.push_back(
-                    std::filesystem::path(argv[i]).filename().string());
-                const auto& v = g_Volumes.back();
-                std::cerr << "Volume loaded. Dimensions: "
-                          << v.dimensions[0] << " x "
-                          << v.dimensions[1] << " x "
-                          << v.dimensions[2] << "\n";
+                    std::filesystem::path(path).filename().string());
             }
             catch (const std::exception& e)
             {
@@ -496,10 +556,10 @@ int main(int argc, char** argv)
     }
     else
     {
-        std::cerr << "Generating test data...\n";
         Volume vol;
         vol.generate_test_data();
         g_Volumes.push_back(std::move(vol));
+        g_VolumePaths.push_back("");
         g_VolumeNames.push_back("Test Data");
     }
 
@@ -509,7 +569,6 @@ int main(int argc, char** argv)
     }
 
     // Setup GLFW
-    std::cerr << "Starting application...\n";
     if (!glfwInit())
     {
         std::cerr << "Failed to initialize GLFW\n";
@@ -547,6 +606,12 @@ int main(int argc, char** argv)
     int initW = static_cast<int>(colWidth * numVols * initScale);
     int initH = static_cast<int>(baseHeight * initScale);
 
+    // Apply window size from config if available
+    if (mergedCfg.global.windowWidth.has_value())
+        initW = mergedCfg.global.windowWidth.value();
+    if (mergedCfg.global.windowHeight.has_value())
+        initH = mergedCfg.global.windowHeight.value();
+
     // Clamp to 90% of the monitor work area
     int maxW = static_cast<int>(monWorkW * 0.9f);
     int maxH = static_cast<int>(monWorkH * 0.9f);
@@ -576,10 +641,73 @@ int main(int argc, char** argv)
     if (!g_Volumes.empty())
     {
         ResetViews();
-        std::cerr << "Views initialized for " << g_Volumes.size() << " volume(s).\n";
-    }
 
-    std::cerr << "Entering main loop...\n";
+        // Apply per-volume config settings
+        for (int vi = 0; vi < static_cast<int>(g_Volumes.size()); ++vi)
+        {
+            VolumeViewState& state = g_ViewStates[vi];
+            const Volume& vol = g_Volumes[vi];
+
+            // Find matching VolumeConfig by path
+            const VolumeConfig* vc = nullptr;
+            for (const auto& v : mergedCfg.volumes)
+            {
+                if (v.path == g_VolumePaths[vi])
+                {
+                    vc = &v;
+                    break;
+                }
+            }
+
+            // Apply default colour map from global config
+            auto defaultCm = colourMapByName(mergedCfg.global.defaultColourMap);
+            if (defaultCm.has_value())
+                state.colourMap = defaultCm.value();
+
+            if (vc)
+            {
+                // Colour map
+                auto cm = colourMapByName(vc->colourMap);
+                if (cm.has_value())
+                    state.colourMap = cm.value();
+
+                // Value range
+                if (vc->valueMin.has_value())
+                    state.valueRange[0] = vc->valueMin.value();
+                if (vc->valueMax.has_value())
+                    state.valueRange[1] = vc->valueMax.value();
+
+                // Slice indices (-1 means keep the midpoint default)
+                for (int v = 0; v < 3; ++v)
+                {
+                    if (vc->sliceIndices[v] >= 0)
+                    {
+                        int maxSlice = (v == 0) ? vol.dimensions[2]
+                                     : (v == 1) ? vol.dimensions[0]
+                                                 : vol.dimensions[1];
+                        state.sliceIndices[v] = std::clamp(
+                            vc->sliceIndices[v], 0, maxSlice - 1);
+                    }
+                }
+
+                // Zoom & pan
+                state.zoom[0] = vc->zoom[0];
+                state.zoom[1] = vc->zoom[1];
+                state.zoom[2] = vc->zoom[2];
+                state.panU[0] = vc->panU[0];
+                state.panU[1] = vc->panU[1];
+                state.panU[2] = vc->panU[2];
+                state.panV[0] = vc->panV[0];
+                state.panV[1] = vc->panV[1];
+                state.panV[2] = vc->panV[2];
+            }
+
+            // Re-render textures with applied settings
+            UpdateSliceTexture(vi, 0);
+            UpdateSliceTexture(vi, 1);
+            UpdateSliceTexture(vi, 2);
+        }
+    }
 
     int numVolumes = static_cast<int>(g_Volumes.size());
 
@@ -667,6 +795,88 @@ int main(int argc, char** argv)
         {
             if (ImGui::BeginMenu("File"))
             {
+                if (ImGui::MenuItem("Save Global Config"))
+                {
+                    try
+                    {
+                        AppConfig cfg;
+                        // Build global settings
+                        cfg.global.defaultColourMap = "GrayScale";
+                        int winW, winH;
+                        glfwGetWindowSize(window, &winW, &winH);
+                        cfg.global.windowWidth = winW;
+                        cfg.global.windowHeight = winH;
+
+                        // Build per-volume settings
+                        for (int vi = 0; vi < numVolumes; ++vi)
+                        {
+                            const VolumeViewState& st = g_ViewStates[vi];
+                            VolumeConfig vc;
+                            vc.path = g_VolumePaths[vi];
+                            vc.colourMap = std::string(
+                                colourMapName(st.colourMap));
+                            vc.valueMin = st.valueRange[0];
+                            vc.valueMax = st.valueRange[1];
+                            vc.sliceIndices = {st.sliceIndices[0],
+                                               st.sliceIndices[1],
+                                               st.sliceIndices[2]};
+                            vc.zoom = {st.zoom[0], st.zoom[1], st.zoom[2]};
+                            vc.panU = {st.panU[0], st.panU[1], st.panU[2]};
+                            vc.panV = {st.panV[0], st.panV[1], st.panV[2]};
+                            cfg.volumes.push_back(std::move(vc));
+                        }
+                        saveConfig(cfg, globalConfigPath());
+                    }
+                    catch (const std::exception& e)
+                    {
+                        std::cerr << "Failed to save global config: "
+                                  << e.what() << "\n";
+                    }
+                }
+
+                if (ImGui::MenuItem("Save Local Config"))
+                {
+                    try
+                    {
+                        AppConfig cfg;
+                        // Build global settings
+                        cfg.global.defaultColourMap = "GrayScale";
+                        int winW, winH;
+                        glfwGetWindowSize(window, &winW, &winH);
+                        cfg.global.windowWidth = winW;
+                        cfg.global.windowHeight = winH;
+
+                        // Build per-volume settings
+                        for (int vi = 0; vi < numVolumes; ++vi)
+                        {
+                            const VolumeViewState& st = g_ViewStates[vi];
+                            VolumeConfig vc;
+                            vc.path = g_VolumePaths[vi];
+                            vc.colourMap = std::string(
+                                colourMapName(st.colourMap));
+                            vc.valueMin = st.valueRange[0];
+                            vc.valueMax = st.valueRange[1];
+                            vc.sliceIndices = {st.sliceIndices[0],
+                                               st.sliceIndices[1],
+                                               st.sliceIndices[2]};
+                            vc.zoom = {st.zoom[0], st.zoom[1], st.zoom[2]};
+                            vc.panU = {st.panU[0], st.panU[1], st.panU[2]};
+                            vc.panV = {st.panV[0], st.panV[1], st.panV[2]};
+                            cfg.volumes.push_back(std::move(vc));
+                        }
+
+                        std::string savePath = g_LocalConfigPath.empty()
+                            ? "config.json" : g_LocalConfigPath;
+                        saveConfig(cfg, savePath);
+                    }
+                    catch (const std::exception& e)
+                    {
+                        std::cerr << "Failed to save local config: "
+                                  << e.what() << "\n";
+                    }
+                }
+
+                ImGui::Separator();
                 if (ImGui::MenuItem("Exit"))
                     glfwSetWindowShouldClose(window, true);
                 ImGui::EndMenu();

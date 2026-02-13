@@ -325,6 +325,17 @@ std::string_view colourMapName(ColourMapType type)
     }
 }
 
+std::optional<ColourMapType> colourMapByName(std::string_view name)
+{
+    for (int i = 0; i < static_cast<int>(ColourMapType::Count); ++i)
+    {
+        auto type = static_cast<ColourMapType>(i);
+        if (colourMapName(type) == name)
+            return type;
+    }
+    return std::nullopt;
+}
+
 ColourMapRGBA colourMapRepresentative(ColourMapType type)
 {
     // Sample the LUT at ~75% to get a visually distinctive colour.

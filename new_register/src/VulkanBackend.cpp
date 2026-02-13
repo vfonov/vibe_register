@@ -106,8 +106,6 @@ found:
     {
         VkPhysicalDeviceProperties props;
         vkGetPhysicalDeviceProperties(physicalDevice_, &props);
-        std::cerr << "Selected GPU: " << props.deviceName << "\n";
-        std::cerr << "Selected Queue Family: " << queueFamily_ << "\n";
     }
 
     // Create logical device
@@ -225,7 +223,6 @@ void VulkanBackend::initialize(GLFWwindow* window)
         glfwGetWindowContentScale(window, &xscale, &yscale);
         contentScale_ = (xscale > yscale) ? xscale : yscale;
         if (contentScale_ < 1.0f) contentScale_ = 1.0f;
-        std::cerr << "Content scale: " << contentScale_ << "\n";
     }
 
     // Check Vulkan support
@@ -237,32 +234,25 @@ void VulkanBackend::initialize(GLFWwindow* window)
     // Get required instance extensions from GLFW
     uint32_t extensionCount = 0;
     const char** extensions = glfwGetRequiredInstanceExtensions(&extensionCount);
-    std::cerr << "Required Vulkan extensions: " << extensionCount << "\n";
 
     // Create Vulkan instance
     createInstance(extensions, extensionCount);
-    std::cerr << "Vulkan instance created.\n";
 
     // Create window surface
     VkResult err = glfwCreateWindowSurface(instance_, window, allocator_, &surface_);
     checkVkResult(err);
-    std::cerr << "Window surface created.\n";
 
     // Select GPU and create logical device + pools
     createDevice();
-    std::cerr << "Vulkan device created.\n";
 
     // Create swapchain / framebuffers
     int w, h;
     glfwGetFramebufferSize(window, &w, &h);
-    std::cerr << "Framebuffer size: " << w << " x " << h << "\n";
     createSwapchainWindow(w, h);
-    std::cerr << "Vulkan swapchain created.\n";
 
     // Initialize VulkanHelpers for texture management
     VulkanHelpers::Init(device_, physicalDevice_, queueFamily_, queue_,
                         descriptorPool_, commandPool_);
-    std::cerr << "VulkanHelpers initialized.\n";
 }
 
 void VulkanBackend::shutdown()
@@ -507,7 +497,6 @@ void VulkanBackend::initImGui(GLFWwindow* window)
     initInfo.CheckVkResultFn = checkVkResult;
 
     ImGui_ImplVulkan_Init(&initInfo);
-    std::cerr << "ImGui Vulkan backend initialized.\n";
 }
 
 void VulkanBackend::shutdownImGui()

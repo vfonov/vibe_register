@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 project(NewRegister VERSION 0.1.0 LANGUAGES C CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --- Dependencies ---
@@ -23,6 +23,15 @@ FetchContent_Declare(
     GIT_TAG        docking
 )
 FetchContent_MakeAvailable(imgui)
+
+# 3.5. Glaze (JSON serialization)
+FetchContent_Declare(
+    glaze
+    GIT_REPOSITORY https://github.com/stephenberry/glaze.git
+    GIT_TAG        v4.2.3
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(glaze)
 
 # Create ImGui library target
 add_library(imgui STATIC
@@ -98,6 +107,7 @@ target_link_libraries(new_register PRIVATE
     Vulkan::Vulkan
     imgui
     minc2_simple
+    glaze::glaze
 )
 
 # Definitions
