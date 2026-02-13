@@ -144,3 +144,8 @@ add_test(NAME ReadRealData COMMAND test_real_data
 add_executable(test_colour_map tests/test_colour_map.cpp src/ColourMap.cpp)
 target_include_directories(test_colour_map PRIVATE include)
 add_test(NAME ColourMapTests COMMAND test_colour_map)
+
+add_executable(test_coordinate_sync tests/test_coordinate_sync.cpp src/Volume.cpp)
+target_include_directories(test_coordinate_sync PRIVATE include ${glm_SOURCE_DIR})
+target_link_libraries(test_coordinate_sync PRIVATE minc2_simple glm)
+add_test(NAME CoordinateSyncTest COMMAND test_coordinate_sync)

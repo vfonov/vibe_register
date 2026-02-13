@@ -5,6 +5,7 @@
 #include <limits>
 #include <stdexcept>
 #include <sstream>
+#include <iostream>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
@@ -158,10 +159,10 @@ void Volume::load(const std::string& filename)
     }
 
     // Build voxel-to-world transformation matrix
-    // world = start + dirCos * ((voxel + 0.5) * step)
-    // This is equivalent to: world = M * voxel where M is a 4x4 homogenous matrix
-    // M = [ dirCos * diag(step)   start ]
-    //     [       0 0 0         1    ]
+    // MINC: voxel i is centered at start + (i + 0.5) * step * dirCos
+    // For matrix multiply: world = M * (voxel + 0.5)
+    // This is equivalent to: world = M * voxel + M * 0.5
+    // So we compute: M = dirCos * diag(step), then translation = start + M * 0.5
     
     glm::dmat3 dirCos3(dirCos[0][0], dirCos[0][1], dirCos[0][2],
                        dirCos[1][0], dirCos[1][1], dirCos[1][2],
@@ -175,23 +176,9 @@ void Volume::load(const std::string& filename)
     for (int i = 0; i < 3; ++i)
         affine[i] *= scale;
     
-    // Build 4x4 affine transformation matrix
-    // [ affine  trans ]
-    // [ 0 0 0   1     ]
-    // where affine is 3x3 and trans is 3x1
-    glm::dmat4 affine4(
-        glm::dvec4(affine[0], 0.0),  // column 0
-        glm::dvec4(affine[1], 0.0),  // column 1
-        glm::dvec4(affine[2], 0.0),  // column 2
-        glm::dvec4(trans, 1.0)       // column 3 (translation)
-    );
-    
-    // For voxel-to-world: world = affine * voxel + trans
-    // This transforms voxel coords (0,0,0) to (trans[0], trans[1], trans[2])
-    // But we want voxel (0,0,0) center to be at start + (0.5)*step*dirCos
-    // So we need to add the center offset to the translation
-    glm::dvec3 centerOffset = affine * glm::dvec3(0.5, 0.5, 0.5);
-    glm::dvec3 adjustedTrans = trans + centerOffset;
+    // For 4x4 matrix: world = affine * voxel + (start + affine * 0.5)
+    glm::dvec3 half(0.5, 0.5, 0.5);
+    glm::dvec3 adjustedTrans = trans + affine * half;
     
     voxelToWorld = glm::dmat4(
         glm::dvec4(affine[0], 0.0),
@@ -201,6 +188,9 @@ void Volume::load(const std::string& filename)
     );
     
     // Compute inverse for world-to-voxel
+    // world = affine * voxel + adjustedTrans
+    // world - adjustedTrans = affine * voxel
+    // voxel = affine^-1 * (world - adjustedTrans)
     worldToVoxel = glm::inverse(voxelToWorld);
 
     size_t total_voxels = 1;
@@ -256,4 +246,25 @@ double Volume::slicePixelAspect(int axisU, int axisV) const
     double sv = std::abs(step[axisV]);
     if (sv < 1e-12) return 1.0;
     return su / sv;
+}
+
+void Volume::transformVoxelToWorld(const int voxel[3], double world[3]) const
+{
+    glm::dvec4 v(voxel[0], voxel[1], voxel[2], 1.0);
+    glm::dvec4 w = voxelToWorld * v;
+    world[0] = w.x;
+    world[1] = w.y;
+    world[2] = w.z;
+}
+
+void Volume::transformWorldToVoxel(const double world[3], int voxel[3]) const
+{
+    glm::dvec4 w(world[0], world[1], world[2], 1.0);
+    glm::dvec4 v = worldToVoxel * w;
+    voxel[0] = static_cast<int>(std::round(v.x - 0.5));
+    voxel[1] = static_cast<int>(std::round(v.y - 0.5));
+    voxel[2] = static_cast<int>(std::round(v.z - 0.5));
+    voxel[0] = std::clamp(voxel[0], 0, dimensions[0] - 1);
+    voxel[1] = std::clamp(voxel[1], 0, dimensions[1] - 1);
+    voxel[2] = std::clamp(voxel[2], 0, dimensions[2] - 1);
 }
