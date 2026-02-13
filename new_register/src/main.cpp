@@ -1349,17 +1349,23 @@ int main(int argc, char** argv)
                                       ImGuiDockNodeFlags_DockSpace);
             ImGui::DockBuilderSetNodeSize(dockspaceId, vpSize);
 
-            // Layout: split dockspace into columns — one per volume
+            // Split off a narrow left column for the Tools panel
+            ImGuiID toolsId, contentId;
+            ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left,
+                                        0.08f, &toolsId, &contentId);
+            ImGui::DockBuilderDockWindow("Tools", toolsId);
+
+            // Layout: split remaining space into columns — one per volume
             // plus an overlay column on the right when multiple volumes.
             int totalColumns = numVolumes + (hasOverlay ? 1 : 0);
             std::vector<ImGuiID> columnIds(totalColumns);
             if (totalColumns == 1)
             {
-                columnIds[0] = dockspaceId;
+                columnIds[0] = contentId;
             }
             else
             {
-                ImGuiID remaining = dockspaceId;
+                ImGuiID remaining = contentId;
                 for (int ci = 0; ci < totalColumns - 1; ++ci)
                 {
                     float fraction = 1.0f /
@@ -1388,99 +1394,105 @@ int main(int argc, char** argv)
             ImGui::DockBuilderFinish(dockspaceId);
         }
 
-        // Main Menu
-        if (ImGui::BeginMainMenuBar())
+        // --- Tools panel (left side) ---
+        ImGui::Begin("Tools");
         {
-            if (ImGui::BeginMenu("File"))
+            float btnWidth = ImGui::GetContentRegionAvail().x;
+
+            if (ImGui::Button("Save Global", ImVec2(btnWidth, 0)))
             {
-                if (ImGui::MenuItem("Save Global Config"))
+                try
                 {
-                    try
-                    {
-                        AppConfig cfg;
-                        // Build global settings
-                        cfg.global.defaultColourMap = "GrayScale";
-                        int winW, winH;
-                        glfwGetWindowSize(window, &winW, &winH);
-                        cfg.global.windowWidth = winW;
-                        cfg.global.windowHeight = winH;
+                    AppConfig cfg;
+                    cfg.global.defaultColourMap = "GrayScale";
+                    int winW, winH;
+                    glfwGetWindowSize(window, &winW, &winH);
+                    cfg.global.windowWidth = winW;
+                    cfg.global.windowHeight = winH;
 
-                        // Build per-volume settings
-                        for (int vi = 0; vi < numVolumes; ++vi)
-                        {
-                            const VolumeViewState& st = g_ViewStates[vi];
-                            VolumeConfig vc;
-                            vc.path = g_VolumePaths[vi];
-                            vc.colourMap = std::string(
-                                colourMapName(st.colourMap));
-                            vc.valueMin = st.valueRange[0];
-                            vc.valueMax = st.valueRange[1];
-                            vc.sliceIndices = {st.sliceIndices[0],
-                                               st.sliceIndices[1],
-                                               st.sliceIndices[2]};
-                            vc.zoom = {st.zoom[0], st.zoom[1], st.zoom[2]};
-                            vc.panU = {st.panU[0], st.panU[1], st.panU[2]};
-                            vc.panV = {st.panV[0], st.panV[1], st.panV[2]};
-                            cfg.volumes.push_back(std::move(vc));
-                        }
-                        saveConfig(cfg, globalConfigPath());
-                    }
-                    catch (const std::exception& e)
+                    for (int vi = 0; vi < numVolumes; ++vi)
                     {
-                        std::cerr << "Failed to save global config: "
-                                  << e.what() << "\n";
+                        const VolumeViewState& st = g_ViewStates[vi];
+                        VolumeConfig vc;
+                        vc.path = g_VolumePaths[vi];
+                        vc.colourMap = std::string(
+                            colourMapName(st.colourMap));
+                        vc.valueMin = st.valueRange[0];
+                        vc.valueMax = st.valueRange[1];
+                        vc.sliceIndices = {st.sliceIndices[0],
+                                           st.sliceIndices[1],
+                                           st.sliceIndices[2]};
+                        vc.zoom = {st.zoom[0], st.zoom[1], st.zoom[2]};
+                        vc.panU = {st.panU[0], st.panU[1], st.panU[2]};
+                        vc.panV = {st.panV[0], st.panV[1], st.panV[2]};
+                        cfg.volumes.push_back(std::move(vc));
                     }
+                    saveConfig(cfg, globalConfigPath());
                 }
-
-                if (ImGui::MenuItem("Save Local Config"))
+                catch (const std::exception& e)
                 {
-                    try
-                    {
-                        AppConfig cfg;
-                        // Build global settings
-                        cfg.global.defaultColourMap = "GrayScale";
-                        int winW, winH;
-                        glfwGetWindowSize(window, &winW, &winH);
-                        cfg.global.windowWidth = winW;
-                        cfg.global.windowHeight = winH;
-
-                        // Build per-volume settings
-                        for (int vi = 0; vi < numVolumes; ++vi)
-                        {
-                            const VolumeViewState& st = g_ViewStates[vi];
-                            VolumeConfig vc;
-                            vc.path = g_VolumePaths[vi];
-                            vc.colourMap = std::string(
-                                colourMapName(st.colourMap));
-                            vc.valueMin = st.valueRange[0];
-                            vc.valueMax = st.valueRange[1];
-                            vc.sliceIndices = {st.sliceIndices[0],
-                                               st.sliceIndices[1],
-                                               st.sliceIndices[2]};
-                            vc.zoom = {st.zoom[0], st.zoom[1], st.zoom[2]};
-                            vc.panU = {st.panU[0], st.panU[1], st.panU[2]};
-                            vc.panV = {st.panV[0], st.panV[1], st.panV[2]};
-                            cfg.volumes.push_back(std::move(vc));
-                        }
-
-                        std::string savePath = g_LocalConfigPath.empty()
-                            ? "config.json" : g_LocalConfigPath;
-                        saveConfig(cfg, savePath);
-                    }
-                    catch (const std::exception& e)
-                    {
-                        std::cerr << "Failed to save local config: "
-                                  << e.what() << "\n";
-                    }
+                    std::cerr << "Failed to save global config: "
+                              << e.what() << "\n";
                 }
-
-                ImGui::Separator();
-                if (ImGui::MenuItem("Exit"))
-                    glfwSetWindowShouldClose(window, true);
-                ImGui::EndMenu();
             }
-            ImGui::EndMainMenuBar();
+
+            if (ImGui::Button("Save Local", ImVec2(btnWidth, 0)))
+            {
+                try
+                {
+                    AppConfig cfg;
+                    cfg.global.defaultColourMap = "GrayScale";
+                    int winW, winH;
+                    glfwGetWindowSize(window, &winW, &winH);
+                    cfg.global.windowWidth = winW;
+                    cfg.global.windowHeight = winH;
+
+                    for (int vi = 0; vi < numVolumes; ++vi)
+                    {
+                        const VolumeViewState& st = g_ViewStates[vi];
+                        VolumeConfig vc;
+                        vc.path = g_VolumePaths[vi];
+                        vc.colourMap = std::string(
+                            colourMapName(st.colourMap));
+                        vc.valueMin = st.valueRange[0];
+                        vc.valueMax = st.valueRange[1];
+                        vc.sliceIndices = {st.sliceIndices[0],
+                                           st.sliceIndices[1],
+                                           st.sliceIndices[2]};
+                        vc.zoom = {st.zoom[0], st.zoom[1], st.zoom[2]};
+                        vc.panU = {st.panU[0], st.panU[1], st.panU[2]};
+                        vc.panV = {st.panV[0], st.panV[1], st.panV[2]};
+                        cfg.volumes.push_back(std::move(vc));
+                    }
+
+                    std::string savePath = g_LocalConfigPath.empty()
+                        ? "config.json" : g_LocalConfigPath;
+                    saveConfig(cfg, savePath);
+                }
+                catch (const std::exception& e)
+                {
+                    std::cerr << "Failed to save local config: "
+                              << e.what() << "\n";
+                }
+            }
+
+            ImGui::Separator();
+
+            if (ImGui::Button("Reset All Views", ImVec2(btnWidth, 0)))
+            {
+                ResetViews();
+                if (hasOverlay)
+                    UpdateAllOverlayTextures();
+            }
+
+            ImGui::Separator();
+
+            if (ImGui::Button("Quit", ImVec2(btnWidth, 0)))
+            {
+                glfwSetWindowShouldClose(window, true);
+            }
         }
+        ImGui::End();
 
         // --- Render each volume's column window ---
         for (int vi = 0; vi < numVolumes; ++vi)

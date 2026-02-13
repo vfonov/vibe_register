@@ -42,29 +42,31 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 ### Overlay / Merged View
 - [x] Alpha-blended composite of all volumes (when >1 volume loaded)
 - [x] World-coordinate resampling (nearest-neighbour)
-- [x] Per-volume alpha sliders
+- [x] Per-volume alpha sliders (3+ volumes)
+- [x] Single blend slider for two-volume case
 - [x] Own zoom/pan/crosshair controls
 
 ### Configuration
 - [x] JSON config persistence using Glaze
 - [x] Two-tier config: global (`~/.config/new_register/config.json`) and local (`./config.json`)
 - [x] Per-volume paths, colour maps, value ranges, slice indices, zoom, pan
-- [x] Menu bar: File > Save Global Config, Save Local Config, Exit
+- [x] Tools panel with Save Global, Save Local, Reset All Views, Quit buttons
 
 ### Command Line Options
-- [x] `--config <path>` — load config from a specific path
-- [x] `--help` / `-h`
+- [x] `-c`, `--config <path>` — load config from a specific path
+- [x] `-h`, `--help`
 - [x] Positional volume file arguments
-- [x] `-gray`, `-hot`, `-spectral`, `-red`, `-green`, `-blue` — set colour map for next volume
+- [x] `-r`/`--red`, `-g`/`--green`, `-b`/`--blue` — set colour map for next volume
+- [x] `-G`/`--gray`, `-H`/`--hot`, `-S`/`--spectral` — set colour map for next volume
 - [x] `--lut <name>` — set any colour map by name for next volume
 - LUT flags apply to the next volume file; CLI overrides config values
-- Example: `new_register -gray vol1.mnc -hot vol2.mnc`
+- Example: `new_register --gray vol1.mnc -r vol2.mnc`
 
 ### Graphics / Rendering
 - [x] Vulkan backend with full lifecycle management
 - [x] ImGui docking + viewports
 - [x] HiDPI support (GLFW content scale query, ImGui style/font scaling)
-- [x] Auto-layout: one column per volume + overlay column
+- [x] Auto-layout: Tools panel on the left, one column per volume + overlay column
 - [x] GPU texture creation, upload, and destruction helpers
 - [x] Swapchain resize handling (`VK_ERROR_OUT_OF_DATE_KHR`, `VK_SUBOPTIMAL_KHR`)
 
@@ -138,7 +140,6 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [ ] Cursor visibility toggle
 - [ ] Voxel and World position readouts (editable text fields)
 - [ ] Volume value readout at cursor
-- [ ] Reset View button (per volume and merged)
 - [ ] Per-volume Load button / filename entry
 - [ ] Quit confirmation dialog
 - [ ] Delete all tags confirmation dialog
@@ -170,7 +171,7 @@ new_register/
 │   ├── VulkanBackend.h
 │   └── VulkanHelpers.h
 ├── src/
-│   ├── main.cpp          (1945 lines — UI, state, rendering, main loop)
+│   ├── main.cpp          (1998 lines — UI, state, rendering, main loop)
 │   ├── VulkanBackend.cpp  (541 lines)
 │   ├── ColourMap.cpp      (395 lines)
 │   ├── VulkanHelpers.cpp  (322 lines)
@@ -181,14 +182,14 @@ new_register/
     └── test_colour_map.cpp
 ```
 
-Total: ~3562 lines of application code.
+Total: ~3615 lines of application code.
 
 ### Suggested Refactoring
-- `main.cpp` (1945 lines) should be decomposed into separate modules:
+- `main.cpp` (1998 lines) should be decomposed into separate modules:
   - `SliceView` — per-slice rendering, mouse interaction, crosshairs
   - `OverlayView` — multi-volume compositing and overlay panel
   - `UIState` — application state, volume collection, view state management
-  - `main.cpp` — main loop, window setup, menu bar only
+  - `main.cpp` — main loop, window setup, Tools panel only
 - Overlay compositing is currently CPU-side (per-pixel loop); consider GPU compute shader for large volumes.
 
 ### Dependencies
