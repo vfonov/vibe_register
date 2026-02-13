@@ -406,15 +406,18 @@ void UpdateAllOverlayTextures()
 }
 
 // --- Synchronize cursor position across all volumes ---
-static void SyncCursors(int vi, const Volume& vol, VolumeViewState& state)
+// Returns a bitmask of view indices that need texture updates.
+static int SyncCursors(int vi, const Volume& vol, VolumeViewState& state)
 {
     if (!g_SyncCursors || vi == 0)
-        return;
+        return 0;
 
     for (int v = 0; v < 3; ++v)
         state.sliceIndices[v] = g_ViewStates[0].sliceIndices[v];
 
     UpdateAllOverlayTextures();
+    // All volumes' textures need updating since their slice indices changed
+    return 7;  // 0b111 - all three views
 }
 
 // --- Initialize state for all loaded volumes ---
@@ -604,6 +607,8 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                         state.sliceIndices[1] = std::clamp(voxX, 0, vol.dimensions[0] - 1);
                         state.sliceIndices[2] = std::clamp(voxY, 0, vol.dimensions[1] - 1);
                         dirtyMask |= (1 << 1) | (1 << 2);
+                        if (g_SyncCursors)
+                            dirtyMask |= SyncCursors(vi, vol, state);
                     }
                     else if (viewIndex == 1)
                     {
@@ -612,6 +617,8 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                         state.sliceIndices[2] = std::clamp(voxY, 0, vol.dimensions[1] - 1);
                         state.sliceIndices[0] = std::clamp(voxZ, 0, vol.dimensions[2] - 1);
                         dirtyMask |= (1 << 0) | (1 << 2);
+                        if (g_SyncCursors)
+                            dirtyMask |= SyncCursors(vi, vol, state);
                     }
                     else
                     {
@@ -620,8 +627,9 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                         state.sliceIndices[1] = std::clamp(voxX, 0, vol.dimensions[0] - 1);
                         state.sliceIndices[0] = std::clamp(voxZ, 0, vol.dimensions[2] - 1);
                         dirtyMask |= (1 << 0) | (1 << 1);
+                        if (g_SyncCursors)
+                            dirtyMask |= SyncCursors(vi, vol, state);
                     }
-                    SyncCursors(vi, vol, state);
                 }
 
                 // Shift + Middle drag: zoom (drag up = zoom in, down = out)
@@ -657,7 +665,8 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                                 state.sliceIndices[viewIndex] + steps,
                                 0, maxSliceVal - 1);
                             dirtyMask |= (1 << viewIndex);
-                            SyncCursors(vi, vol, state);
+                            if (g_SyncCursors)
+                                dirtyMask |= SyncCursors(vi, vol, state);
                         }
                     }
                 }
