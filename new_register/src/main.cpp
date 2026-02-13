@@ -1596,16 +1596,17 @@ int main(int argc, char** argv)
 
             if (ImGui::Checkbox("Sync All", &g_SyncCursors))
             {
-                // When sync is enabled, set all cursors to match first volume
+                // When sync is enabled, set all cursors to match first volume's world position
                 if (g_SyncCursors && numVolumes > 1)
                 {
+                    // Get world position from reference volume (0)
+                    double worldPos[3];
+                    sliceIndicesToWorld(g_Volumes[0], g_ViewStates[0].sliceIndices, worldPos);
+                    
+                    // Find corresponding slice indices in all other volumes
                     for (int vi = 1; vi < numVolumes; ++vi)
                     {
-                        for (int v = 0; v < 3; ++v)
-                        {
-                            g_ViewStates[vi].sliceIndices[v] = 
-                                g_ViewStates[0].sliceIndices[v];
-                        }
+                        worldToSliceIndices(g_Volumes[vi], worldPos, g_ViewStates[vi].sliceIndices);
                     }
                     UpdateAllOverlayTextures();
                 }
