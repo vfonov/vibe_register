@@ -422,13 +422,19 @@ static void sliceIndicesToWorld(const Volume& vol, const int indices[3], double 
 }
 
 // --- Convert physical coordinates to slice indices ---
-// Given a world position, find the nearest voxel indices.
+// Given a world position, find the voxel indices that contain this position.
 static void worldToSliceIndices(const Volume& vol, const double world[3], int indices[3])
 {
-    // Invert the transformation:
-    // world - start = M * (indices + 0.5) * step
-    // where M is the direction cosine matrix
-    // We solve: indices + 0.5 = (world - start) * M^-1 / step
+    // The transformation from voxel space to world space is:
+    // world = start + (voxel + 0.5) * step * dirCos
+    //
+    // To invert, we need to solve for voxel given world:
+    // (world - start) = (voxel + 0.5) * step * dirCos
+    //
+    // For orthonormal direction cosines (which MINC uses), we can use the transpose:
+    // (world - start) * dirCos^T = (voxel + 0.5) * step
+    //
+    // So: voxel = (world - start) * dirCos^T / step - 0.5
 
     // Compute (world - start)
     double diff[3] = {
@@ -437,17 +443,31 @@ static void worldToSliceIndices(const Volume& vol, const double world[3], int in
         world[2] - vol.start[2]
     };
 
-    // Multiply by inverse of direction cosine matrix
-    // For orthonormal basis, inverse = transpose
-    // indices[j] + 0.5 = sum_i(diff[i] * dirCos[j][i]) / step[j]
+    // Multiply by transpose of direction cosine matrix (inverse for orthonormal)
+    // result[j] = sum_i(diff[i] * dirCos[j][i])
+    double inPlane[3];
     for (int j = 0; j < 3; ++j)
     {
-        double val = 0.0;
+        inPlane[j] = 0.0;
         for (int i = 0; i < 3; ++i)
         {
-            val += diff[i] * vol.dirCos[j][i];
+            inPlane[j] += diff[i] * vol.dirCos[j][i];
         }
-        indices[j] = static_cast<int>(val / vol.step[j] + 0.5) - 1;
+    }
+
+    // Convert to voxel indices
+    for (int j = 0; j < 3; ++j)
+    {
+        // voxel = position_in_plane / step - 0.5
+        double voxelFloat = inPlane[j] / vol.step[j] - 0.5;
+        // Round to nearest voxel center
+        indices[j] = static_cast<int>(voxelFloat + 0.5);
+
+        // Clamp to valid range
+        if (indices[j] < 0)
+            indices[j] = 0;
+        else if (indices[j] >= vol.dimensions[j])
+            indices[j] = vol.dimensions[j] - 1;
     }
 }
 
