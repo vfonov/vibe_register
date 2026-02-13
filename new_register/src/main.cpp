@@ -20,6 +20,13 @@
 #include "Volume.h"
 #include "VulkanHelpers.h"
 
+// --- Clamp colour mode for under/over range voxels ---
+// -2 = "Current" (use volume's own colour map endpoint)
+// -1 = "Transparent"
+//  0..N = specific ColourMapType index (use that LUT's endpoint)
+constexpr int kClampCurrent     = -2;
+constexpr int kClampTransparent = -1;
+
 // --- Per-volume view state ---
 struct VolumeViewState
 {
@@ -36,6 +43,10 @@ struct VolumeViewState
 
     // Alpha for overlay blending (0 = invisible, 1 = opaque)
     float overlayAlpha = 1.0f;
+
+    // Colour for voxels below min / above max intensity range
+    int underColourMode = kClampCurrent;  // default: LUT[0]
+    int overColourMode  = kClampCurrent;  // default: LUT[255]
 };
 
 // --- Overlay panel state (uses first volume's grid as reference) ---
@@ -67,6 +78,34 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                     const Volume& vol, VolumeViewState& state);
 int RenderOverlayView(int viewIndex, const ImVec2& childSize);
 
+// --- Resolve clamp colour for under/over range voxels ---
+// Returns a packed 0xAABBGGRR colour.
+// mode: kClampCurrent, kClampTransparent, or a ColourMapType index.
+// currentMap: the volume's active colour map (used when mode == kClampCurrent).
+// isOver: true = use LUT[255], false = use LUT[0].
+static uint32_t resolveClampColour(int mode, ColourMapType currentMap, bool isOver)
+{
+    if (mode == kClampTransparent)
+        return 0x00000000;
+
+    ColourMapType mapToUse = currentMap;
+    if (mode >= 0 && mode < colourMapCount())
+        mapToUse = static_cast<ColourMapType>(mode);
+
+    const ColourLut& lut = colourMapLut(mapToUse);
+    return isOver ? lut.table[255] : lut.table[0];
+}
+
+// --- Display name for a clamp colour mode (for UI combo) ---
+static const char* clampColourLabel(int mode)
+{
+    if (mode == kClampCurrent)     return "Current";
+    if (mode == kClampTransparent) return "Transparent";
+    if (mode >= 0 && mode < colourMapCount())
+        return colourMapName(static_cast<ColourMapType>(mode)).data();
+    return "Unknown";
+}
+
 // --- Volume Rendering Helpers ---
 void UpdateSliceTexture(int volumeIndex, int viewIndex)
 {
@@ -93,12 +132,15 @@ void UpdateSliceTexture(int volumeIndex, int viewIndex)
     if (rangeSpan < 1e-12f) rangeSpan = 1e-12f;
 
     // Lambda: map a raw voxel value through min/max range to a LUT colour.
+    // Values below rangeMin or above rangeMax use the configured under/over colour.
     auto voxelToColour = [&](float val) -> uint32_t
     {
-        val = (val - rangeMin) / rangeSpan;
-        if (val < 0.0f) val = 0.0f;
-        if (val > 1.0f) val = 1.0f;
-        int idx = static_cast<int>(val * 255.0f + 0.5f);
+        if (val < rangeMin)
+            return resolveClampColour(state.underColourMode, state.colourMap, false);
+        if (val > rangeMax)
+            return resolveClampColour(state.overColourMode, state.colourMap, true);
+        float norm = (val - rangeMin) / rangeSpan;
+        int idx = static_cast<int>(norm * 255.0f + 0.5f);
         if (idx > 255) idx = 255;
         return lut.table[idx];
     };
@@ -243,12 +285,22 @@ void UpdateOverlayTexture(int viewIndex)
                 float rangeSpan = rangeMax - rangeMin;
                 if (rangeSpan < 1e-12f) rangeSpan = 1e-12f;
 
-                float norm = (raw - rangeMin) / rangeSpan;
-                norm = std::clamp(norm, 0.0f, 1.0f);
-                int lutIdx = std::min(static_cast<int>(norm * 255.0f + 0.5f), 255);
+                uint32_t packed;
+                if (raw < rangeMin)
+                    packed = resolveClampColour(st.underColourMode, st.colourMap, false);
+                else if (raw > rangeMax)
+                    packed = resolveClampColour(st.overColourMode, st.colourMap, true);
+                else
+                {
+                    float norm = (raw - rangeMin) / rangeSpan;
+                    norm = std::clamp(norm, 0.0f, 1.0f);
+                    int lutIdx = std::min(static_cast<int>(norm * 255.0f + 0.5f), 255);
+                    const ColourLut& lut = colourMapLut(st.colourMap);
+                    packed = lut.table[lutIdx];
+                }
 
-                const ColourLut& lut = colourMapLut(st.colourMap);
-                uint32_t packed = lut.table[lutIdx];
+                // Skip transparent voxels (alpha == 0)
+                if ((packed >> 24) == 0) continue;
 
                 // Unpack 0xAABBGGRR
                 float srcR = static_cast<float>((packed >>  0) & 0xFF) / 255.0f;
@@ -1587,6 +1639,62 @@ int main(int argc, char** argv)
                         }
                     }
                     ImGui::PopID();
+
+                    // --- Under/Over colour dropdowns ---
+                    {
+                        auto clampCombo = [&](const char* label, const char* preview,
+                                              int& mode) -> bool
+                        {
+                            bool ret = false;
+                            ImGui::TextUnformatted(label);
+                            ImGui::SameLine();
+                            if (ImGui::BeginCombo(preview,
+                                                  clampColourLabel(mode),
+                                                  ImGuiComboFlags_None))
+                            {
+                                if (ImGui::Selectable("Current",
+                                                      mode == kClampCurrent))
+                                {
+                                    mode = kClampCurrent;
+                                    ret = true;
+                                }
+                                if (ImGui::Selectable("Transparent",
+                                                      mode == kClampTransparent))
+                                {
+                                    mode = kClampTransparent;
+                                    ret = true;
+                                }
+                                for (int cm = 0; cm < colourMapCount(); ++cm)
+                                {
+                                    bool sel = (mode == cm);
+                                    auto name = colourMapName(
+                                        static_cast<ColourMapType>(cm));
+                                    if (ImGui::Selectable(name.data(), sel))
+                                    {
+                                        mode = cm;
+                                        ret = true;
+                                    }
+                                }
+                                ImGui::EndCombo();
+                            }
+                            return ret;
+                        };
+
+                        float halfW = (ImGui::GetContentRegionAvail().x
+                                       - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+                        float labelW = ImGui::CalcTextSize("Over").x
+                                       + ImGui::GetStyle().ItemSpacing.x;
+                        float comboW = halfW - labelW;
+                        if (comboW < 40.0f) comboW = 40.0f;
+
+                        ImGui::SetNextItemWidth(comboW);
+                        if (clampCombo("Under", "##under", state.underColourMode))
+                            changed = true;
+                        ImGui::SameLine();
+                        ImGui::SetNextItemWidth(comboW);
+                        if (clampCombo("Over", "##over", state.overColourMode))
+                            changed = true;
+                    }
 
                     if (changed)
                     {
