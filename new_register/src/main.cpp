@@ -458,6 +458,12 @@ static void SyncCursors()
     // Get world position from reference volume
     double worldPos[3];
     sliceIndicesToWorld(refVol, refState.sliceIndices, worldPos);
+
+    std::cerr << "SyncCursors: reference slice position = ("
+              << refState.sliceIndices[0] << ", " << refState.sliceIndices[1] << ", " << refState.sliceIndices[2] << ")\n";
+
+    std::cerr << "SyncCursors: reference world position = ("
+              << worldPos[0] << ", " << worldPos[1] << ", " << worldPos[2] << ")\n";
     
     // Find corresponding slice indices in all other volumes
     for (int i = 0; i < static_cast<int>(g_Volumes.size()); ++i)
@@ -469,6 +475,12 @@ static void SyncCursors()
         VolumeViewState& otherState = g_ViewStates[i];
         int indices[3];
         worldToSliceIndices(otherVol, worldPos, indices);
+
+        std::cerr << "Vol "<< i <<":  world position = ("
+                << worldPos[0] << ", " << worldPos[1] << ", " << worldPos[2] << ")\n";
+
+        std::cerr << "Vol "<< i <<": slice position = ("
+                << indices[0] << ", " << indices[1] << ", " << indices[2] << ")\n";
 
         // Clamp to valid range
         indices[0] = std::clamp(indices[0], 0, otherVol.dimensions[0] - 1);
@@ -699,9 +711,6 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                         if (g_SyncCursors)
                             g_LastSyncSource = vi;
                     }
-
-                    std::cerr<<"Pos:" << state.sliceIndices[0] << "," << state.sliceIndices[1] << "," << state.sliceIndices[2] << "\n";
-                    
                 }
 
                 // Shift + Middle drag: zoom (drag up = zoom in, down = out)
