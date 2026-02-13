@@ -32,6 +32,10 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] "Sync All" checkbox in Tools panel (when enabled, cursor position synchronized across all volumes)
 - [x] Left-click/drag, middle-drag scroll, and mouse wheel zoom respect sync setting
 - [x] When enabled, moving cursor in any view updates all other views to same slice positions
+- [ ] **Broken**: Synchronization between volumes of different resolution doesn't work correctly
+  - Matrix transformations (voxel-to-world, world-to-voxel) are mathematically correct
+  - Issue: When "Sync All" is enabled, volumes with different resolutions don't synchronize properly
+  - Root cause: Likely an issue with how world coordinates are converted back to slice indices for volumes with non-identity direction cosines or different voxel sizes
 
 ### Colour Maps
 - [x] 21 colour map types (Gray, HotMetal, Spectral, Red, Green, Blue, negative variants, Contour, etc.)
