@@ -14,6 +14,10 @@ public:
     int height = 0;
     VkDeviceSize size = 0;
 
+    /// True after the first successful upload (layout is
+    /// VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL).
+    bool uploaded = false;
+
     void cleanup(VkDevice device);
 };
 

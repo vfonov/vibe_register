@@ -39,6 +39,14 @@ VulkanTexture* CreateTexture(int w, int h, const void* data) {
 
     VkResult err;
 
+    // Helper: clean up partially-created texture on failure.
+    auto fail = [&](const char* msg) -> VulkanTexture* {
+        std::fprintf(stderr, "CreateTexture: %s\n", msg);
+        tex->cleanup(g_Device);
+        delete tex;
+        return nullptr;
+    };
+
     // Create Image
     {
         VkImageCreateInfo info = {};
@@ -56,7 +64,7 @@ VulkanTexture* CreateTexture(int w, int h, const void* data) {
         info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         err = vkCreateImage(g_Device, &info, nullptr, &tex->image);
-        if (err != VK_SUCCESS) return nullptr;
+        if (err != VK_SUCCESS) return fail("vkCreateImage failed");
 
         VkMemoryRequirements req;
         vkGetImageMemoryRequirements(g_Device, tex->image, &req);
@@ -64,8 +72,9 @@ VulkanTexture* CreateTexture(int w, int h, const void* data) {
         alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         alloc_info.allocationSize = req.size;
         alloc_info.memoryTypeIndex = findMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        if (alloc_info.memoryTypeIndex == 0xFFFFFFFF) return fail("no suitable memory type for image");
         err = vkAllocateMemory(g_Device, &alloc_info, nullptr, &tex->image_memory);
-        if (err != VK_SUCCESS) return nullptr;
+        if (err != VK_SUCCESS) return fail("vkAllocateMemory failed for image");
         
         vkBindImageMemory(g_Device, tex->image, tex->image_memory, 0);
     }
@@ -84,7 +93,7 @@ VulkanTexture* CreateTexture(int w, int h, const void* data) {
         info.minLod = -1000;
         info.maxLod = 1000;
         err = vkCreateSampler(g_Device, &info, nullptr, &tex->sampler);
-        if (err != VK_SUCCESS) return nullptr;
+        if (err != VK_SUCCESS) return fail("vkCreateSampler failed");
     }
 
     // Create Image View
@@ -98,7 +107,7 @@ VulkanTexture* CreateTexture(int w, int h, const void* data) {
         info.subresourceRange.levelCount = 1;
         info.subresourceRange.layerCount = 1;
         err = vkCreateImageView(g_Device, &info, nullptr, &tex->image_view);
-        if (err != VK_SUCCESS) return nullptr;
+        if (err != VK_SUCCESS) return fail("vkCreateImageView failed");
     }
 
     // Descriptor Set: Create one for ImGui to use
@@ -113,11 +122,23 @@ VulkanTexture* CreateTexture(int w, int h, const void* data) {
 }
 
 void UpdateTexture(VulkanTexture* tex, const void* data) {
-    if (!data) return;
+    if (!data || !tex) return;
     
     VkDeviceSize image_size = tex->width * tex->height * 4;
-    VkBuffer staging_buffer;
-    VkDeviceMemory staging_buffer_memory;
+    VkBuffer staging_buffer = VK_NULL_HANDLE;
+    VkDeviceMemory staging_buffer_memory = VK_NULL_HANDLE;
+    VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+    VkResult err;
+
+    // Helper: clean up staging resources on failure.
+    auto cleanup_staging = [&]() {
+        if (commandBuffer)
+            vkFreeCommandBuffers(g_Device, g_CommandPool, 1, &commandBuffer);
+        if (staging_buffer)
+            vkDestroyBuffer(g_Device, staging_buffer, nullptr);
+        if (staging_buffer_memory)
+            vkFreeMemory(g_Device, staging_buffer_memory, nullptr);
+    };
 
     // Create Staging Buffer
     {
@@ -126,20 +147,47 @@ void UpdateTexture(VulkanTexture* tex, const void* data) {
         bufferInfo.size = image_size;
         bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        vkCreateBuffer(g_Device, &bufferInfo, nullptr, &staging_buffer);
+        err = vkCreateBuffer(g_Device, &bufferInfo, nullptr, &staging_buffer);
+        if (err != VK_SUCCESS)
+        {
+            std::fprintf(stderr, "UpdateTexture: vkCreateBuffer failed (%d)\n", err);
+            cleanup_staging();
+            return;
+        }
 
         VkMemoryRequirements memReqs;
         vkGetBufferMemoryRequirements(g_Device, staging_buffer, &memReqs);
 
+        uint32_t memType = findMemoryType(memReqs.memoryTypeBits,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        if (memType == 0xFFFFFFFF)
+        {
+            std::fprintf(stderr, "UpdateTexture: no suitable memory type\n");
+            cleanup_staging();
+            return;
+        }
+
         VkMemoryAllocateInfo allocInfo = {};
         allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         allocInfo.allocationSize = memReqs.size;
-        allocInfo.memoryTypeIndex = findMemoryType(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        vkAllocateMemory(g_Device, &allocInfo, nullptr, &staging_buffer_memory);
+        allocInfo.memoryTypeIndex = memType;
+        err = vkAllocateMemory(g_Device, &allocInfo, nullptr, &staging_buffer_memory);
+        if (err != VK_SUCCESS)
+        {
+            std::fprintf(stderr, "UpdateTexture: vkAllocateMemory failed (%d)\n", err);
+            cleanup_staging();
+            return;
+        }
         vkBindBufferMemory(g_Device, staging_buffer, staging_buffer_memory, 0);
 
         void* mapped;
-        vkMapMemory(g_Device, staging_buffer_memory, 0, image_size, 0, &mapped);
+        err = vkMapMemory(g_Device, staging_buffer_memory, 0, image_size, 0, &mapped);
+        if (err != VK_SUCCESS)
+        {
+            std::fprintf(stderr, "UpdateTexture: vkMapMemory failed (%d)\n", err);
+            cleanup_staging();
+            return;
+        }
         memcpy(mapped, data, (size_t)image_size);
         vkUnmapMemory(g_Device, staging_buffer_memory);
     }
@@ -152,8 +200,13 @@ void UpdateTexture(VulkanTexture* tex, const void* data) {
         allocInfo.commandPool = g_CommandPool;
         allocInfo.commandBufferCount = 1;
 
-        VkCommandBuffer commandBuffer;
-        vkAllocateCommandBuffers(g_Device, &allocInfo, &commandBuffer);
+        err = vkAllocateCommandBuffers(g_Device, &allocInfo, &commandBuffer);
+        if (err != VK_SUCCESS)
+        {
+            std::fprintf(stderr, "UpdateTexture: vkAllocateCommandBuffers failed (%d)\n", err);
+            cleanup_staging();
+            return;
+        }
 
         VkCommandBufferBeginInfo beginInfo = {};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -161,11 +214,15 @@ void UpdateTexture(VulkanTexture* tex, const void* data) {
 
         vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
-        // Transition to TRANSFER_DST
+        // Transition to TRANSFER_DST.
+        // On first upload the image is UNDEFINED; on subsequent uploads
+        // it is SHADER_READ_ONLY_OPTIMAL.
         {
             VkImageMemoryBarrier barrier = {};
             barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-            barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            barrier.oldLayout = tex->uploaded
+                ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                : VK_IMAGE_LAYOUT_UNDEFINED;
             barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
             barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -175,10 +232,15 @@ void UpdateTexture(VulkanTexture* tex, const void* data) {
             barrier.subresourceRange.levelCount = 1;
             barrier.subresourceRange.baseArrayLayer = 0;
             barrier.subresourceRange.layerCount = 1;
-            barrier.srcAccessMask = 0;
+            barrier.srcAccessMask = tex->uploaded
+                ? VK_ACCESS_SHADER_READ_BIT
+                : (VkAccessFlags)0;
             barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 
-            vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+            VkPipelineStageFlags srcStage = tex->uploaded
+                ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+                : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            vkCmdPipelineBarrier(commandBuffer, srcStage, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
         }
 
         VkBufferImageCopy region = {};
@@ -221,14 +283,17 @@ void UpdateTexture(VulkanTexture* tex, const void* data) {
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers = &commandBuffer;
 
-        vkQueueSubmit(g_Queue, 1, &submitInfo, VK_NULL_HANDLE);
+        err = vkQueueSubmit(g_Queue, 1, &submitInfo, VK_NULL_HANDLE);
+        if (err != VK_SUCCESS)
+        {
+            std::fprintf(stderr, "UpdateTexture: vkQueueSubmit failed (%d)\n", err);
+        }
         vkQueueWaitIdle(g_Queue);
-
-        vkFreeCommandBuffers(g_Device, g_CommandPool, 1, &commandBuffer);
     }
-    
-    vkDestroyBuffer(g_Device, staging_buffer, nullptr);
-    vkFreeMemory(g_Device, staging_buffer_memory, nullptr);
+
+    tex->uploaded = true;
+
+    cleanup_staging();
 }
 
 void DestroyTexture(VulkanTexture* tex) {
