@@ -71,6 +71,7 @@ std::vector<VolumeViewState> g_ViewStates;
 OverlayState g_Overlay;
 bool g_LayoutInitialized = false;
 bool g_CleanMode = false;  // Hide UI controls, show only slice views
+bool g_SyncCursors = false;  // Synchronize cursor position across all views
 float g_DpiScale = 1.0f;  // Set after backend initialisation
 std::string g_LocalConfigPath;  // Path for "Save Local Config"
 
@@ -404,6 +405,18 @@ void UpdateAllOverlayTextures()
         UpdateOverlayTexture(v);
 }
 
+// --- Synchronize cursor position across all volumes ---
+static void SyncCursors(int vi, const Volume& vol, VolumeViewState& state)
+{
+    if (!g_SyncCursors || vi == 0)
+        return;
+
+    for (int v = 0; v < 3; ++v)
+        state.sliceIndices[v] = g_ViewStates[0].sliceIndices[v];
+
+    UpdateAllOverlayTextures();
+}
+
 // --- Initialize state for all loaded volumes ---
 void ResetViews()
 {
@@ -608,6 +621,7 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                         state.sliceIndices[0] = std::clamp(voxZ, 0, vol.dimensions[2] - 1);
                         dirtyMask |= (1 << 0) | (1 << 1);
                     }
+                    SyncCursors(vi, vol, state);
                 }
 
                 // Shift + Middle drag: zoom (drag up = zoom in, down = out)
@@ -643,6 +657,7 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                                 state.sliceIndices[viewIndex] + steps,
                                 0, maxSliceVal - 1);
                             dirtyMask |= (1 << viewIndex);
+                            SyncCursors(vi, vol, state);
                         }
                     }
                 }
@@ -1486,6 +1501,23 @@ int main(int argc, char** argv)
                 {
                     std::cerr << "Failed to save global config: "
                               << e.what() << "\n";
+                }
+            }
+
+            if (ImGui::Checkbox("Sync All", &g_SyncCursors))
+            {
+                // When sync is enabled, set all cursors to match first volume
+                if (g_SyncCursors && numVolumes > 1)
+                {
+                    for (int vi = 1; vi < numVolumes; ++vi)
+                    {
+                        for (int v = 0; v < 3; ++v)
+                        {
+                            g_ViewStates[vi].sliceIndices[v] = 
+                                g_ViewStates[0].sliceIndices[v];
+                        }
+                    }
+                    UpdateAllOverlayTextures();
                 }
             }
 

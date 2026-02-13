@@ -28,6 +28,11 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] Shift+Middle drag: zoom
 - [x] Mouse wheel: zoom centered on cursor
 
+### Multi-Volume Synchronization
+- [x] "Sync All" checkbox in Tools panel (when enabled, cursor position synchronized across all volumes)
+- [x] Left-click/drag, middle-drag scroll, and mouse wheel zoom respect sync setting
+- [x] When enabled, moving cursor in any view updates all other views to same slice positions
+
 ### Colour Maps
 - [x] 21 colour map types (Gray, HotMetal, Spectral, Red, Green, Blue, negative variants, Contour, etc.)
 - [x] Quick-access swatch buttons (Gray, R, G, B, Spectral) with gradient preview
@@ -189,7 +194,7 @@ new_register/
 │   ├── VulkanBackend.h
 │   └── VulkanHelpers.h
 ├── src/
-│   ├── main.cpp          (2102 lines — UI, state, rendering, main loop)
+│   ├── main.cpp          (2126 lines — UI, state, rendering, main loop)
 │   ├── VulkanBackend.cpp  (710 lines)
 │   ├── ColourMap.cpp      (395 lines)
 │   ├── VulkanHelpers.cpp  (322 lines)
@@ -200,7 +205,7 @@ new_register/
     └── test_colour_map.cpp
 ```
 
-Total: ~3886 lines of application code.
+Total: ~3910 lines of application code.
 
 ### Suggested Refactoring
 - `main.cpp` (2102 lines) should be decomposed into separate modules:
