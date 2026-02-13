@@ -405,28 +405,83 @@ void UpdateAllOverlayTextures()
         UpdateOverlayTexture(v);
 }
 
-// --- Synchronize cursor position across all volumes ---
-// When sync is enabled, moving cursor in any volume syncs all others.
+// --- Convert slice indices to physical (world) coordinates ---
+// Given a volume and slice indices, compute the world space position.
+static void sliceIndicesToWorld(const Volume& vol, const int indices[3], double world[3])
+{
+    // World = start + (index + 0.5) * step * direction
+    // The +0.5 centers the sample in the voxel
+    for (int i = 0; i < 3; ++i)
+    {
+        world[i] = vol.start[i];
+        for (int j = 0; j < 3; ++j)
+        {
+            world[i] += (indices[j] + 0.5) * vol.step[j] * vol.dirCos[j][i];
+        }
+    }
+}
+
+// --- Convert physical coordinates to slice indices ---
+// Given a world position, find the nearest voxel indices.
+static void worldToSliceIndices(const Volume& vol, const double world[3], int indices[3])
+{
+    // Invert the transformation:
+    // world - start = M * (indices + 0.5) * step
+    // where M is the direction cosine matrix
+    // We solve: indices + 0.5 = (world - start) * M^-1 / step
+
+    // Compute (world - start)
+    double diff[3] = {
+        world[0] - vol.start[0],
+        world[1] - vol.start[1],
+        world[2] - vol.start[2]
+    };
+
+    // Multiply by inverse of direction cosine matrix
+    // For orthonormal basis, inverse = transpose
+    // indices[j] + 0.5 = sum_i(diff[i] * dirCos[j][i]) / step[j]
+    for (int j = 0; j < 3; ++j)
+    {
+        double val = 0.0;
+        for (int i = 0; i < 3; ++i)
+        {
+            val += diff[i] * vol.dirCos[j][i];
+        }
+        indices[j] = static_cast<int>(val / vol.step[j] + 0.5) - 1;
+    }
+}
+
+// --- Synchronize cursor position across all volumes based on physical coordinates ---
+// When sync is enabled, moving cursor in any volume syncs all others to the same
+// physical world position (not the same slice index).
 // Returns a bitmask of view indices that need texture updates.
 static int SyncCursors(int vi, const Volume& vol, VolumeViewState& state)
 {
     if (!g_SyncCursors)
         return 0;
 
-    // Get the current cursor position (from the volume being interacted with)
-    // and propagate it to all other volumes
-    int newSlice0 = state.sliceIndices[0];
-    int newSlice1 = state.sliceIndices[1];
-    int newSlice2 = state.sliceIndices[2];
+    // Get current world position from this volume
+    double worldPos[3];
+    sliceIndicesToWorld(vol, state.sliceIndices, worldPos);
 
+    // Find corresponding slice indices in all other volumes
     for (int i = 0; i < static_cast<int>(g_Volumes.size()); ++i)
     {
         if (i != vi)
         {
+            Volume& otherVol = g_Volumes[i];
             VolumeViewState& otherState = g_ViewStates[i];
-            otherState.sliceIndices[0] = newSlice0;
-            otherState.sliceIndices[1] = newSlice1;
-            otherState.sliceIndices[2] = newSlice2;
+            int indices[3];
+            worldToSliceIndices(otherVol, worldPos, indices);
+
+            // Clamp to valid range
+            indices[0] = std::clamp(indices[0], 0, otherVol.dimensions[0] - 1);
+            indices[1] = std::clamp(indices[1], 0, otherVol.dimensions[1] - 1);
+            indices[2] = std::clamp(indices[2], 0, otherVol.dimensions[2] - 1);
+
+            otherState.sliceIndices[0] = indices[0];
+            otherState.sliceIndices[1] = indices[1];
+            otherState.sliceIndices[2] = indices[2];
         }
     }
 
