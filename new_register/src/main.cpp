@@ -978,30 +978,36 @@ int main(int argc, char** argv)
     {
 
     // --- Parse CLI arguments ---
-    // LUT flags (-gray, -hot, etc.) set a pending colour map that is applied
+    // LUT flags (--gray, --hot, etc.) set a pending colour map that is applied
     // to the *next* volume file on the command line.  --lut <name> accepts
     // any colour map name.  The per-volume CLI LUT overrides both global and
     // local config values.
-    std::string cliConfigPath;  // --config <path>
+    std::string cliConfigPath;  // -c / --config <path>
     std::vector<std::string> volumeFiles;
     std::vector<std::optional<std::string>> cliLutPerVolume;  // parallel to volumeFiles
     std::optional<std::string> pendingLut;  // set by a LUT flag, consumed by next volume
 
-    // Map of shorthand flags to colour map names
-    static const std::array<std::pair<std::string_view, std::string_view>, 6> lutShorthands = {{
-        {"-gray",     "GrayScale"},
-        {"-hot",      "HotMetal"},
-        {"-spectral", "Spectral"},
-        {"-red",      "Red"},
-        {"-green",    "Green"},
-        {"-blue",     "Blue"},
+    // Map of LUT flags to colour map names (long and short forms)
+    static const std::array<std::pair<std::string_view, std::string_view>, 12> lutFlags = {{
+        {"--gray",     "GrayScale"},
+        {"--hot",      "HotMetal"},
+        {"--spectral", "Spectral"},
+        {"--red",      "Red"},
+        {"--green",    "Green"},
+        {"--blue",     "Blue"},
+        {"-r",         "Red"},
+        {"-b",         "Blue"},
+        {"-g",         "Green"},
+        {"-G",         "GrayScale"},
+        {"-H",         "HotMetal"},
+        {"-S",         "Spectral"},
     }};
 
     for (int i = 1; i < argc; ++i)
     {
         std::string_view arg = argv[i];
 
-        if (arg == "--config" && i + 1 < argc)
+        if ((arg == "--config" || arg == "-c") && i + 1 < argc)
         {
             cliConfigPath = argv[++i];
             continue;
@@ -1011,16 +1017,17 @@ int main(int argc, char** argv)
         {
             std::cerr << "Usage: new_register [options] [volume1.mnc ...]\n"
                       << "\nOptions:\n"
-                      << "  --config <path>   Load config from <path>\n"
-                      << "  --lut <name>      Set colour map for the next volume\n"
-                      << "  -gray             Shorthand for --lut GrayScale\n"
-                      << "  -hot              Shorthand for --lut HotMetal\n"
-                      << "  -spectral         Shorthand for --lut Spectral\n"
-                      << "  -red              Shorthand for --lut Red\n"
-                      << "  -green            Shorthand for --lut Green\n"
-                      << "  -blue             Shorthand for --lut Blue\n"
+                      << "  -c, --config <path>   Load config from <path>\n"
+                      << "  -h, --help            Show this help message\n"
+                      << "      --lut <name>      Set colour map for the next volume\n"
+                      << "  -r, --red             Set Red colour map for the next volume\n"
+                      << "  -g, --green           Set Green colour map for the next volume\n"
+                      << "  -b, --blue            Set Blue colour map for the next volume\n"
+                      << "  -G, --gray            Set GrayScale colour map for the next volume\n"
+                      << "  -H, --hot             Set HotMetal colour map for the next volume\n"
+                      << "  -S, --spectral        Set Spectral colour map for the next volume\n"
                       << "\nLUT flags apply to the next volume file on the command line.\n"
-                      << "Example: new_register -gray vol1.mnc -hot vol2.mnc\n";
+                      << "Example: new_register --gray vol1.mnc -r vol2.mnc\n";
             return 0;
         }
 
@@ -1040,18 +1047,18 @@ int main(int argc, char** argv)
             continue;
         }
 
-        // Check shorthand LUT flags
-        bool isShorthand = false;
-        for (const auto& [flag, name] : lutShorthands)
+        // Check LUT flags (long and short forms)
+        bool isLutFlag = false;
+        for (const auto& [flag, name] : lutFlags)
         {
             if (arg == flag)
             {
                 pendingLut = std::string(name);
-                isShorthand = true;
+                isLutFlag = true;
                 break;
             }
         }
-        if (isShorthand) continue;
+        if (isLutFlag) continue;
 
         // Not a recognised option — treat as a volume file path
         volumeFiles.push_back(std::string(arg));
