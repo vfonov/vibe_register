@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <memory>
 #include <cstdio>
+#include <filesystem>
 
 #define GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_VULKAN
@@ -28,6 +29,7 @@ struct VolumeViewState
 
 // --- Application State ---
 std::vector<Volume> g_Volumes;
+std::vector<std::string> g_VolumeNames;  // Display names (file basenames)
 std::vector<VolumeViewState> g_ViewStates;
 bool g_LayoutInitialized = false;
 float g_DpiScale = 1.0f;  // Set after backend initialisation
@@ -170,14 +172,11 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                             const Volume& vol, VolumeViewState& state)
 {
     int dirtyMask = 0;
-    const char* viewLabels[] = { "Transverse (XY)", "Sagittal (YZ)", "Coronal (XZ)" };
     char childId[64];
     std::snprintf(childId, sizeof(childId), "##view_%d_%d", vi, viewIndex);
 
     ImGui::BeginChild(childId, childSize, ImGuiChildFlags_Borders);
     {
-        // Title label
-        ImGui::Text("%s", viewLabels[viewIndex]);
 
         if (state.sliceTextures[viewIndex])
         {
@@ -407,6 +406,8 @@ int main(int argc, char** argv)
             if (vol.load(argv[i]))
             {
                 g_Volumes.push_back(std::move(vol));
+                g_VolumeNames.push_back(
+                    std::filesystem::path(argv[i]).filename().string());
                 const auto& v = g_Volumes.back();
                 std::cerr << "Volume loaded. Dimensions: "
                           << v.dimensions[0] << " x "
@@ -421,6 +422,7 @@ int main(int argc, char** argv)
         Volume vol;
         vol.generate_test_data();
         g_Volumes.push_back(std::move(vol));
+        g_VolumeNames.push_back("Test Data");
     }
 
     if (g_Volumes.empty())
@@ -509,13 +511,11 @@ int main(int argc, char** argv)
 
     int numVolumes = static_cast<int>(g_Volumes.size());
 
-    // Pre-generate window names — one per volume column
+    // Pre-generate window names — one per volume column (file basenames)
     std::vector<std::string> columnNames;
     for (int vi = 0; vi < numVolumes; ++vi)
     {
-        char buf[64];
-        std::snprintf(buf, sizeof(buf), "Volume %d", vi + 1);
-        columnNames.push_back(buf);
+        columnNames.push_back(g_VolumeNames[vi]);
     }
 
     // Fixed height for the controls section at the bottom of each column
