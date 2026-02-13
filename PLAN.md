@@ -32,12 +32,12 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] "Sync All" checkbox in Tools panel (when enabled, cursor position synchronized across all volumes)
 - [x] Left-click/drag, middle-drag scroll, and mouse wheel zoom respect sync setting
 - [x] When enabled, moving cursor in any view updates all other views to same slice positions
-- [ ] **Broken**: Center of mass calculation discrepancy
-  - Expected center of mass for mni_icbm152_t1_tal_nlin_sym_09c.mnc: (0, -19.19922251, 2.143570161) mm
-  - Computed center of mass: (0.5, -18.6992, 2.64357) mm  
-  - Difference: -0.5mm in each dimension - likely due to voxel center convention mismatch
-  - Matrix transformations are mathematically correct per MINC spec
-  - Need to investigate why legacy expects different center of mass values
+- [ ] **Issue**: Center of mass calculation discrepancy
+  - Matrix transformations (voxel-to-world, world-to-voxel) are mathematically correct per MINC spec
+  - MINC uses: voxel i center is at `start + (i + 0.5) * step * dirCos`
+  - Center of mass computed from data: (0.5, -18.699, 2.644) mm
+  - Expected values from legacy: (0, -19.199, 2.144) mm
+  - Difference: exactly -0.5mm per dimension, likely due to different voxel center convention in legacy
 
 ### Colour Maps
 - [x] 21 colour map types (Gray, HotMetal, Spectral, Red, Green, Blue, negative variants, Contour, etc.)
