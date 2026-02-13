@@ -1531,39 +1531,31 @@ int main(int argc, char** argv)
 
             ImGui::Separator();
 
-            if (ImGui::Button("Reset All Views", ImVec2(btnWidth, 0)))
+            if (ImGui::Button("[R] Reset All Views", ImVec2(btnWidth, 0)))
             {
                 ResetViews();
                 if (hasOverlay)
                     UpdateAllOverlayTextures();
             }
-            ImGui::SameLine();
-            ImGui::TextDisabled("(R)");
 
-            if (ImGui::Button("Screenshot", ImVec2(btnWidth, 0)))
+            if (ImGui::Button("[P] Screenshot", ImVec2(btnWidth, 0)))
             {
                 saveScreenshot(*backend);
             }
-            ImGui::SameLine();
-            ImGui::TextDisabled("(P)");
 
             ImGui::Separator();
 
-            if (ImGui::Button("Clean Mode", ImVec2(btnWidth, 0)))
+            if (ImGui::Button("[C] Clean Mode", ImVec2(btnWidth, 0)))
             {
                 g_CleanMode = true;
             }
-            ImGui::SameLine();
-            ImGui::TextDisabled("(C)");
 
             ImGui::Separator();
 
-            if (ImGui::Button("Quit", ImVec2(btnWidth, 0)))
+            if (ImGui::Button("[Q] Quit", ImVec2(btnWidth, 0)))
             {
                 glfwSetWindowShouldClose(window, true);
             }
-            ImGui::SameLine();
-            ImGui::TextDisabled("(Q)");
         }
         ImGui::End();
         } // !g_CleanMode
