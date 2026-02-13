@@ -227,6 +227,24 @@ static const ControlPoint kBlue[] = {
     { 1.0f, 0.0f, 0.0f, 1.0f, 1.0f },
 };
 
+// --- Negative Red (red → black) ---
+static const ControlPoint kNegRed[] = {
+    { 0.0f, 1.0f, 0.0f, 0.0f, 1.0f },
+    { 1.0f, 0.0f, 0.0f, 0.0f, 1.0f },
+};
+
+// --- Negative Green (green → black) ---
+static const ControlPoint kNegGreen[] = {
+    { 0.0f, 0.0f, 1.0f, 0.0f, 1.0f },
+    { 1.0f, 0.0f, 0.0f, 0.0f, 1.0f },
+};
+
+// --- Negative Blue (blue → black) ---
+static const ControlPoint kNegBlue[] = {
+    { 0.0f, 0.0f, 0.0f, 1.0f, 1.0f },
+    { 1.0f, 0.0f, 0.0f, 0.0f, 1.0f },
+};
+
 // --- Contour (6 banded segments with discontinuities) ---
 static const ControlPoint kContour[] = {
     { 0.000f, 0.0f, 0.0f, 0.3f, 1.0f },
@@ -286,6 +304,12 @@ ColourLut buildLut(ColourMapType type)
         return buildFromControlPoints(kGreen, countOf(kGreen));
     case ColourMapType::Blue:
         return buildFromControlPoints(kBlue, countOf(kBlue));
+    case ColourMapType::NegRed:
+        return buildFromControlPoints(kNegRed, countOf(kNegRed));
+    case ColourMapType::NegGreen:
+        return buildFromControlPoints(kNegGreen, countOf(kNegGreen));
+    case ColourMapType::NegBlue:
+        return buildFromControlPoints(kNegBlue, countOf(kNegBlue));
     case ColourMapType::Contour:
         return buildFromControlPoints(kContour, countOf(kContour));
     default:
@@ -320,6 +344,9 @@ std::string_view colourMapName(ColourMapType type)
     case ColourMapType::Red:            return "Red";
     case ColourMapType::Green:          return "Green";
     case ColourMapType::Blue:           return "Blue";
+    case ColourMapType::NegRed:         return "Red (neg)";
+    case ColourMapType::NegGreen:       return "Green (neg)";
+    case ColourMapType::NegBlue:        return "Blue (neg)";
     case ColourMapType::Contour:        return "Contour";
     default:                            return "Unknown";
     }

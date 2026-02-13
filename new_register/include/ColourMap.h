@@ -29,6 +29,9 @@ enum class ColourMapType
     Red,
     Green,
     Blue,
+    NegRed,
+    NegGreen,
+    NegBlue,
     Contour,
 
     Count  // sentinel — must be last

@@ -147,7 +147,7 @@ int main()
     }
 
     // 10. colourMapCount() should equal the number of types.
-    CHECK(colourMapCount() == 18, "should have 18 colour map types");
+    CHECK(colourMapCount() == 21, "should have 21 colour map types");
 
     // 11. Calling colourMapLut twice should return the same object (cached).
     {

@@ -1615,19 +1615,98 @@ int main(int argc, char** argv)
                     bool changed = false;
                     ImGui::PushID(vi);
                     {
+                        // Shared lambda for under/over combo.
+                        // isUnder: true puts NegR/G/B at the very top.
+                        // Both combos put R/G/B right after (or at the top
+                        // for "over"), then Current/Transparent, then the rest.
+                        auto clampCombo = [&](const char* tooltip,
+                                              const char* id,
+                                              int& mode,
+                                              bool isUnder) -> bool
+                        {
+                            bool ret = false;
+                            if (ImGui::BeginCombo(id,
+                                                  clampColourLabel(mode),
+                                                  ImGuiComboFlags_None))
+                            {
+                                // Helper to emit one selectable
+                                auto item = [&](const char* label,
+                                                int value) -> void
+                                {
+                                    if (ImGui::Selectable(label, mode == value))
+                                    {
+                                        mode = value;
+                                        ret = true;
+                                    }
+                                };
+
+                                // Helper to emit a colour map selectable
+                                auto cmItem = [&](ColourMapType cm) -> void
+                                {
+                                    int idx = static_cast<int>(cm);
+                                    item(colourMapName(cm).data(), idx);
+                                };
+
+                                // Under combo: NegR/G/B first
+                                if (isUnder)
+                                {
+                                    cmItem(ColourMapType::NegRed);
+                                    cmItem(ColourMapType::NegGreen);
+                                    cmItem(ColourMapType::NegBlue);
+                                    ImGui::Separator();
+                                }
+
+                                // Both: R/G/B next
+                                cmItem(ColourMapType::Red);
+                                cmItem(ColourMapType::Green);
+                                cmItem(ColourMapType::Blue);
+                                ImGui::Separator();
+
+                                // Current / Transparent
+                                item("Current", kClampCurrent);
+                                item("Transparent", kClampTransparent);
+                                ImGui::Separator();
+
+                                // Remaining colour maps (skip those already shown)
+                                for (int cm = 0; cm < colourMapCount(); ++cm)
+                                {
+                                    auto cmt = static_cast<ColourMapType>(cm);
+                                    if (cmt == ColourMapType::Red ||
+                                        cmt == ColourMapType::Green ||
+                                        cmt == ColourMapType::Blue ||
+                                        cmt == ColourMapType::NegRed ||
+                                        cmt == ColourMapType::NegGreen ||
+                                        cmt == ColourMapType::NegBlue)
+                                        continue;
+                                    cmItem(cmt);
+                                }
+                                ImGui::EndCombo();
+                            }
+                            if (ImGui::IsItemHovered())
+                                ImGui::SetTooltip("%s", tooltip);
+                            return ret;
+                        };
+
                         float avail = ImGui::GetContentRegionAvail().x;
+                        float spacing = ImGui::GetStyle().ItemSpacing.x;
                         float autoW = ImGui::CalcTextSize("Auto").x +
                                       ImGui::GetStyle().FramePadding.x * 2.0f;
-                        float spacing = ImGui::GetStyle().ItemSpacing.x;
-                        float inputW = (avail - autoW - spacing * 2.0f) * 0.5f;
+                        // Reserve width for the two clamp combos (equal size)
+                        float clampW = ImGui::CalcTextSize("Current__").x +
+                                       ImGui::GetStyle().FramePadding.x * 2.0f;
+                        float inputTotal = avail - autoW - clampW * 2.0f
+                                           - spacing * 4.0f;
+                        float inputW = inputTotal * 0.5f;
+                        if (inputW < 30.0f) inputW = 30.0f;
 
-                        ImGui::SetNextItemWidth(inputW);
-                        if (ImGui::InputFloat("##min", &state.valueRange[0],
-                                              0.0f, 0.0f, "%.4g"))
+                        // Layout: [under] [min] [Auto] [max] [over]
+                        ImGui::SetNextItemWidth(clampW);
+                        if (clampCombo("Under colour", "##under",
+                                       state.underColourMode, true))
                             changed = true;
                         ImGui::SameLine();
                         ImGui::SetNextItemWidth(inputW);
-                        if (ImGui::InputFloat("##max", &state.valueRange[1],
+                        if (ImGui::InputFloat("##min", &state.valueRange[0],
                                               0.0f, 0.0f, "%.4g"))
                             changed = true;
                         ImGui::SameLine();
@@ -1637,64 +1716,18 @@ int main(int argc, char** argv)
                             state.valueRange[1] = vol.max_value;
                             changed = true;
                         }
-                    }
-                    ImGui::PopID();
-
-                    // --- Under/Over colour dropdowns ---
-                    {
-                        auto clampCombo = [&](const char* label, const char* preview,
-                                              int& mode) -> bool
-                        {
-                            bool ret = false;
-                            ImGui::TextUnformatted(label);
-                            ImGui::SameLine();
-                            if (ImGui::BeginCombo(preview,
-                                                  clampColourLabel(mode),
-                                                  ImGuiComboFlags_None))
-                            {
-                                if (ImGui::Selectable("Current",
-                                                      mode == kClampCurrent))
-                                {
-                                    mode = kClampCurrent;
-                                    ret = true;
-                                }
-                                if (ImGui::Selectable("Transparent",
-                                                      mode == kClampTransparent))
-                                {
-                                    mode = kClampTransparent;
-                                    ret = true;
-                                }
-                                for (int cm = 0; cm < colourMapCount(); ++cm)
-                                {
-                                    bool sel = (mode == cm);
-                                    auto name = colourMapName(
-                                        static_cast<ColourMapType>(cm));
-                                    if (ImGui::Selectable(name.data(), sel))
-                                    {
-                                        mode = cm;
-                                        ret = true;
-                                    }
-                                }
-                                ImGui::EndCombo();
-                            }
-                            return ret;
-                        };
-
-                        float halfW = (ImGui::GetContentRegionAvail().x
-                                       - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
-                        float labelW = ImGui::CalcTextSize("Over").x
-                                       + ImGui::GetStyle().ItemSpacing.x;
-                        float comboW = halfW - labelW;
-                        if (comboW < 40.0f) comboW = 40.0f;
-
-                        ImGui::SetNextItemWidth(comboW);
-                        if (clampCombo("Under", "##under", state.underColourMode))
+                        ImGui::SameLine();
+                        ImGui::SetNextItemWidth(inputW);
+                        if (ImGui::InputFloat("##max", &state.valueRange[1],
+                                              0.0f, 0.0f, "%.4g"))
                             changed = true;
                         ImGui::SameLine();
-                        ImGui::SetNextItemWidth(comboW);
-                        if (clampCombo("Over", "##over", state.overColourMode))
+                        ImGui::SetNextItemWidth(clampW);
+                        if (clampCombo("Over colour", "##over",
+                                       state.overColourMode, false))
                             changed = true;
                     }
+                    ImGui::PopID();
 
                     if (changed)
                     {
