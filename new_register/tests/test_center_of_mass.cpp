@@ -5,7 +5,7 @@
 int main() {
     Volume vol;
     try {
-        vol.load("test_data/mni_icbm152_t1_tal_nlin_sym_09c.mnc");
+        vol.load("/app/test_data/mni_icbm152_t1_tal_nlin_sym_09c.mnc");
     } catch (const std::exception& e) {
         std::cerr << "Failed to load volume: " << e.what() << "\n";
         return 1;
