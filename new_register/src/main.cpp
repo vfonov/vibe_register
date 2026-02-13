@@ -72,6 +72,7 @@ OverlayState g_Overlay;
 bool g_LayoutInitialized = false;
 bool g_CleanMode = false;  // Hide UI controls, show only slice views
 bool g_SyncCursors = false;  // Synchronize cursor position across all views
+int g_LastSyncSource = 0;  // Index of volume last interacted with (for sync reference)
 float g_DpiScale = 1.0f;  // Set after backend initialisation
 std::string g_LocalConfigPath;  // Path for "Save Local Config"
 
@@ -425,16 +426,17 @@ static void sliceIndicesToWorld(const Volume& vol, const int indices[3], double 
 // Given a world position, find the voxel indices that contain this position.
 static void worldToSliceIndices(const Volume& vol, const double world[3], int indices[3])
 {
-    // The transformation from voxel space to world space is:
-    // world = start + (voxel + 0.5) * step * dirCos
+    // Forward transform (voxel -> world):
+    // world[i] = start[i] + sum_j( (voxel[j] + 0.5) * step[j] * dirCos[j][i] )
     //
-    // To invert, we need to solve for voxel given world:
-    // (world - start) = (voxel + 0.5) * step * dirCos
+    // Matrix form: world = start + M * (voxel + 0.5)
+    // where M[j][i] = step[j] * dirCos[j][i]
     //
-    // For orthonormal direction cosines (which MINC uses), we can use the transpose:
-    // (world - start) * dirCos^T = (voxel + 0.5) * step
+    // M = D * R where D = diag(step), R = dirCos (orthonormal)
+    // M^-1 = R^T * D^-1
     //
-    // So: voxel = (world - start) * dirCos^T / step - 0.5
+    // voxel + 0.5 = R^T * D^-1 * (world - start)
+    // voxel = R^T * D^-1 * (world - start) - 0.5
 
     // Compute (world - start)
     double diff[3] = {
@@ -443,25 +445,29 @@ static void worldToSliceIndices(const Volume& vol, const double world[3], int in
         world[2] - vol.start[2]
     };
 
-    // Multiply by transpose of direction cosine matrix (inverse for orthonormal)
-    // result[j] = sum_i(diff[i] * dirCos[j][i])
+    // Apply D^-1 (divide by step)
+    double scaled[3];
+    for (int i = 0; i < 3; ++i)
+        scaled[i] = diff[i] / vol.step[i];
+
+    // Apply R^T (transpose of dirCos)
+    // result[j] = sum_i(scaled[i] * dirCos[j][i])
     double inPlane[3];
     for (int j = 0; j < 3; ++j)
     {
         inPlane[j] = 0.0;
         for (int i = 0; i < 3; ++i)
         {
-            inPlane[j] += diff[i] * vol.dirCos[j][i];
+            inPlane[j] += scaled[i] * vol.dirCos[j][i];
         }
     }
 
     // Convert to voxel indices
     for (int j = 0; j < 3; ++j)
     {
-        // voxel = position_in_plane / step - 0.5
-        double voxelFloat = inPlane[j] / vol.step[j] - 0.5;
-        // Round to nearest voxel center
-        indices[j] = static_cast<int>(voxelFloat + 0.5);
+        // voxel = inPlane_value - 0.5, then round to nearest integer
+        double voxelFloat = inPlane[j] - 0.5;
+        indices[j] = static_cast<int>(std::floor(voxelFloat + 0.5));
 
         // Clamp to valid range
         if (indices[j] < 0)
@@ -474,40 +480,48 @@ static void worldToSliceIndices(const Volume& vol, const double world[3], int in
 // --- Synchronize cursor position across all volumes based on physical coordinates ---
 // When sync is enabled, moving cursor in any volume syncs all others to the same
 // physical world position (not the same slice index).
-// Returns a bitmask of view indices that need texture updates.
-static int SyncCursors(int vi, const Volume& vol, VolumeViewState& state)
+// This is called AFTER all volumes are rendered to sync their slice indices.
+static void SyncCursors()
 {
-    if (!g_SyncCursors)
-        return 0;
+    if (!g_SyncCursors || g_Volumes.size() < 2)
+        return;
 
-    // Get current world position from this volume
+    // Use the last interacted volume as reference for sync
+    const Volume& refVol = g_Volumes[g_LastSyncSource];
+    const VolumeViewState& refState = g_ViewStates[g_LastSyncSource];
+    
+    // Get world position from reference volume
     double worldPos[3];
-    sliceIndicesToWorld(vol, state.sliceIndices, worldPos);
-
+    sliceIndicesToWorld(refVol, refState.sliceIndices, worldPos);
+    
     // Find corresponding slice indices in all other volumes
     for (int i = 0; i < static_cast<int>(g_Volumes.size()); ++i)
     {
-        if (i != vi)
-        {
-            Volume& otherVol = g_Volumes[i];
-            VolumeViewState& otherState = g_ViewStates[i];
-            int indices[3];
-            worldToSliceIndices(otherVol, worldPos, indices);
+        if (i == g_LastSyncSource)
+            continue;
+            
+        Volume& otherVol = g_Volumes[i];
+        VolumeViewState& otherState = g_ViewStates[i];
+        int indices[3];
+        worldToSliceIndices(otherVol, worldPos, indices);
 
-            // Clamp to valid range
-            indices[0] = std::clamp(indices[0], 0, otherVol.dimensions[0] - 1);
-            indices[1] = std::clamp(indices[1], 0, otherVol.dimensions[1] - 1);
-            indices[2] = std::clamp(indices[2], 0, otherVol.dimensions[2] - 1);
+        // Clamp to valid range
+        indices[0] = std::clamp(indices[0], 0, otherVol.dimensions[0] - 1);
+        indices[1] = std::clamp(indices[1], 0, otherVol.dimensions[1] - 1);
+        indices[2] = std::clamp(indices[2], 0, otherVol.dimensions[2] - 1);
 
-            otherState.sliceIndices[0] = indices[0];
-            otherState.sliceIndices[1] = indices[1];
-            otherState.sliceIndices[2] = indices[2];
-        }
+        otherState.sliceIndices[0] = indices[0];
+        otherState.sliceIndices[1] = indices[1];
+        otherState.sliceIndices[2] = indices[2];
     }
-
+    
+    // Update textures for all volumes
+    for (int i = 0; i < static_cast<int>(g_Volumes.size()); ++i)
+    {
+        for (int v = 0; v < 3; ++v)
+            UpdateSliceTexture(i, v);
+    }
     UpdateAllOverlayTextures();
-    // All volumes' textures need updating since their slice indices changed
-    return 7;  // 0b111 - all three views
 }
 
 // --- Initialize state for all loaded volumes ---
@@ -698,7 +712,7 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                         state.sliceIndices[2] = std::clamp(voxY, 0, vol.dimensions[1] - 1);
                         dirtyMask |= (1 << 1) | (1 << 2);
                         if (g_SyncCursors)
-                            dirtyMask |= SyncCursors(vi, vol, state);
+                            g_LastSyncSource = vi;
                     }
                     else if (viewIndex == 1)
                     {
@@ -708,7 +722,7 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                         state.sliceIndices[0] = std::clamp(voxZ, 0, vol.dimensions[2] - 1);
                         dirtyMask |= (1 << 0) | (1 << 2);
                         if (g_SyncCursors)
-                            dirtyMask |= SyncCursors(vi, vol, state);
+                            g_LastSyncSource = vi;
                     }
                     else
                     {
@@ -718,7 +732,7 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                         state.sliceIndices[0] = std::clamp(voxZ, 0, vol.dimensions[2] - 1);
                         dirtyMask |= (1 << 0) | (1 << 1);
                         if (g_SyncCursors)
-                            dirtyMask |= SyncCursors(vi, vol, state);
+                            g_LastSyncSource = vi;
                     }
                 }
 
@@ -756,7 +770,7 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                                 0, maxSliceVal - 1);
                             dirtyMask |= (1 << viewIndex);
                             if (g_SyncCursors)
-                                dirtyMask |= SyncCursors(vi, vol, state);
+                                g_LastSyncSource = vi;
                         }
                     }
                 }
@@ -1618,6 +1632,11 @@ int main(int argc, char** argv)
                     }
                     UpdateAllOverlayTextures();
                 }
+                else
+                {
+                    // When sync is disabled, reset the sync source
+                    g_LastSyncSource = 0;
+                }
             }
 
             if (ImGui::Button("Save Local", ImVec2(btnWidth, 0)))
@@ -2175,6 +2194,10 @@ int main(int argc, char** argv)
             }
             ImGui::End();
         }
+
+        // Sync cursor positions across volumes if enabled
+        if (g_SyncCursors)
+            SyncCursors();
 
         // Rendering
         ImGui::Render();
