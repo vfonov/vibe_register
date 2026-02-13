@@ -699,6 +699,9 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                         if (g_SyncCursors)
                             g_LastSyncSource = vi;
                     }
+
+                    std::cerr<<"Pos:" << state.sliceIndices[0] << "," << state.sliceIndices[1] << "," << state.sliceIndices[2] << "\n";
+                    
                 }
 
                 // Shift + Middle drag: zoom (drag up = zoom in, down = out)
