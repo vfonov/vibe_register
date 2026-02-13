@@ -1866,25 +1866,59 @@ int main(int argc, char** argv)
                             UpdateOverlayTexture(v);
                 }
 
-                // Controls: per-volume alpha sliders
+                // Controls: blending and per-volume alpha
                 ImGui::BeginChild("##overlay_controls",
                                   ImVec2(avail.x, 0),
                                   ImGuiChildFlags_Borders);
                 {
                     bool alphaChanged = false;
-                    for (int vi = 0; vi < numVolumes; ++vi)
+
+                    if (numVolumes == 2)
                     {
-                        ImGui::PushID(vi + 2000);
-                        ImGui::Text("%s", g_VolumeNames[vi].c_str());
+                        // Special case: single blend slider between two volumes.
+                        // blendT=0 means 100% volume 0, blendT=1 means 100% volume 1.
+                        // We derive blendT from the current alpha values and
+                        // write back complementary alphas when the slider moves.
+                        float a0 = g_ViewStates[0].overlayAlpha;
+                        float a1 = g_ViewStates[1].overlayAlpha;
+                        float blendT = (a0 + a1 > 0.0f)
+                                       ? a1 / (a0 + a1)
+                                       : 0.5f;
+
+                        ImGui::Text("%s", g_VolumeNames[0].c_str());
                         ImGui::SameLine();
                         ImGui::SetNextItemWidth(
-                            ImGui::GetContentRegionAvail().x);
-                        if (ImGui::SliderFloat("##alpha",
-                                &g_ViewStates[vi].overlayAlpha,
-                                0.0f, 1.0f, "%.2f"))
+                            ImGui::GetContentRegionAvail().x
+                            - ImGui::CalcTextSize(g_VolumeNames[1].c_str()).x
+                            - ImGui::GetStyle().ItemSpacing.x);
+                        if (ImGui::SliderFloat("##blend", &blendT,
+                                               0.0f, 1.0f, "%.2f"))
+                        {
+                            g_ViewStates[0].overlayAlpha = 1.0f - blendT;
+                            g_ViewStates[1].overlayAlpha = blendT;
                             alphaChanged = true;
-                        ImGui::PopID();
+                        }
+                        ImGui::SameLine();
+                        ImGui::Text("%s", g_VolumeNames[1].c_str());
                     }
+                    else
+                    {
+                        // General case: independent alpha slider per volume
+                        for (int vi = 0; vi < numVolumes; ++vi)
+                        {
+                            ImGui::PushID(vi + 2000);
+                            ImGui::Text("%s", g_VolumeNames[vi].c_str());
+                            ImGui::SameLine();
+                            ImGui::SetNextItemWidth(
+                                ImGui::GetContentRegionAvail().x);
+                            if (ImGui::SliderFloat("##alpha",
+                                    &g_ViewStates[vi].overlayAlpha,
+                                    0.0f, 1.0f, "%.2f"))
+                                alphaChanged = true;
+                            ImGui::PopID();
+                        }
+                    }
+
                     if (alphaChanged)
                         UpdateAllOverlayTextures();
 
