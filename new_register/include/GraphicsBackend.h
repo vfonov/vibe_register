@@ -26,6 +26,11 @@ public:
     /// Tear down all graphics resources in reverse order of creation.
     virtual void shutdown() = 0;
 
+    /// Wait for the GPU to finish all pending work.
+    /// Call this before destroying application-owned GPU resources (textures,
+    /// buffers) to ensure they are no longer in use by in-flight frames.
+    virtual void waitIdle() = 0;
+
     // --- Frame cycle ---
 
     /// Returns true if the swapchain must be rebuilt (e.g. after a resize).

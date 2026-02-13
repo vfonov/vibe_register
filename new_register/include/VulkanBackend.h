@@ -20,6 +20,7 @@ public:
     // --- GraphicsBackend interface ---
     bool initialize(GLFWwindow* window) override;
     void shutdown() override;
+    void waitIdle() override;
 
     bool needsSwapchainRebuild() const override;
     void rebuildSwapchain(int width, int height) override;

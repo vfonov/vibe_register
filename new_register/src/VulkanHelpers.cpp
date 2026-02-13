@@ -240,9 +240,13 @@ void DestroyTexture(VulkanTexture* tex) {
 } // namespace
 
 void VulkanTexture::cleanup(VkDevice device) {
-    vkDestroyImageView(device, image_view, nullptr);
-    vkDestroyImage(device, image, nullptr);
-    vkFreeMemory(device, image_memory, nullptr);
-    vkDestroySampler(device, sampler, nullptr);
-    // Descriptor set is managed by ImGui pool, usually freed when pool is reset or manually via ImGui_ImplVulkan_RemoveTexture
+    if (descriptor_set)
+    {
+        ImGui_ImplVulkan_RemoveTexture(descriptor_set);
+        descriptor_set = VK_NULL_HANDLE;
+    }
+    if (image_view) { vkDestroyImageView(device, image_view, nullptr); image_view = VK_NULL_HANDLE; }
+    if (sampler)    { vkDestroySampler(device, sampler, nullptr); sampler = VK_NULL_HANDLE; }
+    if (image)      { vkDestroyImage(device, image, nullptr); image = VK_NULL_HANDLE; }
+    if (image_memory) { vkFreeMemory(device, image_memory, nullptr); image_memory = VK_NULL_HANDLE; }
 }

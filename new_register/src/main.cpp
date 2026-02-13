@@ -161,6 +161,99 @@ void ResetViews()
     }
 }
 
+// --- Render a single slice view within a child region ---
+static void RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
+                            const Volume& vol, VolumeViewState& state)
+{
+    const char* viewLabels[] = { "Transverse (XY)", "Sagittal (YZ)", "Coronal (XZ)" };
+    char childId[64];
+    std::snprintf(childId, sizeof(childId), "##view_%d_%d", vi, viewIndex);
+
+    ImGui::BeginChild(childId, childSize, ImGuiChildFlags_Borders);
+    {
+        // Title label
+        ImGui::Text("%s", viewLabels[viewIndex]);
+
+        if (state.sliceTextures[viewIndex])
+        {
+            VulkanTexture* tex = state.sliceTextures[viewIndex];
+            ImVec2 avail = ImGui::GetContentRegionAvail();
+            float sliderHeight = 30.0f;
+            avail.y -= sliderHeight;
+
+            if (avail.x > 0 && avail.y > 0)
+            {
+                // Compute world-space aspect ratio, accounting for
+                // non-uniform voxel spacing.
+                //   Transverse (0): X horizontal, Y vertical
+                //   Sagittal   (1): Y horizontal, Z vertical
+                //   Coronal    (2): X horizontal, Z vertical
+                int axisU, axisV;
+                if (viewIndex == 0)      { axisU = 0; axisV = 1; }
+                else if (viewIndex == 1) { axisU = 1; axisV = 2; }
+                else                     { axisU = 0; axisV = 2; }
+
+                double pixelAspect = vol.slicePixelAspect(axisU, axisV);
+                float aspect = static_cast<float>(tex->width) /
+                               static_cast<float>(tex->height) *
+                               static_cast<float>(pixelAspect);
+
+                ImVec2 imgSize = avail;
+                if (imgSize.x / imgSize.y > aspect)
+                    imgSize.x = imgSize.y * aspect;
+                else
+                    imgSize.y = imgSize.x / aspect;
+
+                // Center the image horizontally
+                float padX = (avail.x - imgSize.x) * 0.5f;
+                if (padX > 0)
+                    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + padX);
+
+                ImGui::Image(
+                    reinterpret_cast<ImTextureID>(tex->descriptor_set),
+                    imgSize);
+            }
+
+            // Slice navigation slider
+            int maxSlice = (viewIndex == 0) ? vol.dimensions[2]
+                         : (viewIndex == 1) ? vol.dimensions[0]
+                                            : vol.dimensions[1];
+
+            ImGui::PushID(vi * 3 + viewIndex);
+            {
+                if (ImGui::Button("-"))
+                {
+                    if (state.sliceIndices[viewIndex] > 0)
+                    {
+                        state.sliceIndices[viewIndex]--;
+                        UpdateSliceTexture(vi, viewIndex);
+                    }
+                }
+                ImGui::SameLine();
+
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 30);
+                if (ImGui::SliderInt("##slice", &state.sliceIndices[viewIndex],
+                                     0, maxSlice - 1, "Slice %d"))
+                {
+                    UpdateSliceTexture(vi, viewIndex);
+                }
+
+                ImGui::SameLine();
+                if (ImGui::Button("+"))
+                {
+                    if (state.sliceIndices[viewIndex] < maxSlice - 1)
+                    {
+                        state.sliceIndices[viewIndex]++;
+                        UpdateSliceTexture(vi, viewIndex);
+                    }
+                }
+            }
+            ImGui::PopID();
+        }
+    }
+    ImGui::EndChild();
+}
+
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
@@ -238,26 +331,19 @@ int main(int argc, char** argv)
 
     std::cerr << "Entering main loop...\n";
 
-    // Pre-generate window names for each volume and view
-    // Format: "V1 Transverse (XY)", "V1 Sagittal (YZ)", etc.
-    const char* viewSuffixes[] = { "Transverse (XY)", "Sagittal (YZ)", "Coronal (XZ)" };
     int numVolumes = static_cast<int>(g_Volumes.size());
 
-    std::vector<std::string> windowNames;   // [vol * 4 + view] for views, [vol * 4 + 3] for controls
+    // Pre-generate window names — one per volume column
+    std::vector<std::string> columnNames;
     for (int vi = 0; vi < numVolumes; ++vi)
     {
-        for (int v = 0; v < 3; ++v)
-        {
-            char buf[64];
-            std::snprintf(buf, sizeof(buf), "V%d %s", vi + 1, viewSuffixes[v]);
-            windowNames.push_back(buf);
-        }
-        {
-            char buf[64];
-            std::snprintf(buf, sizeof(buf), "V%d Controls", vi + 1);
-            windowNames.push_back(buf);
-        }
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "Volume %d", vi + 1);
+        columnNames.push_back(buf);
     }
+
+    // Fixed height for the controls section at the bottom of each column
+    constexpr float controlsHeight = 100.0f;
 
     // Main loop
     while (!glfwWindowShouldClose(window))
@@ -286,14 +372,17 @@ int main(int argc, char** argv)
         {
             g_LayoutInitialized = true;
 
+            ImVec2 vpSize = ImGui::GetMainViewport()->Size;
+
             ImGui::DockBuilderRemoveNode(dockspaceId);
             ImGui::DockBuilderAddNode(dockspaceId,
                                       ImGuiDockNodeFlags_DockSpace);
-            ImGui::DockBuilderSetNodeSize(dockspaceId,
-                                          ImGui::GetMainViewport()->Size);
+            ImGui::DockBuilderSetNodeSize(dockspaceId, vpSize);
 
-            // Split dockspace into N columns (one per volume)
-            // We split left-to-right, peeling off one column at a time
+            // Simple layout: split dockspace into N equal columns,
+            // one per volume.  Each column is a single ImGui window
+            // that internally uses BeginChild to divide into 3 equal
+            // view rows + a fixed-height controls section.
             std::vector<ImGuiID> columnIds(numVolumes);
             if (numVolumes == 1)
             {
@@ -304,39 +393,22 @@ int main(int argc, char** argv)
                 ImGuiID remaining = dockspaceId;
                 for (int vi = 0; vi < numVolumes - 1; ++vi)
                 {
-                    float fraction = 1.0f / static_cast<float>(numVolumes - vi);
+                    float fraction = 1.0f /
+                        static_cast<float>(numVolumes - vi);
                     ImGuiID leftId, rightId;
                     ImGui::DockBuilderSplitNode(remaining, ImGuiDir_Left,
-                                                fraction, &leftId, &rightId);
+                                                fraction,
+                                                &leftId, &rightId);
                     columnIds[vi] = leftId;
                     remaining = rightId;
                 }
                 columnIds[numVolumes - 1] = remaining;
             }
 
-            // Within each column, split into 4 rows: 3 views + controls at bottom
             for (int vi = 0; vi < numVolumes; ++vi)
             {
-                // Split off controls at the bottom (give it ~15% of height)
-                ImGuiID viewsArea, controlsId;
-                ImGui::DockBuilderSplitNode(columnIds[vi], ImGuiDir_Down,
-                                            0.15f, &controlsId, &viewsArea);
-
-                // Split views area into 3 equal rows
-                ImGuiID topId, middleBottomId;
-                ImGui::DockBuilderSplitNode(viewsArea, ImGuiDir_Up, 0.333f,
-                                            &topId, &middleBottomId);
-
-                ImGuiID middleId, bottomId;
-                ImGui::DockBuilderSplitNode(middleBottomId, ImGuiDir_Up, 0.5f,
-                                            &middleId, &bottomId);
-
-                // Dock windows: index into windowNames = vi * 4 + {0,1,2,3}
-                int base = vi * 4;
-                ImGui::DockBuilderDockWindow(windowNames[base + 0].c_str(), topId);
-                ImGui::DockBuilderDockWindow(windowNames[base + 1].c_str(), middleId);
-                ImGui::DockBuilderDockWindow(windowNames[base + 2].c_str(), bottomId);
-                ImGui::DockBuilderDockWindow(windowNames[base + 3].c_str(), controlsId);
+                ImGui::DockBuilderDockWindow(
+                    columnNames[vi].c_str(), columnIds[vi]);
             }
 
             ImGui::DockBuilderFinish(dockspaceId);
@@ -354,116 +426,79 @@ int main(int argc, char** argv)
             ImGui::EndMainMenuBar();
         }
 
-        // --- Render each volume's windows ---
+        // --- Render each volume's column window ---
         for (int vi = 0; vi < numVolumes; ++vi)
         {
             VolumeViewState& state = g_ViewStates[vi];
             const Volume& vol = g_Volumes[vi];
-            int base = vi * 4;
 
-            // Controls window for this volume
-            ImGui::Begin(windowNames[base + 3].c_str());
+            ImGui::Begin(columnNames[vi].c_str());
             {
-                ImGui::Text("Dimensions: %d x %d x %d",
-                            vol.dimensions[0], vol.dimensions[1], vol.dimensions[2]);
-                ImGui::Separator();
+                ImVec2 avail = ImGui::GetContentRegionAvail();
 
-                bool changed = false;
-                ImGui::Text("Window / Level");
+                // Divide available height: 3 equal view rows + fixed
+                // controls height at the bottom.  The spacing between
+                // children is accounted for by ImGui automatically.
+                float viewAreaHeight = avail.y - controlsHeight;
+                float viewRowHeight  = viewAreaHeight / 3.0f;
+                float viewWidth      = avail.x;
 
-                // Use unique IDs per volume to avoid ImGui ID conflicts
-                ImGui::PushID(vi);
+                if (viewRowHeight < 40.0f)
+                    viewRowHeight = 40.0f;
 
-                if (ImGui::DragFloat("Level (Center)", &state.windowLevel[0],
-                                     (vol.max_value - vol.min_value) * 0.005f))
-                    changed = true;
-                if (ImGui::DragFloat("Width", &state.windowLevel[1],
-                                     (vol.max_value - vol.min_value) * 0.005f))
-                    changed = true;
-
-                if (ImGui::Button("Auto Level"))
+                // Three slice views — equal height
+                for (int v = 0; v < 3; ++v)
                 {
-                    float range = vol.max_value - vol.min_value;
-                    state.windowLevel[0] = vol.min_value + range * 0.5f;
-                    state.windowLevel[1] = range;
-                    changed = true;
+                    RenderSliceView(vi, v,
+                                    ImVec2(viewWidth, viewRowHeight),
+                                    vol, state);
                 }
 
-                ImGui::PopID();
-
-                if (changed)
+                // Controls section
+                ImGui::BeginChild("##controls", ImVec2(viewWidth, 0),
+                                  ImGuiChildFlags_Borders);
                 {
-                    UpdateSliceTexture(vi, 0);
-                    UpdateSliceTexture(vi, 1);
-                    UpdateSliceTexture(vi, 2);
+                    ImGui::Text("Dimensions: %d x %d x %d",
+                                vol.dimensions[0], vol.dimensions[1],
+                                vol.dimensions[2]);
+                    ImGui::Text("Voxel size: %.3f x %.3f x %.3f mm",
+                                vol.step[0], vol.step[1], vol.step[2]);
+                    ImGui::Separator();
+
+                    bool changed = false;
+                    ImGui::Text("Window / Level");
+
+                    ImGui::PushID(vi);
+
+                    if (ImGui::DragFloat("Level (Center)",
+                                         &state.windowLevel[0],
+                                         (vol.max_value - vol.min_value) * 0.005f))
+                        changed = true;
+                    if (ImGui::DragFloat("Width",
+                                         &state.windowLevel[1],
+                                         (vol.max_value - vol.min_value) * 0.005f))
+                        changed = true;
+
+                    if (ImGui::Button("Auto Level"))
+                    {
+                        float range = vol.max_value - vol.min_value;
+                        state.windowLevel[0] = vol.min_value + range * 0.5f;
+                        state.windowLevel[1] = range;
+                        changed = true;
+                    }
+
+                    ImGui::PopID();
+
+                    if (changed)
+                    {
+                        UpdateSliceTexture(vi, 0);
+                        UpdateSliceTexture(vi, 1);
+                        UpdateSliceTexture(vi, 2);
+                    }
                 }
+                ImGui::EndChild();
             }
             ImGui::End();
-
-            // View windows for this volume
-            for (int v = 0; v < 3; ++v)
-            {
-                ImGui::Begin(windowNames[base + v].c_str());
-                if (state.sliceTextures[v])
-                {
-                    ImVec2 avail = ImGui::GetContentRegionAvail();
-                    float controlHeight = 40.0f;
-                    avail.y -= controlHeight;
-
-                    float aspect = static_cast<float>(state.sliceTextures[v]->width) /
-                                   static_cast<float>(state.sliceTextures[v]->height);
-                    ImVec2 size = avail;
-                    if (size.x / size.y > aspect)
-                        size.x = size.y * aspect;
-                    else
-                        size.y = size.x / aspect;
-
-                    ImGui::Image(
-                        reinterpret_cast<ImTextureID>(state.sliceTextures[v]->descriptor_set),
-                        size);
-
-                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (avail.y - size.y));
-
-                    int maxSlice = (v == 0) ? vol.dimensions[2]
-                                 : (v == 1) ? vol.dimensions[0]
-                                            : vol.dimensions[1];
-
-                    // Push unique ID for slider/buttons per volume+view
-                    ImGui::PushID(vi * 3 + v);
-                    ImGui::BeginGroup();
-                    {
-                        if (ImGui::Button("-"))
-                        {
-                            if (state.sliceIndices[v] > 0)
-                            {
-                                state.sliceIndices[v]--;
-                                UpdateSliceTexture(vi, v);
-                            }
-                        }
-                        ImGui::SameLine();
-
-                        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 30);
-                        if (ImGui::SliderInt("##slice", &state.sliceIndices[v],
-                                             0, maxSlice - 1, "Slice %d"))
-                        {
-                            UpdateSliceTexture(vi, v);
-                        }
-
-                        ImGui::SameLine();
-                        if (ImGui::Button("+"))
-                        {
-                            if (state.sliceIndices[v] < maxSlice - 1)
-                            {
-                                state.sliceIndices[v]++;
-                                UpdateSliceTexture(vi, v);
-                            }
-                        }
-                    }
-                    ImGui::EndGroup();
-                    ImGui::PopID();
-                }
-                ImGui::End();
-            }
         }
 
         // Rendering
@@ -471,7 +506,10 @@ int main(int argc, char** argv)
         backend->endFrame();
     }
 
-    // Cleanup textures
+    // Cleanup: wait for GPU, destroy textures (while ImGui is still alive),
+    // then shut down ImGui, then shut down the backend.
+    backend->waitIdle();
+
     for (auto& state : g_ViewStates)
     {
         for (int i = 0; i < 3; ++i)
@@ -484,7 +522,6 @@ int main(int argc, char** argv)
         }
     }
 
-    // Cleanup
     backend->shutdownImGui();
     backend->shutdown();
 

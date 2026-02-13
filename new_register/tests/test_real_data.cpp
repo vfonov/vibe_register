@@ -48,8 +48,22 @@ int main(int argc, char** argv) {
         double mean = sum / (double)vol.data.size();
         
         std::cout << "OK. Dims: " << vol.dimensions[0] << "x" << vol.dimensions[1] << "x" << vol.dimensions[2] 
+                  << ", Step: " << vol.step[0] << "x" << vol.step[1] << "x" << vol.step[2]
                   << ", Range: [" << vol.min_value << ", " << vol.max_value << "]";
         std::cout << std::fixed << std::setprecision(8) << ", Mean: " << mean;
+
+        // Verify spatial metadata: steps must be positive (setup_standard_order)
+        // and non-zero
+        for (int d = 0; d < 3; ++d)
+        {
+            if (vol.step[d] <= 0.0)
+            {
+                std::cout << " [FAILED] step[" << d << "] = " << vol.step[d]
+                          << " (expected positive)" << std::endl;
+                failures++;
+                continue;
+            }
+        }
 
         // Check against expected values
         double expected_mean = -1.0;

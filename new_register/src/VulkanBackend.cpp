@@ -286,6 +286,15 @@ void VulkanBackend::shutdown()
     instance_ = VK_NULL_HANDLE;
 }
 
+void VulkanBackend::waitIdle()
+{
+    if (device_ != VK_NULL_HANDLE)
+    {
+        VkResult err = vkDeviceWaitIdle(device_);
+        checkVkResult(err);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Swapchain rebuild
 // ---------------------------------------------------------------------------
