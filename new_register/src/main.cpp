@@ -224,6 +224,57 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                     reinterpret_cast<ImTextureID>(tex->descriptor_set),
                     imgSize);
 
+                // --- Draw crosshair showing other panels' slice positions ---
+                {
+                    ImDrawList* dl = ImGui::GetWindowDrawList();
+                    const ImU32 crossCol = IM_COL32(255, 255, 0, 100);
+                    const float crossThick = 1.0f * g_DpiScale;
+
+                    // Determine which slice indices map to U and V axes
+                    float normCrossU = 0.0f, normCrossV = 0.0f;
+                    if (viewIndex == 0)
+                    {
+                        // Transverse: U=X, V=Y
+                        normCrossU = static_cast<float>(state.sliceIndices[1]) /
+                                     static_cast<float>(std::max(vol.dimensions[0] - 1, 1));
+                        normCrossV = static_cast<float>(state.sliceIndices[2]) /
+                                     static_cast<float>(std::max(vol.dimensions[1] - 1, 1));
+                    }
+                    else if (viewIndex == 1)
+                    {
+                        // Sagittal: U=Y, V=Z
+                        normCrossU = static_cast<float>(state.sliceIndices[2]) /
+                                     static_cast<float>(std::max(vol.dimensions[1] - 1, 1));
+                        normCrossV = static_cast<float>(state.sliceIndices[0]) /
+                                     static_cast<float>(std::max(vol.dimensions[2] - 1, 1));
+                    }
+                    else
+                    {
+                        // Coronal: U=X, V=Z
+                        normCrossU = static_cast<float>(state.sliceIndices[1]) /
+                                     static_cast<float>(std::max(vol.dimensions[0] - 1, 1));
+                        normCrossV = static_cast<float>(state.sliceIndices[0]) /
+                                     static_cast<float>(std::max(vol.dimensions[2] - 1, 1));
+                    }
+
+                    // V is flipped (image top = max voxel)
+                    normCrossV = 1.0f - normCrossV;
+
+                    float screenX = imgPos.x + normCrossU * imgSize.x;
+                    float screenY = imgPos.y + normCrossV * imgSize.y;
+
+                    // Vertical line
+                    dl->AddLine(
+                        ImVec2(screenX, imgPos.y),
+                        ImVec2(screenX, imgPos.y + imgSize.y),
+                        crossCol, crossThick);
+                    // Horizontal line
+                    dl->AddLine(
+                        ImVec2(imgPos.x, screenY),
+                        ImVec2(imgPos.x + imgSize.x, screenY),
+                        crossCol, crossThick);
+                }
+
                 // --- Mouse interaction on the image ---
                 bool imageHovered = ImGui::IsItemHovered();
 
