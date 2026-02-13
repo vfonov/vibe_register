@@ -33,6 +33,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glaze)
 
+# 3.75. GLM (Math library for vector/matrix operations)
+include(FetchContent)
+FetchContent_Declare(
+    glm
+    GIT_REPOSITORY https://github.com/g-truc/glm.git
+    GIT_TAG        1.0.1
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(glm)
+
 # Create ImGui library target
 add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui.cpp
@@ -97,6 +107,7 @@ target_include_directories(new_register PRIVATE
     include
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
+    ${glm_SOURCE_DIR}  # GLM is header-only
     # Also include minc2-simple public headers path (already handled by PUBLIC on minc2_simple target?)
     # Yes, linking against minc2_simple propagates usage requirements.
 )
@@ -108,6 +119,7 @@ target_link_libraries(new_register PRIVATE
     imgui
     minc2_simple
     glaze::glaze
+    glm
 )
 
 # Definitions
