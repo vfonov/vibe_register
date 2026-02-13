@@ -21,7 +21,7 @@ struct VolumeViewState
 {
     VulkanTexture* sliceTextures[3] = { nullptr, nullptr, nullptr };
     int sliceIndices[3] = { 0, 0, 0 };  // Current slice for each view
-    float windowLevel[2] = { 0.5f, 1.0f };  // Center, Width
+    float valueRange[2] = { 0.0f, 1.0f };  // Min, Max
     ColourMapType colourMap = ColourMapType::GrayScale;
 };
 
@@ -55,14 +55,15 @@ void UpdateSliceTexture(int volumeIndex, int viewIndex)
     int dimY = vol.dimensions[1];
     int dimZ = vol.dimensions[2];
 
-    float wlCenter = state.windowLevel[0];
-    float wlWidth  = state.windowLevel[1];
-    float wlLow    = wlCenter - wlWidth * 0.5f;
+    float rangeMin = state.valueRange[0];
+    float rangeMax = state.valueRange[1];
+    float rangeSpan = rangeMax - rangeMin;
+    if (rangeSpan < 1e-12f) rangeSpan = 1e-12f;
 
-    // Lambda: map a raw voxel value through window/level to a LUT colour.
+    // Lambda: map a raw voxel value through min/max range to a LUT colour.
     auto voxelToColour = [&](float val) -> uint32_t
     {
-        val = (val - wlLow) / wlWidth;
+        val = (val - rangeMin) / rangeSpan;
         if (val < 0.0f) val = 0.0f;
         if (val > 1.0f) val = 1.0f;
         int idx = static_cast<int>(val * 255.0f + 0.5f);
@@ -151,9 +152,8 @@ void ResetViews()
         state.sliceIndices[1] = vol.dimensions[0] / 2;
         state.sliceIndices[2] = vol.dimensions[1] / 2;
 
-        float range = vol.max_value - vol.min_value;
-        state.windowLevel[0] = vol.min_value + range * 0.5f;
-        state.windowLevel[1] = range;
+        state.valueRange[0] = vol.min_value;
+        state.valueRange[1] = vol.max_value;
 
         UpdateSliceTexture(vi, 0);
         UpdateSliceTexture(vi, 1);
@@ -664,27 +664,31 @@ int main(int argc, char** argv)
                     ImGui::Separator();
 
                     bool changed = false;
-                    ImGui::Text("Window / Level");
-
                     ImGui::PushID(vi);
-
-                    if (ImGui::DragFloat("Level (Center)",
-                                         &state.windowLevel[0],
-                                         (vol.max_value - vol.min_value) * 0.005f))
-                        changed = true;
-                    if (ImGui::DragFloat("Width",
-                                         &state.windowLevel[1],
-                                         (vol.max_value - vol.min_value) * 0.005f))
-                        changed = true;
-
-                    if (ImGui::Button("Auto Level"))
                     {
-                        float range = vol.max_value - vol.min_value;
-                        state.windowLevel[0] = vol.min_value + range * 0.5f;
-                        state.windowLevel[1] = range;
-                        changed = true;
-                    }
+                        float avail = ImGui::GetContentRegionAvail().x;
+                        float autoW = ImGui::CalcTextSize("Auto").x +
+                                      ImGui::GetStyle().FramePadding.x * 2.0f;
+                        float spacing = ImGui::GetStyle().ItemSpacing.x;
+                        float inputW = (avail - autoW - spacing * 2.0f) * 0.5f;
 
+                        ImGui::SetNextItemWidth(inputW);
+                        if (ImGui::InputFloat("##min", &state.valueRange[0],
+                                              0.0f, 0.0f, "%.4g"))
+                            changed = true;
+                        ImGui::SameLine();
+                        ImGui::SetNextItemWidth(inputW);
+                        if (ImGui::InputFloat("##max", &state.valueRange[1],
+                                              0.0f, 0.0f, "%.4g"))
+                            changed = true;
+                        ImGui::SameLine();
+                        if (ImGui::Button("Auto"))
+                        {
+                            state.valueRange[0] = vol.min_value;
+                            state.valueRange[1] = vol.max_value;
+                            changed = true;
+                        }
+                    }
                     ImGui::PopID();
 
                     if (changed)
