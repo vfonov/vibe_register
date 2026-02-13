@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <array>
+#include <stdexcept>
 
 class Volume {
 public:
@@ -30,7 +31,9 @@ public:
     Volume();
     ~Volume();
 
-    bool load(const std::string& filename);
+    /// Load a MINC2 volume from disk.
+    /// @throws std::runtime_error on any failure (file not found, bad format, etc.)
+    void load(const std::string& filename);
     float get(int x, int y, int z) const;
     void generate_test_data();
 

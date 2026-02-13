@@ -7,6 +7,7 @@
 #include <memory>
 #include <cstdio>
 #include <filesystem>
+#include <stdexcept>
 
 #define GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_VULKAN
@@ -465,15 +466,19 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
 
 int main(int argc, char** argv)
 {
+    try
+    {
+
     // Load volumes
     if (argc > 1)
     {
         for (int i = 1; i < argc; ++i)
         {
             std::cerr << "Loading volume " << (i - 1) << ": " << argv[i] << "\n";
-            Volume vol;
-            if (vol.load(argv[i]))
+            try
             {
+                Volume vol;
+                vol.load(argv[i]);
                 g_Volumes.push_back(std::move(vol));
                 g_VolumeNames.push_back(
                     std::filesystem::path(argv[i]).filename().string());
@@ -482,6 +487,10 @@ int main(int argc, char** argv)
                           << v.dimensions[0] << " x "
                           << v.dimensions[1] << " x "
                           << v.dimensions[2] << "\n";
+            }
+            catch (const std::exception& e)
+            {
+                std::cerr << "Failed to load volume: " << e.what() << "\n";
             }
         }
     }
@@ -556,13 +565,7 @@ int main(int argc, char** argv)
 
     // Create and initialize graphics backend
     auto backend = GraphicsBackend::createDefault();
-    if (!backend->initialize(window))
-    {
-        std::cerr << "Failed to initialize graphics backend.\n";
-        glfwDestroyWindow(window);
-        glfwTerminate();
-        return 1;
-    }
+    backend->initialize(window);
 
     backend->initImGui(window);
 
@@ -956,4 +959,12 @@ int main(int argc, char** argv)
     glfwTerminate();
 
     return 0;
+
+    }
+    catch (const std::exception& e)
+    {
+        std::cerr << "Fatal error: " << e.what() << "\n";
+        glfwTerminate();
+        return 1;
+    }
 }

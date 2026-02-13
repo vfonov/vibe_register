@@ -4,6 +4,7 @@
 #include <vector>
 #include <cmath>
 #include <iomanip>
+#include <stdexcept>
 
 int main(int argc, char** argv) {
     if (argc < 2) {
@@ -18,8 +19,13 @@ int main(int argc, char** argv) {
         std::cout << "Testing file: " << filename << " ... ";
         
         Volume vol;
-        if (!vol.load(filename)) {
-            std::cout << "FAILED to load." << std::endl;
+        try
+        {
+            vol.load(filename);
+        }
+        catch (const std::exception& e)
+        {
+            std::cout << "FAILED to load: " << e.what() << std::endl;
             failures++;
             continue;
         }

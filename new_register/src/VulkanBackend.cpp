@@ -9,6 +9,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#include <stdexcept>
+#include <string>
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -26,8 +28,10 @@ std::unique_ptr<GraphicsBackend> GraphicsBackend::createDefault()
 void VulkanBackend::checkVkResult(VkResult err)
 {
     if (err == 0) return;
-    std::cerr << "[vulkan] Error: VkResult = " << err << "\n";
-    if (err < 0) std::abort();
+    if (err < 0)
+        throw std::runtime_error("Vulkan error: VkResult = " + std::to_string(err));
+    // Positive values are non-fatal (e.g. VK_SUBOPTIMAL_KHR)
+    std::cerr << "[vulkan] Warning: VkResult = " << err << "\n";
 }
 
 // ---------------------------------------------------------------------------
@@ -59,8 +63,7 @@ void VulkanBackend::createDevice()
     checkVkResult(err);
     if (gpuCount == 0)
     {
-        std::cerr << "Error: No Vulkan physical devices found.\n";
-        std::abort();
+        throw std::runtime_error("No Vulkan physical devices found");
     }
 
     std::vector<VkPhysicalDevice> gpus(gpuCount);
@@ -97,8 +100,7 @@ found:
 
     if (physicalDevice_ == VK_NULL_HANDLE)
     {
-        std::cerr << "Error: Could not find a GPU with Graphics and Presentation support.\n";
-        std::abort();
+        throw std::runtime_error("Could not find a GPU with Graphics and Presentation support");
     }
 
     {
@@ -213,7 +215,7 @@ void VulkanBackend::createSwapchainWindow(int width, int height)
 // Public lifecycle
 // ---------------------------------------------------------------------------
 
-bool VulkanBackend::initialize(GLFWwindow* window)
+void VulkanBackend::initialize(GLFWwindow* window)
 {
     window_ = window;
 
@@ -229,8 +231,7 @@ bool VulkanBackend::initialize(GLFWwindow* window)
     // Check Vulkan support
     if (!glfwVulkanSupported())
     {
-        std::cerr << "GLFW: Vulkan not supported\n";
-        return false;
+        throw std::runtime_error("GLFW: Vulkan not supported");
     }
 
     // Get required instance extensions from GLFW
@@ -262,8 +263,6 @@ bool VulkanBackend::initialize(GLFWwindow* window)
     VulkanHelpers::Init(device_, physicalDevice_, queueFamily_, queue_,
                         descriptorPool_, commandPool_);
     std::cerr << "VulkanHelpers initialized.\n";
-
-    return true;
 }
 
 void VulkanBackend::shutdown()

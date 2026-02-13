@@ -20,8 +20,8 @@ public:
     /// create logical device, allocate pools, create swapchain, and
     /// initialize any helper subsystems (e.g. VulkanHelpers).
     /// @param window  The GLFW window (already created with GLFW_NO_API).
-    /// @return true on success.
-    virtual bool initialize(GLFWwindow* window) = 0;
+    /// @throws std::runtime_error on failure.
+    virtual void initialize(GLFWwindow* window) = 0;
 
     /// Tear down all graphics resources in reverse order of creation.
     virtual void shutdown() = 0;

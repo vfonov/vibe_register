@@ -4,9 +4,44 @@
 #include <vector>
 #include <algorithm>
 #include <limits>
+#include <stdexcept>
+#include <sstream>
 
 // Include minc2-simple header
 #include <minc2-simple.h>
+
+// RAII wrapper for minc2 file handles — ensures close+free on scope exit.
+class Minc2Handle
+{
+public:
+    Minc2Handle()
+    {
+        if (minc2_allocate(&h_) != MINC2_SUCCESS)
+            throw std::runtime_error("Failed to allocate minc2 handle");
+    }
+
+    ~Minc2Handle()
+    {
+        if (opened_) minc2_close(h_);
+        minc2_free(h_);
+    }
+
+    void open(const std::string& filename)
+    {
+        if (minc2_open(h_, filename.c_str()) != MINC2_SUCCESS)
+            throw std::runtime_error("Failed to open file: " + filename);
+        opened_ = true;
+    }
+
+    minc2_file_handle get() const { return h_; }
+
+    Minc2Handle(const Minc2Handle&) = delete;
+    Minc2Handle& operator=(const Minc2Handle&) = delete;
+
+private:
+    minc2_file_handle h_ = nullptr;
+    bool opened_ = false;
+};
 
 Volume::Volume()
 {
@@ -65,53 +100,24 @@ void Volume::generate_test_data()
     std::cerr << "Generated synthetic volume 256x256x256" << std::endl;
 }
 
-bool Volume::load(const std::string& filename)
+void Volume::load(const std::string& filename)
 {
     if (filename.empty())
-    {
-        std::cerr << "Volume::load: Empty filename provided." << std::endl;
-        return false;
-    }
+        throw std::runtime_error("Empty filename provided");
 
-    minc2_file_handle h;
-    if (minc2_allocate(&h) != MINC2_SUCCESS)
-    {
-        std::cerr << "Volume::load: Failed to allocate minc2 handle." << std::endl;
-        return false;
-    }
+    Minc2Handle h;
+    h.open(filename);
 
-    if (minc2_open(h, filename.c_str()) != MINC2_SUCCESS)
-    {
-        std::cerr << "Volume::load: Failed to open file: " << filename << std::endl;
-        minc2_free(h);
-        return false;
-    }
-
-    if (minc2_setup_standard_order(h) != MINC2_SUCCESS)
-    {
-        std::cerr << "Volume::load: Failed to setup standard dimension order." << std::endl;
-        minc2_close(h);
-        minc2_free(h);
-        return false;
-    }
+    if (minc2_setup_standard_order(h.get()) != MINC2_SUCCESS)
+        throw std::runtime_error("Failed to setup standard dimension order: " + filename);
 
     int ndim = 0;
-    if (minc2_ndim(h, &ndim) != MINC2_SUCCESS)
-    {
-        std::cerr << "Volume::load: Failed to get number of dimensions." << std::endl;
-        minc2_close(h);
-        minc2_free(h);
-        return false;
-    }
+    if (minc2_ndim(h.get(), &ndim) != MINC2_SUCCESS)
+        throw std::runtime_error("Failed to get number of dimensions: " + filename);
 
     struct minc2_dimension *dims = nullptr;
-    if (minc2_get_representation_dimensions(h, &dims) != MINC2_SUCCESS)
-    {
-        std::cerr << "Volume::load: Failed to get dimension info." << std::endl;
-        minc2_close(h);
-        minc2_free(h);
-        return false;
-    }
+    if (minc2_get_representation_dimensions(h.get(), &dims) != MINC2_SUCCESS)
+        throw std::runtime_error("Failed to get dimension info: " + filename);
 
     // Find X, Y, Z dimension indices
     int dim_indices[3] = { -1, -1, -1 };
@@ -124,12 +130,7 @@ bool Volume::load(const std::string& filename)
     }
 
     if (dim_indices[0] == -1 || dim_indices[1] == -1 || dim_indices[2] == -1)
-    {
-        std::cerr << "Volume::load: Could not find X, Y, and Z dimensions." << std::endl;
-        minc2_close(h);
-        minc2_free(h);
-        return false;
-    }
+        throw std::runtime_error("Could not find X, Y, and Z dimensions: " + filename);
 
     // Extract dimension sizes and spatial metadata
     for (int axis = 0; axis < 3; ++axis)
@@ -161,33 +162,12 @@ bool Volume::load(const std::string& filename)
     }
 
     if (total_voxels == 0)
-    {
-        std::cerr << "Volume::load: Volume has 0 voxels." << std::endl;
-        minc2_close(h);
-        minc2_free(h);
-        return false;
-    }
+        throw std::runtime_error("Volume has 0 voxels: " + filename);
 
-    try
-    {
-        data.resize(total_voxels);
-    }
-    catch (const std::bad_alloc& e)
-    {
-        std::cerr << "Volume::load: Failed to allocate memory for volume data ("
-                  << total_voxels * sizeof(float) << " bytes)." << std::endl;
-        minc2_close(h);
-        minc2_free(h);
-        return false;
-    }
+    data.resize(total_voxels);  // std::bad_alloc propagates naturally
 
-    if (minc2_load_complete_volume(h, data.data(), MINC2_FLOAT) != MINC2_SUCCESS)
-    {
-        std::cerr << "Volume::load: Failed to load volume data." << std::endl;
-        minc2_close(h);
-        minc2_free(h);
-        return false;
-    }
+    if (minc2_load_complete_volume(h.get(), data.data(), MINC2_FLOAT) != MINC2_SUCCESS)
+        throw std::runtime_error("Failed to load volume data: " + filename);
 
     // Calculate min/max for visualization
     min_value = std::numeric_limits<float>::max();
@@ -210,11 +190,6 @@ bool Volume::load(const std::string& filename)
     std::cerr << "  Step:  " << step[0] << " x " << step[1] << " x " << step[2] << " mm\n";
     std::cerr << "  Start: " << start[0] << ", " << start[1] << ", " << start[2] << " mm\n";
     std::cerr << "  Range: [" << min_value << ", " << max_value << "]\n";
-
-    minc2_close(h);
-    minc2_free(h);
-
-    return true;
 }
 
 float Volume::get(int x, int y, int z) const
