@@ -635,41 +635,44 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                 }
             }
 
-            // Slice navigation slider
-            int maxSlice = (viewIndex == 0) ? vol.dimensions[2]
-                         : (viewIndex == 1) ? vol.dimensions[0]
-                                            : vol.dimensions[1];
-
-            ImGui::PushID(vi * 3 + viewIndex);
+            // Slice navigation slider (hidden in clean mode)
+            if (!g_CleanMode)
             {
-                if (ImGui::Button("-"))
+                int maxSlice = (viewIndex == 0) ? vol.dimensions[2]
+                             : (viewIndex == 1) ? vol.dimensions[0]
+                                                : vol.dimensions[1];
+
+                ImGui::PushID(vi * 3 + viewIndex);
                 {
-                    if (state.sliceIndices[viewIndex] > 0)
+                    if (ImGui::Button("-"))
                     {
-                        state.sliceIndices[viewIndex]--;
+                        if (state.sliceIndices[viewIndex] > 0)
+                        {
+                            state.sliceIndices[viewIndex]--;
+                            dirtyMask |= (1 << viewIndex);
+                        }
+                    }
+                    ImGui::SameLine();
+
+                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 30.0f * g_DpiScale);
+                    if (ImGui::SliderInt("##slice", &state.sliceIndices[viewIndex],
+                                         0, maxSlice - 1, "Slice %d"))
+                    {
                         dirtyMask |= (1 << viewIndex);
                     }
-                }
-                ImGui::SameLine();
 
-                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 30.0f * g_DpiScale);
-                if (ImGui::SliderInt("##slice", &state.sliceIndices[viewIndex],
-                                     0, maxSlice - 1, "Slice %d"))
-                {
-                    dirtyMask |= (1 << viewIndex);
-                }
-
-                ImGui::SameLine();
-                if (ImGui::Button("+"))
-                {
-                    if (state.sliceIndices[viewIndex] < maxSlice - 1)
+                    ImGui::SameLine();
+                    if (ImGui::Button("+"))
                     {
-                        state.sliceIndices[viewIndex]++;
-                        dirtyMask |= (1 << viewIndex);
+                        if (state.sliceIndices[viewIndex] < maxSlice - 1)
+                        {
+                            state.sliceIndices[viewIndex]++;
+                            dirtyMask |= (1 << viewIndex);
+                        }
                     }
                 }
+                ImGui::PopID();
             }
-            ImGui::PopID();
         }
     }
     ImGui::EndChild();
@@ -921,48 +924,51 @@ int RenderOverlayView(int viewIndex, const ImVec2& childSize)
                 }
             }
 
-            // Slice navigation slider (synced to all volumes)
-            int maxSlice = (viewIndex == 0) ? ref.dimensions[2]
-                         : (viewIndex == 1) ? ref.dimensions[0]
-                                            : ref.dimensions[1];
-
-            ImGui::PushID(100 + viewIndex);
+            // Slice navigation slider (synced to all volumes, hidden in clean mode)
+            if (!g_CleanMode)
             {
-                if (ImGui::Button("-"))
+                int maxSlice = (viewIndex == 0) ? ref.dimensions[2]
+                             : (viewIndex == 1) ? ref.dimensions[0]
+                                                : ref.dimensions[1];
+
+                ImGui::PushID(100 + viewIndex);
                 {
-                    if (refState.sliceIndices[viewIndex] > 0)
+                    if (ImGui::Button("-"))
                     {
-                        int newSlice = refState.sliceIndices[viewIndex] - 1;
+                        if (refState.sliceIndices[viewIndex] > 0)
+                        {
+                            int newSlice = refState.sliceIndices[viewIndex] - 1;
+                            for (auto& st : g_ViewStates)
+                                st.sliceIndices[viewIndex] = newSlice;
+                            dirtyMask |= (1 << viewIndex);
+                        }
+                    }
+                    ImGui::SameLine();
+
+                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 30.0f * g_DpiScale);
+                    int sliceVal = refState.sliceIndices[viewIndex];
+                    if (ImGui::SliderInt("##slice", &sliceVal,
+                                         0, maxSlice - 1, "Slice %d"))
+                    {
                         for (auto& st : g_ViewStates)
-                            st.sliceIndices[viewIndex] = newSlice;
+                            st.sliceIndices[viewIndex] = sliceVal;
                         dirtyMask |= (1 << viewIndex);
                     }
-                }
-                ImGui::SameLine();
 
-                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 30.0f * g_DpiScale);
-                int sliceVal = refState.sliceIndices[viewIndex];
-                if (ImGui::SliderInt("##slice", &sliceVal,
-                                     0, maxSlice - 1, "Slice %d"))
-                {
-                    for (auto& st : g_ViewStates)
-                        st.sliceIndices[viewIndex] = sliceVal;
-                    dirtyMask |= (1 << viewIndex);
-                }
-
-                ImGui::SameLine();
-                if (ImGui::Button("+"))
-                {
-                    if (refState.sliceIndices[viewIndex] < maxSlice - 1)
+                    ImGui::SameLine();
+                    if (ImGui::Button("+"))
                     {
-                        int newSlice = refState.sliceIndices[viewIndex] + 1;
-                        for (auto& st : g_ViewStates)
-                            st.sliceIndices[viewIndex] = newSlice;
-                        dirtyMask |= (1 << viewIndex);
+                        if (refState.sliceIndices[viewIndex] < maxSlice - 1)
+                        {
+                            int newSlice = refState.sliceIndices[viewIndex] + 1;
+                            for (auto& st : g_ViewStates)
+                                st.sliceIndices[viewIndex] = newSlice;
+                            dirtyMask |= (1 << viewIndex);
+                        }
                     }
                 }
+                ImGui::PopID();
             }
-            ImGui::PopID();
         }
     }
     ImGui::EndChild();

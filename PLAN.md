@@ -77,7 +77,7 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 
 ### Clean Mode
 - [x] Toggle via `C` key or "Clean Mode" button in Tools panel
-- [x] Hides: Tools panel, per-volume controls (dimensions, colour maps, range inputs), overlay blend controls
+- [x] Hides: Tools panel, per-volume controls (dimensions, colour maps, range inputs), overlay blend controls, slice navigation sliders (+/- buttons and slider bars)
 - [x] Keeps: Volume window title bars (filenames), 3-plane slice views, crosshairs, overlay views
 
 ### Error Handling
