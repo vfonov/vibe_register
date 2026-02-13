@@ -6,6 +6,9 @@
 #include <stdexcept>
 #include <sstream>
 
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
+
 // Include minc2-simple header
 #include <minc2-simple.h>
 
@@ -153,6 +156,52 @@ void Volume::load(const std::string& filename)
             dirCos[axis][2] = (axis == 2) ? 1.0 : 0.0;
         }
     }
+
+    // Build voxel-to-world transformation matrix
+    // world = start + dirCos * ((voxel + 0.5) * step)
+    // This is equivalent to: world = M * voxel where M is a 4x4 homogenous matrix
+    // M = [ dirCos * diag(step)   start ]
+    //     [       0 0 0         1    ]
+    
+    glm::dmat3 dirCos3(dirCos[0][0], dirCos[0][1], dirCos[0][2],
+                       dirCos[1][0], dirCos[1][1], dirCos[1][2],
+                       dirCos[2][0], dirCos[2][1], dirCos[2][2]);
+    
+    glm::dvec3 scale(step[0], step[1], step[2]);
+    glm::dvec3 trans(start[0], start[1], start[2]);
+    
+    // dirCos * diag(scale) = each column scaled by scale
+    glm::dmat3 affine = dirCos3;
+    for (int i = 0; i < 3; ++i)
+        affine[i] *= scale;
+    
+    // Build 4x4 affine transformation matrix
+    // [ affine  trans ]
+    // [ 0 0 0   1     ]
+    // where affine is 3x3 and trans is 3x1
+    glm::dmat4 affine4(
+        glm::dvec4(affine[0], 0.0),  // column 0
+        glm::dvec4(affine[1], 0.0),  // column 1
+        glm::dvec4(affine[2], 0.0),  // column 2
+        glm::dvec4(trans, 1.0)       // column 3 (translation)
+    );
+    
+    // For voxel-to-world: world = affine * voxel + trans
+    // This transforms voxel coords (0,0,0) to (trans[0], trans[1], trans[2])
+    // But we want voxel (0,0,0) center to be at start + (0.5)*step*dirCos
+    // So we need to add the center offset to the translation
+    glm::dvec3 centerOffset = affine * glm::dvec3(0.5, 0.5, 0.5);
+    glm::dvec3 adjustedTrans = trans + centerOffset;
+    
+    voxelToWorld = glm::dmat4(
+        glm::dvec4(affine[0], 0.0),
+        glm::dvec4(affine[1], 0.0),
+        glm::dvec4(affine[2], 0.0),
+        glm::dvec4(adjustedTrans, 1.0)
+    );
+    
+    // Compute inverse for world-to-voxel
+    worldToVoxel = glm::inverse(voxelToWorld);
 
     size_t total_voxels = 1;
     for (int i = 0; i < ndim; ++i)

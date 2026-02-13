@@ -131,8 +131,8 @@ target_compile_definitions(new_register PRIVATE
 enable_testing()
 
 add_executable(test_real_data tests/test_real_data.cpp src/Volume.cpp)
-target_include_directories(test_real_data PRIVATE include)
-target_link_libraries(test_real_data PRIVATE minc2_simple)
+target_include_directories(test_real_data PRIVATE include ${glm_SOURCE_DIR})
+target_link_libraries(test_real_data PRIVATE minc2_simple glm)
 
 # The test needs access to test_data, we assume it's run from build directory or we pass full path
 # We'll pass the full path to the test executable

@@ -5,6 +5,8 @@
 #include <array>
 #include <stdexcept>
 
+#include <glm/glm.hpp>
+
 class Volume {
 public:
     int dimensions[3] = { 0, 0, 0 };  // X, Y, Z voxel counts
@@ -27,6 +29,13 @@ public:
     std::vector<float> data;
     float min_value = 0.0f;
     float max_value = 1.0f;
+
+    /// 4x4 transformation matrix from voxel coordinates to world coordinates.
+    /// The voxel (i,j,k) is centered, so position = start + (i+0.5, j+0.5, k+0.5).
+    glm::dmat4 voxelToWorld{1.0};  // Identity by default
+
+    /// Inverse matrix: world coordinates to voxel coordinates.
+    glm::dmat4 worldToVoxel{1.0};  // Identity by default
 
     Volume();
     ~Volume();

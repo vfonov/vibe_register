@@ -11,10 +11,6 @@
 #include <stdexcept>
 #include <format>
 
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-
 #define GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -414,54 +410,27 @@ void UpdateAllOverlayTextures()
 // Given a volume and slice indices, compute the world space position.
 static void sliceIndicesToWorld(const Volume& vol, const int indices[3], double world[3])
 {
-    // Convert to GLM vectors
-    glm::dvec3 start(vol.start[0], vol.start[1], vol.start[2]);
-    glm::dvec3 indicesD(indices[0] + 0.5, indices[1] + 0.5, indices[2] + 0.5);
+    // Use precomputed voxel-to-world matrix
+    // The matrix includes the +0.5 offset already
+    glm::dvec4 voxel(indices[0], indices[1], indices[2], 1.0);
+    glm::dvec4 worldH = vol.voxelToWorld * voxel;
     
-    // Build direction cosine matrix (rows are dirCos vectors)
-    glm::dmat3 dirCos(vol.dirCos[0][0], vol.dirCos[0][1], vol.dirCos[0][2],
-                      vol.dirCos[1][0], vol.dirCos[1][1], vol.dirCos[1][2],
-                      vol.dirCos[2][0], vol.dirCos[2][1], vol.dirCos[2][2]);
-    
-    // world = start + dirCos * (indices + 0.5) * step
-    // Since dirCos is orthonormal and step is a diagonal scaling, we compute:
-    // offset = dirCos * ((indices + 0.5) * step)
-    glm::dvec3 stepScale = indicesD * glm::dvec3(vol.step[0], vol.step[1], vol.step[2]);
-    glm::dvec3 offset = dirCos * stepScale;
-    
-    world[0] = start.x + offset.x;
-    world[1] = start.y + offset.y;
-    world[2] = start.z + offset.z;
+    world[0] = worldH.x;
+    world[1] = worldH.y;
+    world[2] = worldH.z;
 }
 
 // --- Convert physical coordinates to slice indices ---
 // Given a world position, find the voxel indices that contain this position.
 static void worldToSliceIndices(const Volume& vol, const double world[3], int indices[3])
 {
-    // Build GLM vectors and matrices
-    glm::dvec3 start(vol.start[0], vol.start[1], vol.start[2]);
-    glm::dvec3 worldPos(world[0], world[1], world[2]);
+    // Use precomputed world-to-voxel matrix
+    glm::dvec4 worldH(world[0], world[1], world[2], 1.0);
+    glm::dvec4 voxelH = vol.worldToVoxel * worldH;
     
-    // Direction cosine matrix (rows are direction vectors)
-    glm::dmat3 dirCos(vol.dirCos[0][0], vol.dirCos[0][1], vol.dirCos[0][2],
-                      vol.dirCos[1][0], vol.dirCos[1][1], vol.dirCos[1][2],
-                      vol.dirCos[2][0], vol.dirCos[2][1], vol.dirCos[2][2]);
-    
-    // world = start + dirCos * ((indices + 0.5) * step)
-    // => dirCos^-1 * (world - start) = (indices + 0.5) * step
-    // For orthonormal dirCos, dirCos^-1 = transpose(dirCos)
-    // => (transpose(dirCos) * (world - start)) / step = indices + 0.5
-    // => indices = (transpose(dirCos) * (world - start)) / step - 0.5
-    
-    glm::dvec3 diff = worldPos - start;
-    glm::dmat3 dirCosT = glm::transpose(dirCos);
-    glm::dvec3 transformed = dirCosT * diff;
-    glm::dvec3 step(vol.step[0], vol.step[1], vol.step[2]);
-    glm::dvec3 voxelFloat = (transformed / step) - 0.5;
-    
-    indices[0] = static_cast<int>(std::round(voxelFloat.x));
-    indices[1] = static_cast<int>(std::round(voxelFloat.y));
-    indices[2] = static_cast<int>(std::round(voxelFloat.z));
+    indices[0] = static_cast<int>(std::round(voxelH.x));
+    indices[1] = static_cast<int>(std::round(voxelH.y));
+    indices[2] = static_cast<int>(std::round(voxelH.z));
     
     // Clamp to valid range
     indices[0] = std::clamp(indices[0], 0, vol.dimensions[0] - 1);
