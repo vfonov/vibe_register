@@ -1763,6 +1763,21 @@ int main(int argc, char** argv)
                                 vol.dimensions[2]);
                     ImGui::Text("Voxel size: %.3f x %.3f x %.3f mm",
                                 vol.step[0], vol.step[1], vol.step[2]);
+
+                    // Current slice position: voxel and world coordinates
+                    ImGui::Separator();
+                    ImGui::Text("Current slice position:");
+                    
+                    // Voxel coordinates
+                    ImGui::Text("  Voxel: (%d, %d, %d)",
+                                state.sliceIndices[0], state.sliceIndices[1], state.sliceIndices[2]);
+                    
+                    // World coordinates (using matrix transform)
+                    double worldPos[3];
+                    vol.transformVoxelToWorld(state.sliceIndices, worldPos);
+                    ImGui::Text("  World: (%.2f, %.2f, %.2f) mm",
+                                worldPos[0], worldPos[1], worldPos[2]);
+
                     ImGui::Separator();
 
                     // Colour map selector: quick-access buttons + dropdown
