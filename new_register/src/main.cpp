@@ -277,8 +277,8 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                 // --- Mouse interaction on the image ---
                 bool imageHovered = ImGui::IsItemHovered();
 
-                // Left click: set slice positions for the other two views
-                if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                // Left click / drag: set slice positions for the other two views
+                if (imageHovered && ImGui::IsMouseDown(ImGuiMouseButton_Left))
                 {
                     ImVec2 mouse = ImGui::GetMousePos();
                     float normU = (mouse.x - imgPos.x) / imgSize.x;
