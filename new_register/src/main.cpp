@@ -11,6 +11,7 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include "ColourMap.h"
 #include "GraphicsBackend.h"
 #include "Volume.h"
 #include "VulkanHelpers.h"
@@ -21,6 +22,7 @@ struct VolumeViewState
     VulkanTexture* sliceTextures[3] = { nullptr, nullptr, nullptr };
     int sliceIndices[3] = { 0, 0, 0 };  // Current slice for each view
     float windowLevel[2] = { 0.5f, 1.0f };  // Center, Width
+    ColourMapType colourMap = ColourMapType::GrayScale;
 };
 
 // --- Application State ---
@@ -43,6 +45,7 @@ void UpdateSliceTexture(int volumeIndex, int viewIndex)
     if (vol.data.empty()) return;
 
     VolumeViewState& state = g_ViewStates[volumeIndex];
+    const ColourLut& lut = colourMapLut(state.colourMap);
 
     int w, h;
     std::vector<uint32_t> pixels;
@@ -55,6 +58,17 @@ void UpdateSliceTexture(int volumeIndex, int viewIndex)
     float wlWidth  = state.windowLevel[1];
     float wlLow    = wlCenter - wlWidth * 0.5f;
 
+    // Lambda: map a raw voxel value through window/level to a LUT colour.
+    auto voxelToColour = [&](float val) -> uint32_t
+    {
+        val = (val - wlLow) / wlWidth;
+        if (val < 0.0f) val = 0.0f;
+        if (val > 1.0f) val = 1.0f;
+        int idx = static_cast<int>(val * 255.0f + 0.5f);
+        if (idx > 255) idx = 255;
+        return lut.table[idx];
+    };
+
     if (viewIndex == 0)  // Transverse (Z-slice)
     {
         w = dimX; h = dimY;
@@ -66,12 +80,7 @@ void UpdateSliceTexture(int volumeIndex, int viewIndex)
         {
             for (int x = 0; x < w; ++x)
             {
-                float val = vol.get(x, y, z);
-                val = (val - wlLow) / wlWidth;
-                if (val < 0) val = 0;
-                if (val > 1) val = 1;
-                uint8_t c = static_cast<uint8_t>(val * 255.0f);
-                pixels[(h - 1 - y) * w + x] = 0xFF000000 | (c << 16) | (c << 8) | c;
+                pixels[(h - 1 - y) * w + x] = voxelToColour(vol.get(x, y, z));
             }
         }
     }
@@ -86,12 +95,7 @@ void UpdateSliceTexture(int volumeIndex, int viewIndex)
         {
             for (int y = 0; y < w; ++y)
             {
-                float val = vol.get(x, y, z);
-                val = (val - wlLow) / wlWidth;
-                if (val < 0) val = 0;
-                if (val > 1) val = 1;
-                uint8_t c = static_cast<uint8_t>(val * 255.0f);
-                pixels[(h - 1 - z) * w + y] = 0xFF000000 | (c << 16) | (c << 8) | c;
+                pixels[(h - 1 - z) * w + y] = voxelToColour(vol.get(x, y, z));
             }
         }
     }
@@ -106,12 +110,7 @@ void UpdateSliceTexture(int volumeIndex, int viewIndex)
         {
             for (int x = 0; x < w; ++x)
             {
-                float val = vol.get(x, y, z);
-                val = (val - wlLow) / wlWidth;
-                if (val < 0) val = 0;
-                if (val > 1) val = 1;
-                uint8_t c = static_cast<uint8_t>(val * 255.0f);
-                pixels[(h - 1 - z) * w + x] = 0xFF000000 | (c << 16) | (c << 8) | c;
+                pixels[(h - 1 - z) * w + x] = voxelToColour(vol.get(x, y, z));
             }
         }
     }
@@ -343,7 +342,7 @@ int main(int argc, char** argv)
     }
 
     // Fixed height for the controls section at the bottom of each column
-    constexpr float controlsHeight = 100.0f;
+    constexpr float controlsHeight = 140.0f;
 
     // Main loop
     while (!glfwWindowShouldClose(window))
@@ -463,6 +462,37 @@ int main(int argc, char** argv)
                                 vol.dimensions[2]);
                     ImGui::Text("Voxel size: %.3f x %.3f x %.3f mm",
                                 vol.step[0], vol.step[1], vol.step[2]);
+                    ImGui::Separator();
+
+                    // Colour map selector
+                    {
+                        const char* currentName =
+                            colourMapName(state.colourMap).data();
+                        ImGui::PushID(vi + 1000);
+                        if (ImGui::BeginCombo("Colour Map", currentName))
+                        {
+                            for (int cm = 0; cm < colourMapCount(); ++cm)
+                            {
+                                auto cmType =
+                                    static_cast<ColourMapType>(cm);
+                                bool selected =
+                                    (cmType == state.colourMap);
+                                if (ImGui::Selectable(
+                                        colourMapName(cmType).data(),
+                                        selected))
+                                {
+                                    state.colourMap = cmType;
+                                    UpdateSliceTexture(vi, 0);
+                                    UpdateSliceTexture(vi, 1);
+                                    UpdateSliceTexture(vi, 2);
+                                }
+                                if (selected)
+                                    ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+                        }
+                        ImGui::PopID();
+                    }
                     ImGui::Separator();
 
                     bool changed = false;

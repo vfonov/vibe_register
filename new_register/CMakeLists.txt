@@ -118,3 +118,7 @@ add_test(NAME ReadRealData COMMAND test_real_data
     ${CMAKE_SOURCE_DIR}/../test_data/mni_icbm152_t1_tal_nlin_sym_09c.mnc
     ${CMAKE_SOURCE_DIR}/../test_data/mni_icbm152_t1_tal_nlin_sym_09c_mask.mnc
 )
+
+add_executable(test_colour_map tests/test_colour_map.cpp src/ColourMap.cpp)
+target_include_directories(test_colour_map PRIVATE include)
+add_test(NAME ColourMapTests COMMAND test_colour_map)
