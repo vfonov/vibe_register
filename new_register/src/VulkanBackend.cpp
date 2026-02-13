@@ -215,6 +215,17 @@ void VulkanBackend::createSwapchainWindow(int width, int height)
 
 bool VulkanBackend::initialize(GLFWwindow* window)
 {
+    window_ = window;
+
+    // Query content scale for HiDPI support
+    {
+        float xscale = 1.0f, yscale = 1.0f;
+        glfwGetWindowContentScale(window, &xscale, &yscale);
+        contentScale_ = (xscale > yscale) ? xscale : yscale;
+        if (contentScale_ < 1.0f) contentScale_ = 1.0f;
+        std::cerr << "Content scale: " << contentScale_ << "\n";
+    }
+
     // Check Vulkan support
     if (!glfwVulkanSupported())
     {
@@ -457,6 +468,23 @@ void VulkanBackend::initImGui(GLFWwindow* window)
 
     ImGui::StyleColorsDark();
 
+    // Scale the entire ImGui style for HiDPI
+    if (contentScale_ > 1.0f)
+    {
+        ImGui::GetStyle().ScaleAllSizes(contentScale_);
+    }
+
+    // Load default font at scaled size (13px is ImGui's default)
+    {
+        float fontSize = 13.0f * contentScale_;
+        ImFontConfig fontCfg;
+        fontCfg.SizePixels = fontSize;
+        fontCfg.OversampleH = 1;
+        fontCfg.OversampleV = 1;
+        fontCfg.PixelSnapH = true;
+        io.Fonts->AddFontDefault(&fontCfg);
+    }
+
     // Platform backend
     ImGui_ImplGlfw_InitForVulkan(window, true);
 
@@ -517,4 +545,9 @@ void VulkanBackend::imguiUpdatePlatformWindows()
         ImGui::RenderPlatformWindowsDefault();
         glfwMakeContextCurrent(backupContext);
     }
+}
+
+float VulkanBackend::contentScale() const
+{
+    return contentScale_;
 }

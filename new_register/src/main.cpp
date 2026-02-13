@@ -29,6 +29,7 @@ struct VolumeViewState
 std::vector<Volume> g_Volumes;
 std::vector<VolumeViewState> g_ViewStates;
 bool g_LayoutInitialized = false;
+float g_DpiScale = 1.0f;  // Set after backend initialisation
 
 // --- Forward Declarations ---
 void UpdateSliceTexture(int volumeIndex, int viewIndex);
@@ -177,7 +178,7 @@ static void RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
         {
             VulkanTexture* tex = state.sliceTextures[viewIndex];
             ImVec2 avail = ImGui::GetContentRegionAvail();
-            float sliderHeight = 30.0f;
+            float sliderHeight = 30.0f * g_DpiScale;
             avail.y -= sliderHeight;
 
             if (avail.x > 0 && avail.y > 0)
@@ -230,7 +231,7 @@ static void RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                 }
                 ImGui::SameLine();
 
-                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 30);
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 30.0f * g_DpiScale);
                 if (ImGui::SliderInt("##slice", &state.sliceIndices[viewIndex],
                                      0, maxSlice - 1, "Slice %d"))
                 {
@@ -299,7 +300,43 @@ int main(int argc, char** argv)
     }
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    GLFWwindow* window = glfwCreateWindow(1280, 720,
+    glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
+
+    // Query primary monitor content scale and work area for window sizing
+    float initScale = 1.0f;
+    int monWorkX = 0, monWorkY = 0, monWorkW = 1280, monWorkH = 720;
+    {
+        float sx = 1.0f, sy = 1.0f;
+        GLFWmonitor* primary = glfwGetPrimaryMonitor();
+        if (primary)
+        {
+            glfwGetMonitorContentScale(primary, &sx, &sy);
+            glfwGetMonitorWorkarea(primary, &monWorkX, &monWorkY,
+                                  &monWorkW, &monWorkH);
+        }
+        initScale = (sx > sy) ? sx : sy;
+        if (initScale < 1.0f) initScale = 1.0f;
+    }
+
+    // Size the window based on the number of loaded volumes.
+    // Each volume column gets ~400 logical pixels wide; height is 720
+    // or 75% of the monitor work area, whichever is smaller.
+    int numVols = static_cast<int>(g_Volumes.size());
+    if (numVols < 1) numVols = 1;
+
+    constexpr int colWidth  = 200;  // logical pixels per volume column
+    constexpr int baseHeight = 480;
+
+    int initW = static_cast<int>(colWidth * numVols * initScale);
+    int initH = static_cast<int>(baseHeight * initScale);
+
+    // Clamp to 90% of the monitor work area
+    int maxW = static_cast<int>(monWorkW * 0.9f);
+    int maxH = static_cast<int>(monWorkH * 0.9f);
+    if (initW > maxW) initW = maxW;
+    if (initH > maxH) initH = maxH;
+
+    GLFWwindow* window = glfwCreateWindow(initW, initH,
                                           "New Register (ImGui + Vulkan)",
                                           nullptr, nullptr);
     if (!window)
@@ -320,6 +357,9 @@ int main(int argc, char** argv)
     }
 
     backend->initImGui(window);
+
+    // Store DPI scale for all UI size computations
+    g_DpiScale = backend->contentScale();
 
     // Initialize slice views for all volumes
     if (!g_Volumes.empty())
@@ -342,7 +382,7 @@ int main(int argc, char** argv)
     }
 
     // Fixed height for the controls section at the bottom of each column
-    constexpr float controlsHeight = 140.0f;
+    const float controlsHeight = 140.0f * g_DpiScale;
 
     // Main loop
     while (!glfwWindowShouldClose(window))
@@ -442,8 +482,8 @@ int main(int argc, char** argv)
                 float viewRowHeight  = viewAreaHeight / 3.0f;
                 float viewWidth      = avail.x;
 
-                if (viewRowHeight < 40.0f)
-                    viewRowHeight = 40.0f;
+                if (viewRowHeight < 40.0f * g_DpiScale)
+                    viewRowHeight = 40.0f * g_DpiScale;
 
                 // Three slice views — equal height
                 for (int v = 0; v < 3; ++v)
@@ -486,8 +526,8 @@ int main(int argc, char** argv)
                             UpdateSliceTexture(vi, 2);
                         };
 
-                        constexpr float swatchSize = 24.0f;
-                        constexpr float borderThickness = 2.0f;
+                        const float swatchSize = 24.0f * g_DpiScale;
+                        const float borderThickness = 2.0f * g_DpiScale;
 
                         for (int qi = 0; qi < nQuick; ++qi)
                         {

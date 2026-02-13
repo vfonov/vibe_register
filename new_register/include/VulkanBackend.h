@@ -34,6 +34,8 @@ public:
     void imguiRenderDrawData() override;
     void imguiUpdatePlatformWindows() override;
 
+    float contentScale() const override;
+
 private:
     // --- Vulkan handles ---
     VkAllocationCallbacks*   allocator_       = nullptr;
@@ -51,6 +53,8 @@ private:
     ImGui_ImplVulkanH_Window windowData_      = {};
     int                      minImageCount_   = 2;
     bool                     swapChainRebuild_= false;
+    float                    contentScale_    = 1.0f;
+    GLFWwindow*              window_          = nullptr;
 
     // --- Private helpers ---
     void createInstance(const char** extensions, uint32_t extensionCount);

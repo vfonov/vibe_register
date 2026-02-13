@@ -65,6 +65,13 @@ public:
     /// Update platform windows for multi-viewport support.
     virtual void imguiUpdatePlatformWindows() = 0;
 
+    // --- DPI / HiDPI ---
+
+    /// Return the content scale factor for the window (1.0 on standard
+    /// displays, 2.0 on Retina / HiDPI).  Uses the larger of the X/Y
+    /// scale values reported by the windowing system.
+    virtual float contentScale() const = 0;
+
     // --- Factory ---
 
     /// Create the default backend for the current platform.
