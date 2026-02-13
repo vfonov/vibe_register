@@ -25,6 +25,11 @@ struct VolumeViewState
     float valueRange[2] = { 0.0f, 1.0f };  // Min, Max
     float dragAccum[3] = { 0.0f, 0.0f, 0.0f };  // Middle-drag accumulator
     ColourMapType colourMap = ColourMapType::GrayScale;
+
+    // Per-view zoom & pan
+    float zoom[3] = { 1.0f, 1.0f, 1.0f };        // Zoom factor (1 = fit)
+    float panU[3] = { 0.0f, 0.0f, 0.0f };         // Pan offset in normalised UV [0..1]
+    float panV[3] = { 0.0f, 0.0f, 0.0f };
 };
 
 // --- Application State ---
@@ -160,6 +165,13 @@ void ResetViews()
         state.valueRange[0] = vol.min_value;
         state.valueRange[1] = vol.max_value;
 
+        for (int v = 0; v < 3; ++v)
+        {
+            state.zoom[v] = 1.0f;
+            state.panU[v] = 0.5f;
+            state.panV[v] = 0.5f;
+        }
+
         UpdateSliceTexture(vi, 0);
         UpdateSliceTexture(vi, 1);
         UpdateSliceTexture(vi, 2);
@@ -219,9 +231,18 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
 
                 imgPos = ImGui::GetCursorScreenPos();
 
+                // --- Compute visible UV region from zoom/pan ---
+                float zf = state.zoom[viewIndex];
+                float halfU = 0.5f / zf;
+                float halfV = 0.5f / zf;
+                float centerU = state.panU[viewIndex];
+                float centerV = state.panV[viewIndex];
+                ImVec2 uv0(centerU - halfU, centerV - halfV);
+                ImVec2 uv1(centerU + halfU, centerV + halfV);
+
                 ImGui::Image(
                     reinterpret_cast<ImTextureID>(tex->descriptor_set),
-                    imgSize);
+                    imgSize, uv0, uv1);
 
                 // --- Draw crosshair showing other panels' slice positions ---
                 {
@@ -229,11 +250,9 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                     const ImU32 crossCol = IM_COL32(255, 255, 0, 100);
                     const float crossThick = 1.0f * g_DpiScale;
 
-                    // Determine which slice indices map to U and V axes
                     float normCrossU = 0.0f, normCrossV = 0.0f;
                     if (viewIndex == 0)
                     {
-                        // Transverse: U=X, V=Y
                         normCrossU = static_cast<float>(state.sliceIndices[1]) /
                                      static_cast<float>(std::max(vol.dimensions[0] - 1, 1));
                         normCrossV = static_cast<float>(state.sliceIndices[2]) /
@@ -241,7 +260,6 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                     }
                     else if (viewIndex == 1)
                     {
-                        // Sagittal: U=Y, V=Z
                         normCrossU = static_cast<float>(state.sliceIndices[2]) /
                                      static_cast<float>(std::max(vol.dimensions[1] - 1, 1));
                         normCrossV = static_cast<float>(state.sliceIndices[0]) /
@@ -249,7 +267,6 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                     }
                     else
                     {
-                        // Coronal: U=X, V=Z
                         normCrossU = static_cast<float>(state.sliceIndices[1]) /
                                      static_cast<float>(std::max(vol.dimensions[0] - 1, 1));
                         normCrossV = static_cast<float>(state.sliceIndices[0]) /
@@ -259,40 +276,58 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                     // V is flipped (image top = max voxel)
                     normCrossV = 1.0f - normCrossV;
 
-                    float screenX = imgPos.x + normCrossU * imgSize.x;
-                    float screenY = imgPos.y + normCrossV * imgSize.y;
+                    // Map from full UV to screen coords accounting for zoom/pan
+                    float uvSpanU = uv1.x - uv0.x;
+                    float uvSpanV = uv1.y - uv0.y;
+                    float screenX = imgPos.x + (normCrossU - uv0.x) / uvSpanU * imgSize.x;
+                    float screenY = imgPos.y + (normCrossV - uv0.y) / uvSpanV * imgSize.y;
 
-                    // Vertical line
+                    // Clip crosshair lines to the image rectangle
+                    ImVec2 clipMin = imgPos;
+                    ImVec2 clipMax(imgPos.x + imgSize.x, imgPos.y + imgSize.y);
+                    dl->PushClipRect(clipMin, clipMax, true);
+
                     dl->AddLine(
                         ImVec2(screenX, imgPos.y),
                         ImVec2(screenX, imgPos.y + imgSize.y),
                         crossCol, crossThick);
-                    // Horizontal line
                     dl->AddLine(
                         ImVec2(imgPos.x, screenY),
                         ImVec2(imgPos.x + imgSize.x, screenY),
                         crossCol, crossThick);
+
+                    dl->PopClipRect();
                 }
 
                 // --- Mouse interaction on the image ---
                 bool imageHovered = ImGui::IsItemHovered();
+                bool shiftHeld = ImGui::GetIO().KeyShift;
 
-                // Left click / drag: set slice positions for the other two views
-                if (imageHovered && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                // Shift + Left drag: pan the view
+                if (imageHovered && shiftHeld &&
+                    ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f))
+                {
+                    ImVec2 delta = ImGui::GetIO().MouseDelta;
+                    float uvSpanU = uv1.x - uv0.x;
+                    float uvSpanV = uv1.y - uv0.y;
+                    state.panU[viewIndex] -= delta.x / imgSize.x * uvSpanU;
+                    state.panV[viewIndex] -= delta.y / imgSize.y * uvSpanV;
+                }
+                // Left click / drag (no Shift): set cross-slice positions
+                else if (imageHovered && !shiftHeld &&
+                         ImGui::IsMouseDown(ImGuiMouseButton_Left))
                 {
                     ImVec2 mouse = ImGui::GetMousePos();
-                    float normU = (mouse.x - imgPos.x) / imgSize.x;
-                    float normV = (mouse.y - imgPos.y) / imgSize.y;
+                    // Map screen position to full UV through zoom/pan
+                    float normU = uv0.x + (mouse.x - imgPos.x) / imgSize.x * (uv1.x - uv0.x);
+                    float normV = uv0.y + (mouse.y - imgPos.y) / imgSize.y * (uv1.y - uv0.y);
                     normU = std::clamp(normU, 0.0f, 1.0f);
                     normV = std::clamp(normV, 0.0f, 1.0f);
-                    // V is flipped (image row 0 = top = max voxel)
+                    // V is flipped
                     normV = 1.0f - normV;
 
-                    // Map normalised UV to voxel coordinates and set
-                    // the other two views' slice indices.
                     if (viewIndex == 0)
                     {
-                        // Transverse: U=X, V=Y
                         int voxX = static_cast<int>(normU * (vol.dimensions[0] - 1) + 0.5f);
                         int voxY = static_cast<int>(normV * (vol.dimensions[1] - 1) + 0.5f);
                         state.sliceIndices[1] = std::clamp(voxX, 0, vol.dimensions[0] - 1);
@@ -301,7 +336,6 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                     }
                     else if (viewIndex == 1)
                     {
-                        // Sagittal: U=Y, V=Z
                         int voxY = static_cast<int>(normU * (vol.dimensions[1] - 1) + 0.5f);
                         int voxZ = static_cast<int>(normV * (vol.dimensions[2] - 1) + 0.5f);
                         state.sliceIndices[2] = std::clamp(voxY, 0, vol.dimensions[1] - 1);
@@ -310,7 +344,6 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                     }
                     else
                     {
-                        // Coronal: U=X, V=Z
                         int voxX = static_cast<int>(normU * (vol.dimensions[0] - 1) + 0.5f);
                         int voxZ = static_cast<int>(normV * (vol.dimensions[2] - 1) + 0.5f);
                         state.sliceIndices[1] = std::clamp(voxX, 0, vol.dimensions[0] - 1);
@@ -319,8 +352,21 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                     }
                 }
 
-                // Middle button drag: scroll current slice
-                if (imageHovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f))
+                // Shift + Middle drag: zoom (drag up = zoom in, down = out)
+                if (imageHovered && shiftHeld &&
+                    ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f))
+                {
+                    float dragY = ImGui::GetIO().MouseDelta.y;
+                    if (dragY != 0.0f)
+                    {
+                        float factor = 1.0f - dragY * 0.005f;
+                        state.zoom[viewIndex] = std::clamp(
+                            state.zoom[viewIndex] * factor, 0.1f, 50.0f);
+                    }
+                }
+                // Middle button drag (no Shift): scroll current slice
+                else if (imageHovered && !shiftHeld &&
+                         ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f))
                 {
                     float dragY = ImGui::GetIO().MouseDelta.y;
                     if (dragY != 0.0f)
@@ -328,7 +374,6 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                         int maxSliceVal = (viewIndex == 0) ? vol.dimensions[2]
                                         : (viewIndex == 1) ? vol.dimensions[0]
                                                            : vol.dimensions[1];
-                        // Sensitivity: full image height = full slice range
                         float sliceDelta = -dragY / imgSize.y *
                                            static_cast<float>(maxSliceVal);
                         state.dragAccum[viewIndex] += sliceDelta;
@@ -346,6 +391,30 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                 else if (!ImGui::IsMouseDown(ImGuiMouseButton_Middle))
                 {
                     state.dragAccum[viewIndex] = 0.0f;
+                }
+
+                // Mouse wheel: zoom centered on cursor position
+                if (imageHovered)
+                {
+                    float wheel = ImGui::GetIO().MouseWheel;
+                    if (wheel != 0.0f)
+                    {
+                        ImVec2 mouse = ImGui::GetMousePos();
+                        float cursorU = uv0.x + (mouse.x - imgPos.x) / imgSize.x * (uv1.x - uv0.x);
+                        float cursorV = uv0.y + (mouse.y - imgPos.y) / imgSize.y * (uv1.y - uv0.y);
+
+                        float factor = (wheel > 0) ? 1.1f : 1.0f / 1.1f;
+                        float newZoom = std::clamp(
+                            state.zoom[viewIndex] * factor, 0.1f, 50.0f);
+
+                        // Adjust pan so the point under the cursor stays fixed
+                        float zOld = state.zoom[viewIndex];
+                        state.panU[viewIndex] = cursorU +
+                            (state.panU[viewIndex] - cursorU) * (zOld / newZoom);
+                        state.panV[viewIndex] = cursorV +
+                            (state.panV[viewIndex] - cursorV) * (zOld / newZoom);
+                        state.zoom[viewIndex] = newZoom;
+                    }
                 }
             }
 
@@ -519,7 +588,7 @@ int main(int argc, char** argv)
     }
 
     // Fixed height for the controls section at the bottom of each column
-    const float controlsHeight = 140.0f * g_DpiScale;
+    const float controlsHeight = 160.0f * g_DpiScale;
 
     // Main loop
     while (!glfwWindowShouldClose(window))
@@ -841,6 +910,17 @@ int main(int argc, char** argv)
                         UpdateSliceTexture(vi, 0);
                         UpdateSliceTexture(vi, 1);
                         UpdateSliceTexture(vi, 2);
+                    }
+
+                    // Reset View button — restores zoom/pan to defaults
+                    if (ImGui::Button("Reset View"))
+                    {
+                        for (int v = 0; v < 3; ++v)
+                        {
+                            state.zoom[v] = 1.0f;
+                            state.panU[v] = 0.5f;
+                            state.panV[v] = 0.5f;
+                        }
                     }
                 }
                 ImGui::EndChild();
