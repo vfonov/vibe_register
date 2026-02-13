@@ -464,33 +464,161 @@ int main(int argc, char** argv)
                                 vol.step[0], vol.step[1], vol.step[2]);
                     ImGui::Separator();
 
-                    // Colour map selector
+                    // Colour map selector: quick-access buttons + dropdown
                     {
-                        const char* currentName =
-                            colourMapName(state.colourMap).data();
                         ImGui::PushID(vi + 1000);
-                        if (ImGui::BeginCombo("Colour Map", currentName))
+
+                        // Quick-access colour maps shown as colour swatches
+                        static const ColourMapType quickMaps[] = {
+                            ColourMapType::GrayScale,
+                            ColourMapType::Red,
+                            ColourMapType::Green,
+                            ColourMapType::Blue,
+                            ColourMapType::Spectral,
+                        };
+                        constexpr int nQuick = sizeof(quickMaps) / sizeof(quickMaps[0]);
+
+                        auto applyColourMap = [&](ColourMapType cmType)
+                        {
+                            state.colourMap = cmType;
+                            UpdateSliceTexture(vi, 0);
+                            UpdateSliceTexture(vi, 1);
+                            UpdateSliceTexture(vi, 2);
+                        };
+
+                        constexpr float swatchSize = 24.0f;
+                        constexpr float borderThickness = 2.0f;
+
+                        for (int qi = 0; qi < nQuick; ++qi)
+                        {
+                            if (qi > 0) ImGui::SameLine();
+
+                            ColourMapType cmType = quickMaps[qi];
+                            bool isActive = (state.colourMap == cmType);
+
+                            ImGui::PushID(qi);
+
+                            ImVec2 cursor = ImGui::GetCursorScreenPos();
+                            if (ImGui::InvisibleButton("##swatch",
+                                    ImVec2(swatchSize, swatchSize)))
+                            {
+                                applyColourMap(cmType);
+                            }
+
+                            ImDrawList* dl = ImGui::GetWindowDrawList();
+                            ImVec2 pMin = cursor;
+                            ImVec2 pMax(cursor.x + swatchSize,
+                                        cursor.y + swatchSize);
+
+                            if (cmType == ColourMapType::Spectral)
+                            {
+                                // Draw miniature gradient strip
+                                const ColourLut& lut =
+                                    colourMapLut(ColourMapType::Spectral);
+                                int nStrips = static_cast<int>(swatchSize);
+                                for (int s = 0; s < nStrips; ++s)
+                                {
+                                    float t = static_cast<float>(s) /
+                                              static_cast<float>(nStrips - 1);
+                                    int idx = static_cast<int>(
+                                        t * 255.0f + 0.5f);
+                                    if (idx > 255) idx = 255;
+                                    uint32_t packed = lut.table[idx];
+                                    // Convert 0xAABBGGRR to ImGui's ImU32
+                                    // (same layout)
+                                    float x0 = pMin.x + static_cast<float>(s);
+                                    float x1 = x0 + 1.0f;
+                                    dl->AddRectFilled(
+                                        ImVec2(x0, pMin.y),
+                                        ImVec2(x1, pMax.y),
+                                        packed);
+                                }
+                            }
+                            else
+                            {
+                                // Solid colour swatch
+                                ColourMapRGBA rep =
+                                    colourMapRepresentative(cmType);
+                                ImU32 col = ImGui::ColorConvertFloat4ToU32(
+                                    ImVec4(rep.r, rep.g, rep.b, 1.0f));
+                                dl->AddRectFilled(pMin, pMax, col);
+                            }
+
+                            // Border: white for active, dark for inactive
+                            if (isActive)
+                            {
+                                dl->AddRect(
+                                    ImVec2(pMin.x - 1, pMin.y - 1),
+                                    ImVec2(pMax.x + 1, pMax.y + 1),
+                                    IM_COL32(255, 255, 255, 255),
+                                    0.0f, 0, borderThickness);
+                            }
+                            else
+                            {
+                                dl->AddRect(pMin, pMax,
+                                    IM_COL32(80, 80, 80, 255));
+                            }
+
+                            // Tooltip with colour map name on hover
+                            if (ImGui::IsItemHovered())
+                            {
+                                ImGui::SetTooltip("%s",
+                                    colourMapName(cmType).data());
+                            }
+
+                            ImGui::PopID();
+                        }
+
+                        // "More..." dropdown for the remaining colour maps
+                        ImGui::SameLine();
+
+                        // Check if current map is one not in quickMaps
+                        bool currentInQuick = false;
+                        for (int qi = 0; qi < nQuick; ++qi)
+                        {
+                            if (quickMaps[qi] == state.colourMap)
+                            {
+                                currentInQuick = true;
+                                break;
+                            }
+                        }
+
+                        const char* moreLabel = currentInQuick
+                            ? "More..."
+                            : colourMapName(state.colourMap).data();
+
+                        if (ImGui::BeginCombo("##more_maps", moreLabel,
+                                              ImGuiComboFlags_NoPreview))
                         {
                             for (int cm = 0; cm < colourMapCount(); ++cm)
                             {
-                                auto cmType =
-                                    static_cast<ColourMapType>(cm);
-                                bool selected =
-                                    (cmType == state.colourMap);
+                                auto cmType = static_cast<ColourMapType>(cm);
+
+                                // Skip maps already shown as buttons
+                                bool isQuick = false;
+                                for (int qi = 0; qi < nQuick; ++qi)
+                                {
+                                    if (quickMaps[qi] == cmType)
+                                    {
+                                        isQuick = true;
+                                        break;
+                                    }
+                                }
+                                if (isQuick) continue;
+
+                                bool selected = (cmType == state.colourMap);
                                 if (ImGui::Selectable(
                                         colourMapName(cmType).data(),
                                         selected))
                                 {
-                                    state.colourMap = cmType;
-                                    UpdateSliceTexture(vi, 0);
-                                    UpdateSliceTexture(vi, 1);
-                                    UpdateSliceTexture(vi, 2);
+                                    applyColourMap(cmType);
                                 }
                                 if (selected)
                                     ImGui::SetItemDefaultFocus();
                             }
                             ImGui::EndCombo();
                         }
+
                         ImGui::PopID();
                     }
                     ImGui::Separator();

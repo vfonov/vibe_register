@@ -325,6 +325,18 @@ std::string_view colourMapName(ColourMapType type)
     }
 }
 
+ColourMapRGBA colourMapRepresentative(ColourMapType type)
+{
+    // Sample the LUT at ~75% to get a visually distinctive colour.
+    const ColourLut& lut = colourMapLut(type);
+    uint32_t packed = lut.table[192];
+    float r = static_cast<float>((packed >>  0) & 0xFF) / 255.0f;
+    float g = static_cast<float>((packed >>  8) & 0xFF) / 255.0f;
+    float b = static_cast<float>((packed >> 16) & 0xFF) / 255.0f;
+    float a = static_cast<float>((packed >> 24) & 0xFF) / 255.0f;
+    return { r, g, b, a };
+}
+
 const ColourLut& colourMapLut(ColourMapType type)
 {
     // Lazy-initialised static array — built once on first access.

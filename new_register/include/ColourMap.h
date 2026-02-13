@@ -53,3 +53,11 @@ constexpr int colourMapCount()
 {
     return static_cast<int>(ColourMapType::Count);
 }
+
+/// A representative colour for the map, suitable for tinting UI buttons.
+/// Returns RGBA floats in [0,1].
+struct ColourMapRGBA
+{
+    float r, g, b, a;
+};
+ColourMapRGBA colourMapRepresentative(ColourMapType type);
