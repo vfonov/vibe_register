@@ -978,24 +978,90 @@ int main(int argc, char** argv)
     {
 
     // --- Parse CLI arguments ---
+    // LUT flags (-gray, -hot, etc.) set a pending colour map that is applied
+    // to the *next* volume file on the command line.  --lut <name> accepts
+    // any colour map name.  The per-volume CLI LUT overrides both global and
+    // local config values.
     std::string cliConfigPath;  // --config <path>
     std::vector<std::string> volumeFiles;
+    std::vector<std::optional<std::string>> cliLutPerVolume;  // parallel to volumeFiles
+    std::optional<std::string> pendingLut;  // set by a LUT flag, consumed by next volume
+
+    // Map of shorthand flags to colour map names
+    static const std::array<std::pair<std::string_view, std::string_view>, 6> lutShorthands = {{
+        {"-gray",     "GrayScale"},
+        {"-hot",      "HotMetal"},
+        {"-spectral", "Spectral"},
+        {"-red",      "Red"},
+        {"-green",    "Green"},
+        {"-blue",     "Blue"},
+    }};
+
     for (int i = 1; i < argc; ++i)
     {
-        std::string arg = argv[i];
+        std::string_view arg = argv[i];
+
         if (arg == "--config" && i + 1 < argc)
         {
             cliConfigPath = argv[++i];
+            continue;
         }
-        else if (arg == "--help" || arg == "-h")
+
+        if (arg == "--help" || arg == "-h")
         {
-            std::cerr << "Usage: new_register [--config <path>] [volume1.mnc ...]\n";
+            std::cerr << "Usage: new_register [options] [volume1.mnc ...]\n"
+                      << "\nOptions:\n"
+                      << "  --config <path>   Load config from <path>\n"
+                      << "  --lut <name>      Set colour map for the next volume\n"
+                      << "  -gray             Shorthand for --lut GrayScale\n"
+                      << "  -hot              Shorthand for --lut HotMetal\n"
+                      << "  -spectral         Shorthand for --lut Spectral\n"
+                      << "  -red              Shorthand for --lut Red\n"
+                      << "  -green            Shorthand for --lut Green\n"
+                      << "  -blue             Shorthand for --lut Blue\n"
+                      << "\nLUT flags apply to the next volume file on the command line.\n"
+                      << "Example: new_register -gray vol1.mnc -hot vol2.mnc\n";
             return 0;
         }
-        else
+
+        if (arg == "--lut" && i + 1 < argc)
         {
-            volumeFiles.push_back(arg);
+            std::string lutName = argv[++i];
+            if (!colourMapByName(lutName).has_value())
+            {
+                std::cerr << "Unknown colour map: " << lutName << "\n"
+                          << "Available maps:";
+                for (int cm = 0; cm < colourMapCount(); ++cm)
+                    std::cerr << " " << colourMapName(static_cast<ColourMapType>(cm));
+                std::cerr << "\n";
+                return 1;
+            }
+            pendingLut = std::move(lutName);
+            continue;
         }
+
+        // Check shorthand LUT flags
+        bool isShorthand = false;
+        for (const auto& [flag, name] : lutShorthands)
+        {
+            if (arg == flag)
+            {
+                pendingLut = std::string(name);
+                isShorthand = true;
+                break;
+            }
+        }
+        if (isShorthand) continue;
+
+        // Not a recognised option — treat as a volume file path
+        volumeFiles.push_back(std::string(arg));
+        cliLutPerVolume.push_back(pendingLut);
+        pendingLut.reset();
+    }
+
+    if (pendingLut.has_value())
+    {
+        std::cerr << "Warning: LUT flag at end of arguments has no volume to apply to\n";
     }
 
     // --- Load and merge configs ---
@@ -1207,6 +1273,15 @@ int main(int argc, char** argv)
                 state.panV[0] = vc->panV[0];
                 state.panV[1] = vc->panV[1];
                 state.panV[2] = vc->panV[2];
+            }
+
+            // CLI LUT override takes highest priority
+            if (vi < static_cast<int>(cliLutPerVolume.size()) &&
+                cliLutPerVolume[vi].has_value())
+            {
+                auto cm = colourMapByName(cliLutPerVolume[vi].value());
+                if (cm.has_value())
+                    state.colourMap = cm.value();
             }
 
             // Re-render textures with applied settings

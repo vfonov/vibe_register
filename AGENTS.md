@@ -145,7 +145,7 @@ Do not use.
    - Check `register_UI.globals` or `config.h` if modifying configuration logic.
 3. **Atomic & Safe Changes:**
    - do not touch any code in legacy directory, use it only as a reference
-   - new code should use c++17, with all modern features
+   - new code should use c++23, with all modern features
 4. **Verification:**
    - **Compile:** Always attempt to compile after changes: `make`.
    - **Test:** If modifying logic, write a small test case or run existing tests.
@@ -164,7 +164,7 @@ Do not use.
 
 ## 6. Modern Rewrite (new_register)
 
-This is a rewrite of the `register` application using modern C++20, Vulkan, ImGui (Docking), GLFW and Glaze for reading and writing configuration in .json files.
+This is a rewrite of the `register` application using modern C++23, Vulkan, ImGui (Docking), GLFW and Glaze for reading and writing configuration in .json files.
 
 **Dependencies:**
 - `minc2-simple` (statically linked, provided in `legacy/minc2-simple`)
@@ -185,11 +185,11 @@ This is a rewrite of the `register` application using modern C++20, Vulkan, ImGu
 
 **Current Status:**
 - Volume loading implemented and verified (supports MINC2).
-- UI implementation (ImGui+Vulkan) in progress.
-- **Known Issue:** Crash during Vulkan Swapchain creation (`ImGui_ImplVulkanH_CreateOrResizeWindow`). Fix regarding Queue Family selection applied but pending verification.
+- UI implementation (ImGui+Vulkan) functional.
+- Multi-volume slice viewer with crosshairs, colour maps, zoom/pan, overlay compositing, and JSON config persistence.
 
 **Coding Standards (New Project):**
-- C++20 allowed.
+- C++23 allowed.
 - `std::vector`, `std::string` allowed.
 - `PascalCase` for classes, `camelCase` for methods/variables.
 - use `std::cerr` for printing debugging mesages or something more moden
