@@ -149,3 +149,9 @@ add_executable(test_coordinate_sync tests/test_coordinate_sync.cpp src/Volume.cp
 target_include_directories(test_coordinate_sync PRIVATE include ${glm_SOURCE_DIR})
 target_link_libraries(test_coordinate_sync PRIVATE minc2_simple glm)
 add_test(NAME CoordinateSyncTest COMMAND test_coordinate_sync)
+
+add_executable(test_center_of_mass tests/test_center_of_mass.cpp src/Volume.cpp)
+target_include_directories(test_center_of_mass PRIVATE include ${glm_SOURCE_DIR})
+target_link_libraries(test_center_of_mass PRIVATE minc2_simple glm)
+add_test(NAME CenterOfMassTest COMMAND test_center_of_mass
+    ${CMAKE_SOURCE_DIR}/../test_data/mni_icbm152_t1_tal_nlin_sym_09c.mnc)
