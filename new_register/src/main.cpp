@@ -406,14 +406,29 @@ void UpdateAllOverlayTextures()
 }
 
 // --- Synchronize cursor position across all volumes ---
+// When sync is enabled, moving cursor in any volume syncs all others.
 // Returns a bitmask of view indices that need texture updates.
 static int SyncCursors(int vi, const Volume& vol, VolumeViewState& state)
 {
-    if (!g_SyncCursors || vi == 0)
+    if (!g_SyncCursors)
         return 0;
 
-    for (int v = 0; v < 3; ++v)
-        state.sliceIndices[v] = g_ViewStates[0].sliceIndices[v];
+    // Get the current cursor position (from the volume being interacted with)
+    // and propagate it to all other volumes
+    int newSlice0 = state.sliceIndices[0];
+    int newSlice1 = state.sliceIndices[1];
+    int newSlice2 = state.sliceIndices[2];
+
+    for (int i = 0; i < static_cast<int>(g_Volumes.size()); ++i)
+    {
+        if (i != vi)
+        {
+            VolumeViewState& otherState = g_ViewStates[i];
+            otherState.sliceIndices[0] = newSlice0;
+            otherState.sliceIndices[1] = newSlice1;
+            otherState.sliceIndices[2] = newSlice2;
+        }
+    }
 
     UpdateAllOverlayTextures();
     // All volumes' textures need updating since their slice indices changed
