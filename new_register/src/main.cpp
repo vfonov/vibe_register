@@ -22,6 +22,7 @@ struct VolumeViewState
     VulkanTexture* sliceTextures[3] = { nullptr, nullptr, nullptr };
     int sliceIndices[3] = { 0, 0, 0 };  // Current slice for each view
     float valueRange[2] = { 0.0f, 1.0f };  // Min, Max
+    float dragAccum[3] = { 0.0f, 0.0f, 0.0f };  // Middle-drag accumulator
     ColourMapType colourMap = ColourMapType::GrayScale;
 };
 
@@ -34,6 +35,8 @@ float g_DpiScale = 1.0f;  // Set after backend initialisation
 // --- Forward Declarations ---
 void UpdateSliceTexture(int volumeIndex, int viewIndex);
 void ResetViews();
+int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
+                    const Volume& vol, VolumeViewState& state);
 
 // --- Volume Rendering Helpers ---
 void UpdateSliceTexture(int volumeIndex, int viewIndex)
@@ -162,9 +165,11 @@ void ResetViews()
 }
 
 // --- Render a single slice view within a child region ---
-static void RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
+// Returns a bitmask of view indices that need texture updates.
+int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                             const Volume& vol, VolumeViewState& state)
 {
+    int dirtyMask = 0;
     const char* viewLabels[] = { "Transverse (XY)", "Sagittal (YZ)", "Coronal (XZ)" };
     char childId[64];
     std::snprintf(childId, sizeof(childId), "##view_%d_%d", vi, viewIndex);
@@ -180,6 +185,10 @@ static void RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
             ImVec2 avail = ImGui::GetContentRegionAvail();
             float sliderHeight = 30.0f * g_DpiScale;
             avail.y -= sliderHeight;
+
+            // Image position and size for mouse hit-testing
+            ImVec2 imgPos(0, 0);
+            ImVec2 imgSize(0, 0);
 
             if (avail.x > 0 && avail.y > 0)
             {
@@ -198,7 +207,7 @@ static void RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                                static_cast<float>(tex->height) *
                                static_cast<float>(pixelAspect);
 
-                ImVec2 imgSize = avail;
+                imgSize = avail;
                 if (imgSize.x / imgSize.y > aspect)
                     imgSize.x = imgSize.y * aspect;
                 else
@@ -209,9 +218,85 @@ static void RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                 if (padX > 0)
                     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + padX);
 
+                imgPos = ImGui::GetCursorScreenPos();
+
                 ImGui::Image(
                     reinterpret_cast<ImTextureID>(tex->descriptor_set),
                     imgSize);
+
+                // --- Mouse interaction on the image ---
+                bool imageHovered = ImGui::IsItemHovered();
+
+                // Left click: set slice positions for the other two views
+                if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                {
+                    ImVec2 mouse = ImGui::GetMousePos();
+                    float normU = (mouse.x - imgPos.x) / imgSize.x;
+                    float normV = (mouse.y - imgPos.y) / imgSize.y;
+                    normU = std::clamp(normU, 0.0f, 1.0f);
+                    normV = std::clamp(normV, 0.0f, 1.0f);
+                    // V is flipped (image row 0 = top = max voxel)
+                    normV = 1.0f - normV;
+
+                    // Map normalised UV to voxel coordinates and set
+                    // the other two views' slice indices.
+                    if (viewIndex == 0)
+                    {
+                        // Transverse: U=X, V=Y
+                        int voxX = static_cast<int>(normU * (vol.dimensions[0] - 1) + 0.5f);
+                        int voxY = static_cast<int>(normV * (vol.dimensions[1] - 1) + 0.5f);
+                        state.sliceIndices[1] = std::clamp(voxX, 0, vol.dimensions[0] - 1);
+                        state.sliceIndices[2] = std::clamp(voxY, 0, vol.dimensions[1] - 1);
+                        dirtyMask |= (1 << 1) | (1 << 2);
+                    }
+                    else if (viewIndex == 1)
+                    {
+                        // Sagittal: U=Y, V=Z
+                        int voxY = static_cast<int>(normU * (vol.dimensions[1] - 1) + 0.5f);
+                        int voxZ = static_cast<int>(normV * (vol.dimensions[2] - 1) + 0.5f);
+                        state.sliceIndices[2] = std::clamp(voxY, 0, vol.dimensions[1] - 1);
+                        state.sliceIndices[0] = std::clamp(voxZ, 0, vol.dimensions[2] - 1);
+                        dirtyMask |= (1 << 0) | (1 << 2);
+                    }
+                    else
+                    {
+                        // Coronal: U=X, V=Z
+                        int voxX = static_cast<int>(normU * (vol.dimensions[0] - 1) + 0.5f);
+                        int voxZ = static_cast<int>(normV * (vol.dimensions[2] - 1) + 0.5f);
+                        state.sliceIndices[1] = std::clamp(voxX, 0, vol.dimensions[0] - 1);
+                        state.sliceIndices[0] = std::clamp(voxZ, 0, vol.dimensions[2] - 1);
+                        dirtyMask |= (1 << 0) | (1 << 1);
+                    }
+                }
+
+                // Middle button drag: scroll current slice
+                if (imageHovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f))
+                {
+                    float dragY = ImGui::GetIO().MouseDelta.y;
+                    if (dragY != 0.0f)
+                    {
+                        int maxSliceVal = (viewIndex == 0) ? vol.dimensions[2]
+                                        : (viewIndex == 1) ? vol.dimensions[0]
+                                                           : vol.dimensions[1];
+                        // Sensitivity: full image height = full slice range
+                        float sliceDelta = -dragY / imgSize.y *
+                                           static_cast<float>(maxSliceVal);
+                        state.dragAccum[viewIndex] += sliceDelta;
+                        int steps = static_cast<int>(state.dragAccum[viewIndex]);
+                        if (steps != 0)
+                        {
+                            state.dragAccum[viewIndex] -= static_cast<float>(steps);
+                            state.sliceIndices[viewIndex] = std::clamp(
+                                state.sliceIndices[viewIndex] + steps,
+                                0, maxSliceVal - 1);
+                            dirtyMask |= (1 << viewIndex);
+                        }
+                    }
+                }
+                else if (!ImGui::IsMouseDown(ImGuiMouseButton_Middle))
+                {
+                    state.dragAccum[viewIndex] = 0.0f;
+                }
             }
 
             // Slice navigation slider
@@ -226,7 +311,7 @@ static void RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                     if (state.sliceIndices[viewIndex] > 0)
                     {
                         state.sliceIndices[viewIndex]--;
-                        UpdateSliceTexture(vi, viewIndex);
+                        dirtyMask |= (1 << viewIndex);
                     }
                 }
                 ImGui::SameLine();
@@ -235,7 +320,7 @@ static void RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                 if (ImGui::SliderInt("##slice", &state.sliceIndices[viewIndex],
                                      0, maxSlice - 1, "Slice %d"))
                 {
-                    UpdateSliceTexture(vi, viewIndex);
+                    dirtyMask |= (1 << viewIndex);
                 }
 
                 ImGui::SameLine();
@@ -244,7 +329,7 @@ static void RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                     if (state.sliceIndices[viewIndex] < maxSlice - 1)
                     {
                         state.sliceIndices[viewIndex]++;
-                        UpdateSliceTexture(vi, viewIndex);
+                        dirtyMask |= (1 << viewIndex);
                     }
                 }
             }
@@ -252,6 +337,7 @@ static void RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
         }
     }
     ImGui::EndChild();
+    return dirtyMask;
 }
 
 // ---------------------------------------------------------------------------
@@ -486,11 +572,19 @@ int main(int argc, char** argv)
                     viewRowHeight = 40.0f * g_DpiScale;
 
                 // Three slice views — equal height
+                int viewDirtyMask = 0;
                 for (int v = 0; v < 3; ++v)
                 {
-                    RenderSliceView(vi, v,
-                                    ImVec2(viewWidth, viewRowHeight),
-                                    vol, state);
+                    viewDirtyMask |= RenderSliceView(vi, v,
+                                        ImVec2(viewWidth, viewRowHeight),
+                                        vol, state);
+                }
+
+                // Apply deferred texture updates from mouse interaction
+                for (int v = 0; v < 3; ++v)
+                {
+                    if (viewDirtyMask & (1 << v))
+                        UpdateSliceTexture(vi, v);
                 }
 
                 // Controls section
