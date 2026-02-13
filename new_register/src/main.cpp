@@ -5,6 +5,7 @@
 #include <string>
 #include <algorithm>
 #include <memory>
+#include <cstdio>
 
 #define GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_VULKAN
@@ -14,43 +15,50 @@
 #include "Volume.h"
 #include "VulkanHelpers.h"
 
+// --- Per-volume view state ---
+struct VolumeViewState
+{
+    VulkanTexture* sliceTextures[3] = { nullptr, nullptr, nullptr };
+    int sliceIndices[3] = { 0, 0, 0 };  // Current slice for each view
+    float windowLevel[2] = { 0.5f, 1.0f };  // Center, Width
+};
+
 // --- Application State ---
 std::vector<Volume> g_Volumes;
-int g_CurrentVolumeIndex = 0;
-VulkanTexture* g_SliceTextures[3] = { nullptr, nullptr, nullptr }; // 0=Transverse(XY), 1=Sagittal(YZ), 2=Coronal(XZ)
-int g_SliceIndices[3] = { 0, 0, 0 }; // Current slice index for each view
-float g_WindowLevel[2] = { 0.5f, 1.0f }; // Center, Width
+std::vector<VolumeViewState> g_ViewStates;
 bool g_LayoutInitialized = false;
 
 // --- Forward Declarations ---
+void UpdateSliceTexture(int volumeIndex, int viewIndex);
 void ResetViews();
 
 // --- Volume Rendering Helpers ---
-void UpdateSliceTexture(int viewIndex)
+void UpdateSliceTexture(int volumeIndex, int viewIndex)
 {
-    if (g_Volumes.empty()) return;
-    if (g_CurrentVolumeIndex < 0 ||
-        g_CurrentVolumeIndex >= static_cast<int>(g_Volumes.size())) return;
+    if (volumeIndex < 0 ||
+        volumeIndex >= static_cast<int>(g_Volumes.size())) return;
+    if (volumeIndex >= static_cast<int>(g_ViewStates.size())) return;
 
-    const Volume& vol = g_Volumes[g_CurrentVolumeIndex];
+    const Volume& vol = g_Volumes[volumeIndex];
     if (vol.data.empty()) return;
+
+    VolumeViewState& state = g_ViewStates[volumeIndex];
 
     int w, h;
     std::vector<uint32_t> pixels;
-
-    // Determine slice dimensions based on view
-    // View 0: Transverse (XY plane, Z is slice)
-    // View 1: Sagittal (YZ plane, X is slice)
-    // View 2: Coronal (XZ plane, Y is slice)
 
     int dimX = vol.dimensions[0];
     int dimY = vol.dimensions[1];
     int dimZ = vol.dimensions[2];
 
+    float wlCenter = state.windowLevel[0];
+    float wlWidth  = state.windowLevel[1];
+    float wlLow    = wlCenter - wlWidth * 0.5f;
+
     if (viewIndex == 0)  // Transverse (Z-slice)
     {
         w = dimX; h = dimY;
-        int z = g_SliceIndices[0];
+        int z = state.sliceIndices[0];
         if (z >= dimZ) z = dimZ - 1;
 
         pixels.resize(w * h);
@@ -59,11 +67,10 @@ void UpdateSliceTexture(int viewIndex)
             for (int x = 0; x < w; ++x)
             {
                 float val = vol.get(x, y, z);
-                val = (val - (g_WindowLevel[0] - g_WindowLevel[1] * 0.5f)) / g_WindowLevel[1];
+                val = (val - wlLow) / wlWidth;
                 if (val < 0) val = 0;
                 if (val > 1) val = 1;
                 uint8_t c = static_cast<uint8_t>(val * 255.0f);
-                // Flip vertical: high Y at low screen Y (radiological convention)
                 pixels[(h - 1 - y) * w + x] = 0xFF000000 | (c << 16) | (c << 8) | c;
             }
         }
@@ -71,7 +78,7 @@ void UpdateSliceTexture(int viewIndex)
     else if (viewIndex == 1)  // Sagittal (X-slice)
     {
         w = dimY; h = dimZ;
-        int x = g_SliceIndices[1];
+        int x = state.sliceIndices[1];
         if (x >= dimX) x = dimX - 1;
 
         pixels.resize(w * h);
@@ -80,11 +87,10 @@ void UpdateSliceTexture(int viewIndex)
             for (int y = 0; y < w; ++y)
             {
                 float val = vol.get(x, y, z);
-                val = (val - (g_WindowLevel[0] - g_WindowLevel[1] * 0.5f)) / g_WindowLevel[1];
+                val = (val - wlLow) / wlWidth;
                 if (val < 0) val = 0;
                 if (val > 1) val = 1;
                 uint8_t c = static_cast<uint8_t>(val * 255.0f);
-                // Flip vertical: high Z at low screen Y
                 pixels[(h - 1 - z) * w + y] = 0xFF000000 | (c << 16) | (c << 8) | c;
             }
         }
@@ -92,7 +98,7 @@ void UpdateSliceTexture(int viewIndex)
     else  // Coronal (Y-slice)
     {
         w = dimX; h = dimZ;
-        int y = g_SliceIndices[2];
+        int y = state.sliceIndices[2];
         if (y >= dimY) y = dimY - 1;
 
         pixels.resize(w * h);
@@ -101,56 +107,57 @@ void UpdateSliceTexture(int viewIndex)
             for (int x = 0; x < w; ++x)
             {
                 float val = vol.get(x, y, z);
-                val = (val - (g_WindowLevel[0] - g_WindowLevel[1] * 0.5f)) / g_WindowLevel[1];
+                val = (val - wlLow) / wlWidth;
                 if (val < 0) val = 0;
                 if (val > 1) val = 1;
                 uint8_t c = static_cast<uint8_t>(val * 255.0f);
-                // Flip vertical: high Z at low screen Y
                 pixels[(h - 1 - z) * w + x] = 0xFF000000 | (c << 16) | (c << 8) | c;
             }
         }
     }
 
-    if (!g_SliceTextures[viewIndex])
+    VulkanTexture*& tex = state.sliceTextures[viewIndex];
+    if (!tex)
     {
-        g_SliceTextures[viewIndex] = VulkanHelpers::CreateTexture(w, h, pixels.data());
+        tex = VulkanHelpers::CreateTexture(w, h, pixels.data());
     }
     else
     {
-        // Check if size changed (different volumes might have different dims)
-        if (g_SliceTextures[viewIndex]->width != w ||
-            g_SliceTextures[viewIndex]->height != h)
+        if (tex->width != w || tex->height != h)
         {
-            VulkanHelpers::DestroyTexture(g_SliceTextures[viewIndex]);
-            g_SliceTextures[viewIndex] = VulkanHelpers::CreateTexture(w, h, pixels.data());
+            VulkanHelpers::DestroyTexture(tex);
+            tex = VulkanHelpers::CreateTexture(w, h, pixels.data());
         }
         else
         {
-            VulkanHelpers::UpdateTexture(g_SliceTextures[viewIndex], pixels.data());
+            VulkanHelpers::UpdateTexture(tex, pixels.data());
         }
     }
 }
 
-// --- UI Helpers ---
+// --- Initialize state for all loaded volumes ---
 void ResetViews()
 {
-    if (g_Volumes.empty()) return;
+    g_ViewStates.resize(g_Volumes.size());
 
-    const Volume& vol = g_Volumes[g_CurrentVolumeIndex];
-    if (!vol.data.empty())
+    for (int vi = 0; vi < static_cast<int>(g_Volumes.size()); ++vi)
     {
-        g_SliceIndices[0] = vol.dimensions[2] / 2;
-        g_SliceIndices[1] = vol.dimensions[0] / 2;
-        g_SliceIndices[2] = vol.dimensions[1] / 2;
+        const Volume& vol = g_Volumes[vi];
+        if (vol.data.empty()) continue;
 
-        // Auto-windowing
+        VolumeViewState& state = g_ViewStates[vi];
+
+        state.sliceIndices[0] = vol.dimensions[2] / 2;
+        state.sliceIndices[1] = vol.dimensions[0] / 2;
+        state.sliceIndices[2] = vol.dimensions[1] / 2;
+
         float range = vol.max_value - vol.min_value;
-        g_WindowLevel[0] = vol.min_value + range * 0.5f; // Center
-        g_WindowLevel[1] = range; // Width
+        state.windowLevel[0] = vol.min_value + range * 0.5f;
+        state.windowLevel[1] = range;
 
-        UpdateSliceTexture(0);
-        UpdateSliceTexture(1);
-        UpdateSliceTexture(2);
+        UpdateSliceTexture(vi, 0);
+        UpdateSliceTexture(vi, 1);
+        UpdateSliceTexture(vi, 2);
     }
 }
 
@@ -222,14 +229,35 @@ int main(int argc, char** argv)
 
     backend->initImGui(window);
 
-    // Initialize slice views
+    // Initialize slice views for all volumes
     if (!g_Volumes.empty())
     {
         ResetViews();
-        std::cerr << "Views initialized.\n";
+        std::cerr << "Views initialized for " << g_Volumes.size() << " volume(s).\n";
     }
 
     std::cerr << "Entering main loop...\n";
+
+    // Pre-generate window names for each volume and view
+    // Format: "V1 Transverse (XY)", "V1 Sagittal (YZ)", etc.
+    const char* viewSuffixes[] = { "Transverse (XY)", "Sagittal (YZ)", "Coronal (XZ)" };
+    int numVolumes = static_cast<int>(g_Volumes.size());
+
+    std::vector<std::string> windowNames;   // [vol * 4 + view] for views, [vol * 4 + 3] for controls
+    for (int vi = 0; vi < numVolumes; ++vi)
+    {
+        for (int v = 0; v < 3; ++v)
+        {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "V%d %s", vi + 1, viewSuffixes[v]);
+            windowNames.push_back(buf);
+        }
+        {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "V%d Controls", vi + 1);
+            windowNames.push_back(buf);
+        }
+    }
 
     // Main loop
     while (!glfwWindowShouldClose(window))
@@ -254,37 +282,62 @@ int main(int argc, char** argv)
         // DockSpace with default layout
         ImGuiID dockspaceId = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
 
-        if (!g_LayoutInitialized)
+        if (!g_LayoutInitialized && numVolumes > 0)
         {
             g_LayoutInitialized = true;
 
-            // Clear any existing layout
             ImGui::DockBuilderRemoveNode(dockspaceId);
             ImGui::DockBuilderAddNode(dockspaceId,
                                       ImGuiDockNodeFlags_DockSpace);
             ImGui::DockBuilderSetNodeSize(dockspaceId,
                                           ImGui::GetMainViewport()->Size);
 
-            // Split into top and bottom halves
-            ImGuiID topId, bottomId;
-            ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Up, 0.5f,
-                                        &topId, &bottomId);
+            // Split dockspace into N columns (one per volume)
+            // We split left-to-right, peeling off one column at a time
+            std::vector<ImGuiID> columnIds(numVolumes);
+            if (numVolumes == 1)
+            {
+                columnIds[0] = dockspaceId;
+            }
+            else
+            {
+                ImGuiID remaining = dockspaceId;
+                for (int vi = 0; vi < numVolumes - 1; ++vi)
+                {
+                    float fraction = 1.0f / static_cast<float>(numVolumes - vi);
+                    ImGuiID leftId, rightId;
+                    ImGui::DockBuilderSplitNode(remaining, ImGuiDir_Left,
+                                                fraction, &leftId, &rightId);
+                    columnIds[vi] = leftId;
+                    remaining = rightId;
+                }
+                columnIds[numVolumes - 1] = remaining;
+            }
 
-            // Split top into left and right
-            ImGuiID topLeftId, topRightId;
-            ImGui::DockBuilderSplitNode(topId, ImGuiDir_Left, 0.5f,
-                                        &topLeftId, &topRightId);
+            // Within each column, split into 4 rows: 3 views + controls at bottom
+            for (int vi = 0; vi < numVolumes; ++vi)
+            {
+                // Split off controls at the bottom (give it ~15% of height)
+                ImGuiID viewsArea, controlsId;
+                ImGui::DockBuilderSplitNode(columnIds[vi], ImGuiDir_Down,
+                                            0.15f, &controlsId, &viewsArea);
 
-            // Split bottom into left and right
-            ImGuiID bottomLeftId, bottomRightId;
-            ImGui::DockBuilderSplitNode(bottomId, ImGuiDir_Left, 0.5f,
-                                        &bottomLeftId, &bottomRightId);
+                // Split views area into 3 equal rows
+                ImGuiID topId, middleBottomId;
+                ImGui::DockBuilderSplitNode(viewsArea, ImGuiDir_Up, 0.333f,
+                                            &topId, &middleBottomId);
 
-            // Dock windows into their positions
-            ImGui::DockBuilderDockWindow("Transverse (XY)", topLeftId);
-            ImGui::DockBuilderDockWindow("Sagittal (YZ)", topRightId);
-            ImGui::DockBuilderDockWindow("Coronal (XZ)", bottomLeftId);
-            ImGui::DockBuilderDockWindow("Volume Controls", bottomRightId);
+                ImGuiID middleId, bottomId;
+                ImGui::DockBuilderSplitNode(middleBottomId, ImGuiDir_Up, 0.5f,
+                                            &middleId, &bottomId);
+
+                // Dock windows: index into windowNames = vi * 4 + {0,1,2,3}
+                int base = vi * 4;
+                ImGui::DockBuilderDockWindow(windowNames[base + 0].c_str(), topId);
+                ImGui::DockBuilderDockWindow(windowNames[base + 1].c_str(), middleId);
+                ImGui::DockBuilderDockWindow(windowNames[base + 2].c_str(), bottomId);
+                ImGui::DockBuilderDockWindow(windowNames[base + 3].c_str(), controlsId);
+            }
 
             ImGui::DockBuilderFinish(dockspaceId);
         }
@@ -301,135 +354,134 @@ int main(int argc, char** argv)
             ImGui::EndMainMenuBar();
         }
 
-        // Volume Controls Window
-        ImGui::Begin("Volume Controls");
-        if (!g_Volumes.empty())
+        // --- Render each volume's windows ---
+        for (int vi = 0; vi < numVolumes; ++vi)
         {
-            // Volume Selector
-            if (g_Volumes.size() > 1)
+            VolumeViewState& state = g_ViewStates[vi];
+            const Volume& vol = g_Volumes[vi];
+            int base = vi * 4;
+
+            // Controls window for this volume
+            ImGui::Begin(windowNames[base + 3].c_str());
             {
-                ImGui::Text("Active Volume:");
-                for (int i = 0; i < static_cast<int>(g_Volumes.size()); ++i)
-                {
-                    char label[32];
-                    snprintf(label, sizeof(label), "Volume %d", i);
-                    if (ImGui::RadioButton(label, g_CurrentVolumeIndex == i))
-                    {
-                        g_CurrentVolumeIndex = i;
-                        UpdateSliceTexture(0);
-                        UpdateSliceTexture(1);
-                        UpdateSliceTexture(2);
-                    }
-                    if (i < static_cast<int>(g_Volumes.size()) - 1)
-                        ImGui::SameLine();
-                }
+                ImGui::Text("Dimensions: %d x %d x %d",
+                            vol.dimensions[0], vol.dimensions[1], vol.dimensions[2]);
                 ImGui::Separator();
-            }
 
-            const Volume& vol = g_Volumes[g_CurrentVolumeIndex];
+                bool changed = false;
+                ImGui::Text("Window / Level");
 
-            ImGui::Text("Dimensions: %d x %d x %d",
-                        vol.dimensions[0], vol.dimensions[1], vol.dimensions[2]);
-            ImGui::Separator();
+                // Use unique IDs per volume to avoid ImGui ID conflicts
+                ImGui::PushID(vi);
 
-            bool changed = false;
-            ImGui::Text("Window / Level");
-            if (ImGui::DragFloat("Level (Center)", &g_WindowLevel[0],
-                                 (vol.max_value - vol.min_value) * 0.005f))
-                changed = true;
-            if (ImGui::DragFloat("Width", &g_WindowLevel[1],
-                                 (vol.max_value - vol.min_value) * 0.005f))
-                changed = true;
+                if (ImGui::DragFloat("Level (Center)", &state.windowLevel[0],
+                                     (vol.max_value - vol.min_value) * 0.005f))
+                    changed = true;
+                if (ImGui::DragFloat("Width", &state.windowLevel[1],
+                                     (vol.max_value - vol.min_value) * 0.005f))
+                    changed = true;
 
-            if (ImGui::Button("Auto Level"))
-            {
-                float range = vol.max_value - vol.min_value;
-                g_WindowLevel[0] = vol.min_value + range * 0.5f;
-                g_WindowLevel[1] = range;
-                changed = true;
-            }
-
-            if (changed)
-            {
-                UpdateSliceTexture(0);
-                UpdateSliceTexture(1);
-                UpdateSliceTexture(2);
-            }
-        }
-        else
-        {
-            ImGui::Text("No volume loaded.");
-        }
-        ImGui::End();
-
-        // Viewports
-        const char* viewNames[] = { "Transverse (XY)", "Sagittal (YZ)", "Coronal (XZ)" };
-        for (int i = 0; i < 3; ++i)
-        {
-            ImGui::Begin(viewNames[i]);
-            if (g_SliceTextures[i] && !g_Volumes.empty())
-            {
-                const Volume& vol = g_Volumes[g_CurrentVolumeIndex];
-
-                ImVec2 avail = ImGui::GetContentRegionAvail();
-                float controlHeight = 40.0f;
-                avail.y -= controlHeight;
-
-                float aspect = static_cast<float>(g_SliceTextures[i]->width) /
-                               static_cast<float>(g_SliceTextures[i]->height);
-                ImVec2 size = avail;
-                if (size.x / size.y > aspect)
-                    size.x = size.y * aspect;
-                else
-                    size.y = size.x / aspect;
-
-                ImGui::Image(
-                    reinterpret_cast<ImTextureID>(g_SliceTextures[i]->descriptor_set),
-                    size);
-
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (avail.y - size.y));
-
-                int maxSlice = (i == 0) ? vol.dimensions[2]
-                             : (i == 1) ? vol.dimensions[0]
-                                        : vol.dimensions[1];
-
-                ImGui::BeginGroup();
+                if (ImGui::Button("Auto Level"))
                 {
-                    if (ImGui::Button("-"))
-                    {
-                        if (g_SliceIndices[i] > 0)
-                        {
-                            g_SliceIndices[i]--;
-                            UpdateSliceTexture(i);
-                        }
-                    }
-                    ImGui::SameLine();
-
-                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 30);
-                    if (ImGui::SliderInt("##slice", &g_SliceIndices[i],
-                                         0, maxSlice - 1, "Slice %d"))
-                    {
-                        UpdateSliceTexture(i);
-                    }
-
-                    ImGui::SameLine();
-                    if (ImGui::Button("+"))
-                    {
-                        if (g_SliceIndices[i] < maxSlice - 1)
-                        {
-                            g_SliceIndices[i]++;
-                            UpdateSliceTexture(i);
-                        }
-                    }
+                    float range = vol.max_value - vol.min_value;
+                    state.windowLevel[0] = vol.min_value + range * 0.5f;
+                    state.windowLevel[1] = range;
+                    changed = true;
                 }
-                ImGui::EndGroup();
+
+                ImGui::PopID();
+
+                if (changed)
+                {
+                    UpdateSliceTexture(vi, 0);
+                    UpdateSliceTexture(vi, 1);
+                    UpdateSliceTexture(vi, 2);
+                }
             }
             ImGui::End();
+
+            // View windows for this volume
+            for (int v = 0; v < 3; ++v)
+            {
+                ImGui::Begin(windowNames[base + v].c_str());
+                if (state.sliceTextures[v])
+                {
+                    ImVec2 avail = ImGui::GetContentRegionAvail();
+                    float controlHeight = 40.0f;
+                    avail.y -= controlHeight;
+
+                    float aspect = static_cast<float>(state.sliceTextures[v]->width) /
+                                   static_cast<float>(state.sliceTextures[v]->height);
+                    ImVec2 size = avail;
+                    if (size.x / size.y > aspect)
+                        size.x = size.y * aspect;
+                    else
+                        size.y = size.x / aspect;
+
+                    ImGui::Image(
+                        reinterpret_cast<ImTextureID>(state.sliceTextures[v]->descriptor_set),
+                        size);
+
+                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (avail.y - size.y));
+
+                    int maxSlice = (v == 0) ? vol.dimensions[2]
+                                 : (v == 1) ? vol.dimensions[0]
+                                            : vol.dimensions[1];
+
+                    // Push unique ID for slider/buttons per volume+view
+                    ImGui::PushID(vi * 3 + v);
+                    ImGui::BeginGroup();
+                    {
+                        if (ImGui::Button("-"))
+                        {
+                            if (state.sliceIndices[v] > 0)
+                            {
+                                state.sliceIndices[v]--;
+                                UpdateSliceTexture(vi, v);
+                            }
+                        }
+                        ImGui::SameLine();
+
+                        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 30);
+                        if (ImGui::SliderInt("##slice", &state.sliceIndices[v],
+                                             0, maxSlice - 1, "Slice %d"))
+                        {
+                            UpdateSliceTexture(vi, v);
+                        }
+
+                        ImGui::SameLine();
+                        if (ImGui::Button("+"))
+                        {
+                            if (state.sliceIndices[v] < maxSlice - 1)
+                            {
+                                state.sliceIndices[v]++;
+                                UpdateSliceTexture(vi, v);
+                            }
+                        }
+                    }
+                    ImGui::EndGroup();
+                    ImGui::PopID();
+                }
+                ImGui::End();
+            }
         }
 
         // Rendering
         ImGui::Render();
         backend->endFrame();
+    }
+
+    // Cleanup textures
+    for (auto& state : g_ViewStates)
+    {
+        for (int i = 0; i < 3; ++i)
+        {
+            if (state.sliceTextures[i])
+            {
+                VulkanHelpers::DestroyTexture(state.sliceTextures[i]);
+                state.sliceTextures[i] = nullptr;
+            }
+        }
     }
 
     // Cleanup
