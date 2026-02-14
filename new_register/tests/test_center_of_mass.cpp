@@ -11,26 +11,49 @@ int main() {
         return 1;
     }
 
-    // Use the Volume class's transformVoxelToWorld method to test the matrix
-    // The matrix should correctly transform voxel indices to world coordinates
+    // Calculate center of mass from data using the Volume's matrix transformation
+    double sumX = 0, sumY = 0, sumZ = 0, total = 0;
     
-    // Test: What world position does voxel center give?
-    int center[3] = { vol.dimensions[0]/2, vol.dimensions[1]/2, vol.dimensions[2]/2 };
-    double world[3];
+    for (int z = 0; z < vol.dimensions[2]; ++z) {
+        for (int y = 0; y < vol.dimensions[1]; ++y) {
+            for (int x = 0; x < vol.dimensions[0]; ++x) {
+                float val = vol.data[z * vol.dimensions[1] * vol.dimensions[0] + y * vol.dimensions[0] + x];
+                if (val > 0) {
+                    // Use the Volume class's transformVoxelToWorld method
+                    int voxel[3] = { x, y, z };
+                    double world[3];
+                    vol.transformVoxelToWorld(voxel, world);
+                    
+                    sumX += world[0] * val;
+                    sumY += world[1] * val;
+                    sumZ += world[2] * val;
+                    total += val;
+                }
+            }
+        }
+    }
     
-    // Use the Volume class method (not manual calculation)
-    vol.transformVoxelToWorld(center, world);
+    if (total > 0) {
+        double comX = sumX / total;
+        double comY = sumY / total;
+        double comZ = sumZ / total;
+        
+        std::cout << "Center of mass from data:\n";
+        std::cout << "  World coordinates: (" << comX << ", " << comY << ", " << comZ << ") mm\n";
+        std::cout << "  Expected: (0, -19.19922251, 2.143570161) mm\n";
+        
+        // Check if close to expected (within 1mm tolerance)
+        bool x_ok = std::abs(comX - 0.0) < 1.0;
+        bool y_ok = std::abs(comY - (-19.19922251)) < 1.0;
+        bool z_ok = std::abs(comZ - 2.143570161) < 1.0;
+        
+        std::cout << "Match: " << (x_ok && y_ok && z_ok ? "YES" : "NO") << "\n";
+        if (!x_ok) std::cout << "  X diff: " << (comX - 0.0) << "\n";
+        if (!y_ok) std::cout << "  Y diff: " << (comY - (-19.19922251)) << "\n";
+        if (!z_ok) std::cout << "  Z diff: " << (comZ - 2.143570161) << "\n";
+        
+        return (x_ok && y_ok && z_ok) ? 0 : 1;
+    }
     
-    std::cout << "Volume center voxel (" << center[0] << ", " << center[1] << ", " << center[2] << "):\n";
-    std::cout << "  World coordinates via transformVoxelToWorld: (" << world[0] << ", " << world[1] << ", " << world[2] << ") mm\n";
-    
-    // Expected center of mass for this volume
-    std::cout << "  Expected center of mass: (0, -19.19922251, 2.143570161) mm\n";
-    
-    // The viewer's voxel-to-world matrix should be correct
-    // If it's correct, we can trust the coordinate transformations used in sync
-    std::cout << "\nTest: Matrix transformation is mathematically valid\n";
-    std::cout << "  (Expected values differ by ~0.5mm due to different center of mass calculation)\n";
-    
-    return 0;
+    return 1;
 }
