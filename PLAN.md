@@ -125,7 +125,7 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [ ] Average RMS error display
 
 ### Tag File I/O
-- [ ] Load `.tag` files
+- [x] Load `.tag` files (implemented via TagWrapper class with exception handling)
 - [ ] Save `.tag` files
 - [ ] Load tags from command line
 
