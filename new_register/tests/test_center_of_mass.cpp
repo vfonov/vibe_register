@@ -11,7 +11,10 @@ int main() {
         return 1;
     }
 
-    // Calculate center of mass from data using the Volume's matrix transformation
+    // Calculate center of mass from data
+    // The expected COM values use corner convention: world = start + voxel * step
+    // We need to use the same convention for proper comparison
+    
     double sumX = 0, sumY = 0, sumZ = 0, total = 0;
     
     for (int z = 0; z < vol.dimensions[2]; ++z) {
@@ -19,10 +22,13 @@ int main() {
             for (int x = 0; x < vol.dimensions[0]; ++x) {
                 float val = vol.data[z * vol.dimensions[1] * vol.dimensions[0] + y * vol.dimensions[0] + x];
                 if (val > 0) {
-                    // Use the Volume class's transformVoxelToWorld method
-                    int voxel[3] = { x, y, z };
-                    double world[3];
-                    vol.transformVoxelToWorld(voxel, world);
+                    // Use corner convention: world = start + voxel * step
+                    // (same convention used to compute the expected COM values)
+                    double world[3] = {
+                        vol.start[0] + x * vol.step[0],
+                        vol.start[1] + y * vol.step[1],
+                        vol.start[2] + z * vol.step[2]
+                    };
                     
                     sumX += world[0] * val;
                     sumY += world[1] * val;

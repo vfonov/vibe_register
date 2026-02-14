@@ -410,9 +410,8 @@ void UpdateAllOverlayTextures()
 // Given a volume and slice indices, compute the world space position.
 static void sliceIndicesToWorld(const Volume& vol, const int indices[3], double world[3])
 {
-    // MINC: voxel i is centered at start + (i + 0.5) * step * dirCos
-    // The voxelToWorld matrix is constructed as: world = affine * voxel + (start + affine * 0.5)
-    // So we pass integer voxel indices directly (without +0.5)
+    // MINC: voxel i corner is at start + i * step * dirCos
+    // The voxelToWorld matrix is constructed as: world = affine * voxel + start
     glm::dvec4 voxel(indices[0], indices[1], indices[2], 1.0);
     glm::dvec4 worldH = vol.voxelToWorld * voxel;
     
@@ -426,15 +425,13 @@ static void sliceIndicesToWorld(const Volume& vol, const int indices[3], double 
 static void worldToSliceIndices(const Volume& vol, const double world[3], int indices[3])
 {
     // Use precomputed world-to-voxel matrix
-    // The matrix gives us voxel + 0.5, so subtract 0.5 to get voxel index
+    // The matrix gives the exact voxel index (corner convention)
     glm::dvec4 worldH(world[0], world[1], world[2], 1.0);
     glm::dvec4 voxelH = vol.worldToVoxel * worldH;
     
-    // voxelH contains (i + 0.5) for each axis (because of +0.5 in translation)
-    // Subtract 0.5 to get the integer voxel index
-    indices[0] = static_cast<int>(std::round(voxelH.x - 0.5));
-    indices[1] = static_cast<int>(std::round(voxelH.y - 0.5));
-    indices[2] = static_cast<int>(std::round(voxelH.z - 0.5));
+    indices[0] = static_cast<int>(std::round(voxelH.x));
+    indices[1] = static_cast<int>(std::round(voxelH.y));
+    indices[2] = static_cast<int>(std::round(voxelH.z));
     
     // Clamp to valid range
     indices[0] = std::clamp(indices[0], 0, vol.dimensions[0] - 1);

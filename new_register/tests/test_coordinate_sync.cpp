@@ -45,9 +45,9 @@ int main() {
     
     int testVoxel[] = {10, 20, 30};
     double direct[3];
-    direct[0] = hiRes.start[0] + (testVoxel[0] + 0.5) * hiRes.step[0];
-    direct[1] = hiRes.start[1] + (testVoxel[1] + 0.5) * hiRes.step[1];
-    direct[2] = hiRes.start[2] + (testVoxel[2] + 0.5) * hiRes.step[2];
+    direct[0] = hiRes.start[0] + testVoxel[0] * hiRes.step[0];
+    direct[1] = hiRes.start[1] + testVoxel[1] * hiRes.step[1];
+    direct[2] = hiRes.start[2] + testVoxel[2] * hiRes.step[2];
     
     double matrix[3];
     hiRes.transformVoxelToWorld(testVoxel, matrix);
