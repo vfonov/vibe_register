@@ -1765,13 +1765,14 @@ int main(int argc, char** argv)
                     ImGui::Separator();
                     ImGui::Text("Current slice position:");
                     
-                    // Voxel coordinates
+                    // Voxel coordinates - reorder to show X, Y, Z
                     ImGui::Text("  Voxel: (%d, %d, %d)",
-                                state.sliceIndices[0], state.sliceIndices[1], state.sliceIndices[2]);
+                                state.sliceIndices[1], state.sliceIndices[2], state.sliceIndices[0]);
                     
                     // World coordinates (using matrix transform)
+                    int voxelXYZ[3] = { state.sliceIndices[1], state.sliceIndices[2], state.sliceIndices[0] };
                     double worldPos[3];
-                    vol.transformVoxelToWorld(state.sliceIndices, worldPos);
+                    vol.transformVoxelToWorld(voxelXYZ, worldPos);
                     ImGui::Text("  World: (%.2f, %.2f, %.2f) mm",
                                 worldPos[0], worldPos[1], worldPos[2]);
 
