@@ -21,9 +21,14 @@
 #include "AppConfig.h"
 #include "ColourMap.h"
 #include "GraphicsBackend.h"
-#include "TagFile.h"
 #include "Volume.h"
 #include "VulkanHelpers.h"
+
+// Include minc2_simple for tag file support
+// Note: minc2_simple headers are included via the target's PUBLIC include directories
+extern "C" {
+#include "minc2-simple-int.h"
+}
 
 // --- Clamp colour mode for under/over range voxels ---
 // -2 = "Current" (use volume's own colour map endpoint)
@@ -64,8 +69,14 @@ struct OverlayState
     float dragAccum[3] = { 0.0f, 0.0f, 0.0f };
 };
 
+// --- Tag point structure ---
+struct TagPoint
+{
+    glm::dvec3 position;  // World coordinates
+    std::string label;
+};
+
 // --- Tag file state ---
-std::vector<TagFile> g_TagFiles;
 std::vector<std::vector<TagPoint>> g_TagPoints;  // Tags per volume
 bool g_TagsVisible = true;
 
@@ -1373,13 +1384,26 @@ int main(int argc, char** argv)
             tagPath.replace_extension(".tag");
             if (std::filesystem::exists(tagPath)) {
                 try {
-                    TagFile tagFile;
-                    tagFile.load(tagPath.string());
-                    g_TagFiles.push_back(tagFile);
-                    g_TagPoints.push_back(tagFile.getTagPoints());
-                    std::cerr << "Loaded tag file: " << tagPath.string() << "\n";
+                    minc2_tags_handle tags = minc2_tags_allocate0();
+                    if (minc2_tags_load(tags, tagPath.string().c_str()) == MINC2_SUCCESS) {
+                        std::vector<TagPoint> points;
+                        for (int i = 0; i < tags->n_tag_points; i++) {
+                            TagPoint point;
+                            point.position = glm::dvec3(
+                                tags->tags_volume1[i*3+0],
+                                tags->tags_volume1[i*3+1],
+                                tags->tags_volume1[i*3+2]);
+                            point.label = tags->labels && tags->labels[i] ? tags->labels[i] : "";
+                            points.push_back(point);
+                        }
+                        g_TagPoints.push_back(points);
+                        std::cerr << "Loaded " << points.size() << " tags from " << tagPath.string() << "\n";
+                    } else {
+                        std::cerr << "Failed to load tag file: " << tagPath.string() << "\n";
+                    }
+                    minc2_tags_free(tags);
                 } catch (const std::exception& e) {
-                    std::cerr << "Failed to load tag file: " << e.what() << "\n";
+                    std::cerr << "Exception loading tag file: " << e.what() << "\n";
                 }
             }
         }
@@ -2273,7 +2297,7 @@ int main(int argc, char** argv)
                         UpdateAllOverlayTextures();
 
                     // Tag visibility toggle
-                    if (g_TagFiles.size() > 0 && ImGui::Checkbox("Show Tags", &g_TagsVisible)) {
+                    if (!g_TagPoints.empty() && ImGui::Checkbox("Show Tags", &g_TagsVisible)) {
                         // Tags will be redrawn on next frame
                     }
 

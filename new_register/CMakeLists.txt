@@ -92,10 +92,7 @@ file(GLOB_RECURSE SOURCES
     "include/*.h"
 )
 
-# Add TagFile source explicitly
-list(APPEND SOURCES
-    src/TagFile.cpp
-)
+
 
 # ImGui Backends (Vulkan + GLFW)
 set(IMGUI_DIR ${imgui_SOURCE_DIR})
@@ -167,7 +164,4 @@ target_link_libraries(test_thick_slices_com PRIVATE minc2_simple glm)
 add_test(NAME ThickSlicesCOMTest COMMAND test_thick_slices_com
     ${CMAKE_SOURCE_DIR}/../test_data/mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc)
 
-add_executable(test_tag_file tests/test_tag_file.cpp src/TagFile.cpp)
-target_include_directories(test_tag_file PRIVATE include ${glm_SOURCE_DIR})
-target_link_libraries(test_tag_file PRIVATE minc2_simple glm)
-add_test(NAME TagFileTest COMMAND test_tag_file)
+
