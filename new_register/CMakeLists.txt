@@ -57,7 +57,7 @@ target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
 # We add the legacy/libminc directory. 
 # We disable testing/examples/nifti for libminc to speed up build and avoid clutter.
 set(LIBMINC_BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libs" FORCE)
-set(LIBMINC_MINC1_SUPPORT OFF CACHE BOOL "Enable MINC1" FORCE)
+set(LIBMINC_MINC1_SUPPORT ON CACHE BOOL "Enable MINC1" FORCE)
 set(LIBMINC_BUILD_EZMINC OFF CACHE BOOL "Build EZMINC" FORCE)
 set(LIBMINC_BUILD_VIO ON CACHE BOOL "Build VolumeIO" FORCE) 
 set(LIBMINC_USE_NIFTI OFF CACHE BOOL "Use NIfTI" FORCE)
@@ -67,10 +67,14 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/../legacy/libminc libminc)
 
 # 5. minc2-simple (Internal Source Build)
 # Define minc2-simple library target manually to integrate with libminc target
+# Note: minc2-simple uses VolumeIO functions for tag file I/O, but we only
+# need it for basic minc2 operations. Tag file loading uses a custom parser.
 add_library(minc2_simple STATIC
     ${CMAKE_SOURCE_DIR}/../legacy/minc2-simple/src/minc2-simple.c
     ${CMAKE_SOURCE_DIR}/../legacy/minc2-simple/src/minc2-matrix-ops.c
 )
+
+
 target_include_directories(minc2_simple PUBLIC 
     ${CMAKE_SOURCE_DIR}/../legacy/minc2-simple/src
     ${CMAKE_SOURCE_DIR}/../legacy/libminc/libsrc2 # For minc2.h
@@ -120,6 +124,7 @@ target_link_libraries(new_register PRIVATE
     Vulkan::Vulkan
     imgui
     minc2_simple
+    minc2
     glaze::glaze
     glm
 )
@@ -163,5 +168,11 @@ target_include_directories(test_thick_slices_com PRIVATE include ${glm_SOURCE_DI
 target_link_libraries(test_thick_slices_com PRIVATE minc2_simple glm)
 add_test(NAME ThickSlicesCOMTest COMMAND test_thick_slices_com
     ${CMAKE_SOURCE_DIR}/../test_data/mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc)
+
+# Tag loading test using minc2-simple API
+add_executable(test_tag_load tests/test_tag_load.cpp)
+target_include_directories(test_tag_load PRIVATE include ${glm_SOURCE_DIR})
+target_link_libraries(test_tag_load PRIVATE minc2_simple minc2 glm)
+add_test(NAME TagLoadTest COMMAND test_tag_load ${CMAKE_SOURCE_DIR}/../test_data/mni_icbm152_t1_tal_nlin_sym_09c.tag)
 
 
