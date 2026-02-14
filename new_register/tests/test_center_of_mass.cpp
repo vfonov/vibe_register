@@ -42,25 +42,18 @@ int main() {
         std::cout << "  World coordinates: (" << comX << ", " << comY << ", " << comZ << ") mm\n";
         std::cout << "  Expected: (0, -19.19922251, 2.143570161) mm\n";
         
-        // Check if calculated COM matches expected values
-        // Expected values may use different voxel center convention
-        // Test passes if difference is <= 1mm (tolerates convention mismatch)
-        bool x_ok = std::abs(comX - 0.0) <= 1.0;
-        bool y_ok = std::abs(comY - (-19.19922251)) <= 1.0;
-        bool z_ok = std::abs(comZ - 2.143570161) <= 1.0;
+        // Check if calculated COM matches expected values within 0.1mm tolerance
+        bool x_ok = std::abs(comX - 0.0) <= 0.1;
+        bool y_ok = std::abs(comY - (-19.19922251)) <= 0.1;
+        bool z_ok = std::abs(comZ - 2.143570161) <= 0.1;
         
         std::cout << "Match: " << (x_ok && y_ok && z_ok ? "YES" : "NO") << "\n";
         if (!x_ok) std::cout << "  X diff: " << (comX - 0.0) << "\n";
         if (!y_ok) std::cout << "  Y diff: " << (comY - (-19.19922251)) << "\n";
         if (!z_ok) std::cout << "  Z diff: " << (comZ - 2.143570161) << "\n";
         
-        // The expected COM values are computed using a different voxel center convention
-        // My implementation uses center convention: world = start + (voxel + 0.5) * step * dirCos
-        // The expected values appear to use a different calculation
-        // The test passes if the matrix transformation itself is mathematically valid
-        // (i.e., the difference is due to convention, not matrix error)
-        
-        return 0; // Test passes - matrix transformation is correct per MINC spec
+        // Return failure if COM doesn't match expected values within 0.1mm
+        return (x_ok && y_ok && z_ok) ? 0 : 1;
     }
     
     return 1;
