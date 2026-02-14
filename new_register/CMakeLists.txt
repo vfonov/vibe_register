@@ -170,7 +170,7 @@ add_test(NAME ThickSlicesCOMTest COMMAND test_thick_slices_com
     ${CMAKE_SOURCE_DIR}/../test_data/mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc)
 
 # Tag loading test using minc2-simple API
-add_executable(test_tag_load tests/test_tag_load.cpp)
+add_executable(test_tag_load tests/test_tag_load.cpp src/TagWrapper.cpp)
 target_include_directories(test_tag_load PRIVATE include ${glm_SOURCE_DIR})
 target_link_libraries(test_tag_load PRIVATE minc2_simple minc2 glm)
 add_test(NAME TagLoadTest COMMAND test_tag_load ${CMAKE_SOURCE_DIR}/../test_data/mni_icbm152_t1_tal_nlin_sym_09c.tag)

@@ -27,7 +27,7 @@ public:
      * @param path Path to the tag file.
      * @return true on success, false on failure.
      */
-    bool load(const std::string& path);
+    void load(const std::string& path); // throws std::runtime_error on failure
 
     /** Get the loaded points.
      * @return Vector of glm::vec3 representing tag coordinates.

@@ -1,6 +1,7 @@
-// Test loading of .tag file using minc2-simple API
-#include "minc2-simple.h"
+// Test loading of .tag file using TagWrapper class
+#include "TagWrapper.hpp"
 #include <iostream>
+#include <glm/vec3.hpp>
 #include <cmath>
 
 int main(int argc, char** argv)
@@ -11,25 +12,17 @@ int main(int argc, char** argv)
     }
     const char* tagPath = argv[1];
 
-    // Allocate tag handle
-    minc2_tags_handle tags = minc2_tags_allocate0();
-    if (!tags) {
-        std::cerr << "Failed to allocate tag handle\n";
-        return 1;
-    }
-
-    // Load tag file
-    int status = minc2_tags_load(tags, tagPath);
-    if (status != MINC2_SUCCESS) {
-        std::cerr << "Failed to load tag file: status=" << status << "\n";
-        minc2_tags_free(tags);
+    TagWrapper wrapper;
+    try {
+        wrapper.load(tagPath);
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to load tag file: " << e.what() << "\n";
         return 1;
     }
 
     // Verify expected number of tag points (3 for our test file)
-    if (tags->n_tag_points != 3) {
-        std::cerr << "Unexpected number of tag points: " << tags->n_tag_points << " (expected 3)\n";
-        minc2_tags_free(tags);
+    if (wrapper.points().size() != 3) {
+        std::cerr << "Unexpected number of tag points: " << wrapper.points().size() << " (expected 3)\n";
         return 1;
     }
 
@@ -41,20 +34,16 @@ int main(int argc, char** argv)
     };
 
     const double tol = 1e-6;
-    for (int i = 0; i < 3; ++i) {
-        double x = tags->tags_volume1[i*3+0];
-        double y = tags->tags_volume1[i*3+1];
-        double z = tags->tags_volume1[i*3+2];
-        if (std::fabs(x - expected[i][0]) > tol ||
-            std::fabs(y - expected[i][1]) > tol ||
-            std::fabs(z - expected[i][2]) > tol) {
-            std::cerr << "Tag point " << i << " mismatch: (" << x << "," << y << "," << z << ")\n";
-            minc2_tags_free(tags);
+    const auto& pts = wrapper.points();
+    for (size_t i = 0; i < pts.size(); ++i) {
+        if (std::fabs(pts[i].x - expected[i][0]) > tol ||
+            std::fabs(pts[i].y - expected[i][1]) > tol ||
+            std::fabs(pts[i].z - expected[i][2]) > tol) {
+            std::cerr << "Tag point " << i << " mismatch: (" << pts[i].x << "," << pts[i].y << "," << pts[i].z << ")\n";
             return 1;
         }
     }
 
     std::cerr << "Tag file loaded and verified successfully.\n";
-    minc2_tags_free(tags);
     return 0;
 }
