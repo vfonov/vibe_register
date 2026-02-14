@@ -21,6 +21,7 @@
 #include "AppConfig.h"
 #include "ColourMap.h"
 #include "GraphicsBackend.h"
+#include "TagFile.h"
 #include "Volume.h"
 #include "VulkanHelpers.h"
 
@@ -62,6 +63,11 @@ struct OverlayState
     float panV[3] = { 0.5f, 0.5f, 0.5f };
     float dragAccum[3] = { 0.0f, 0.0f, 0.0f };
 };
+
+// --- Tag file state ---
+std::vector<TagFile> g_TagFiles;
+std::vector<std::vector<TagPoint>> g_TagPoints;  // Tags per volume
+bool g_TagsVisible = true;
 
 // --- Application State ---
 std::vector<Volume> g_Volumes;
@@ -437,6 +443,85 @@ static void worldToSliceIndices(const Volume& vol, const double world[3], int in
     indices[0] = std::clamp(indices[0], 0, vol.dimensions[0] - 1);
     indices[1] = std::clamp(indices[1], 0, vol.dimensions[1] - 1);
     indices[2] = std::clamp(indices[2], 0, vol.dimensions[2] - 1);
+}
+
+// --- Draw tag points on a slice view ---
+// Returns true if any tag was drawn
+static bool drawTagsOnSlice(int volumeIndex, int viewIndex, const ImVec2& imgPos, 
+                           const ImVec2& imgSize, const ImVec2& uv0, const ImVec2& uv1,
+                           const Volume& vol)
+{
+    if (!g_TagsVisible || volumeIndex >= static_cast<int>(g_TagPoints.size()) ||
+        g_TagPoints[volumeIndex].empty()) {
+        return false;
+    }
+    
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 tagColor = IM_COL32(255, 0, 0, 200);  // Red with alpha
+    const float tagRadius = 4.0f * g_DpiScale;
+    
+    bool drawn = false;
+    
+    // Determine which slice we're looking at based on view index
+    int sliceIdx = 0;
+    if (viewIndex == 0) sliceIdx = 0;  // Transverse: view along Z, show XY at slice Z
+    else if (viewIndex == 1) sliceIdx = 1;  // Sagittal: view along X, show YZ at slice X
+    else sliceIdx = 2;  // Coronal: view along Y, show XZ at slice Y
+    
+    // Map image UV to full UV through zoom/pan
+    float uvSpanU = uv1.x - uv0.x;
+    float uvSpanV = uv1.y - uv0.y;
+    
+    for (const auto& tag : g_TagPoints[volumeIndex]) {
+        // Get voxel indices for this tag's world position
+        int voxel[3];
+        vol.transformWorldToVoxel(&tag.position.x, voxel);
+        
+        // Check if tag is on the current slice (within 0.5 voxel)
+        if (std::abs(voxel[sliceIdx] - sliceIdx) > 0.5f) {
+            continue;
+        }
+        
+        // Convert voxel to normalized UV coordinates for this view
+        float normU = 0.0f, normV = 0.0f;
+        if (viewIndex == 0) {  // Transverse: X vs Y
+            normU = static_cast<float>(voxel[0]) / static_cast<float>(std::max(vol.dimensions[0] - 1, 1));
+            normV = static_cast<float>(voxel[1]) / static_cast<float>(std::max(vol.dimensions[1] - 1, 1));
+        } else if (viewIndex == 1) {  // Sagittal: Z vs Y
+            normU = static_cast<float>(voxel[2]) / static_cast<float>(std::max(vol.dimensions[2] - 1, 1));
+            normV = static_cast<float>(voxel[1]) / static_cast<float>(std::max(vol.dimensions[1] - 1, 1));
+        } else {  // Coronal: X vs Z
+            normU = static_cast<float>(voxel[0]) / static_cast<float>(std::max(vol.dimensions[0] - 1, 1));
+            normV = static_cast<float>(voxel[2]) / static_cast<float>(std::max(vol.dimensions[2] - 1, 1));
+        }
+        
+        // V is flipped (image top = max voxel)
+        normV = 1.0f - normV;
+        
+        // Map to screen coordinates
+        float screenX = imgPos.x + (normU - uv0.x) / uvSpanU * imgSize.x;
+        float screenY = imgPos.y + (normV - uv0.y) / uvSpanV * imgSize.y;
+        
+        // Clip to image bounds
+        ImVec2 clipMin = imgPos;
+        ImVec2 clipMax(imgPos.x + imgSize.x, imgPos.y + imgSize.y);
+        
+        // Draw crosshair for tag
+        dl->PushClipRect(clipMin, clipMax, true);
+        dl->AddLine(
+            ImVec2(screenX - tagRadius, screenY),
+            ImVec2(screenX + tagRadius, screenY),
+            tagColor, 1.5f * g_DpiScale);
+        dl->AddLine(
+            ImVec2(screenX, screenY - tagRadius),
+            ImVec2(screenX, screenY + tagRadius),
+            tagColor, 1.5f * g_DpiScale);
+        dl->PopClipRect();
+        
+        drawn = true;
+    }
+    
+    return drawn;
 }
 
 // --- Synchronize cursor position across all volumes based on physical coordinates ---
@@ -1279,6 +1364,23 @@ int main(int argc, char** argv)
             catch (const std::exception& e)
             {
                 std::cerr << "Failed to load volume: " << e.what() << "\n";
+            }
+        }
+        
+        // Try to load corresponding .tag file (same basename as first volume)
+        if (g_Volumes.size() > 0) {
+            std::filesystem::path tagPath(g_VolumePaths[0]);
+            tagPath.replace_extension(".tag");
+            if (std::filesystem::exists(tagPath)) {
+                try {
+                    TagFile tagFile;
+                    tagFile.load(tagPath.string());
+                    g_TagFiles.push_back(tagFile);
+                    g_TagPoints.push_back(tagFile.getTagPoints());
+                    std::cerr << "Loaded tag file: " << tagPath.string() << "\n";
+                } catch (const std::exception& e) {
+                    std::cerr << "Failed to load tag file: " << e.what() << "\n";
+                }
             }
         }
     }
@@ -2169,6 +2271,11 @@ int main(int argc, char** argv)
 
                     if (alphaChanged)
                         UpdateAllOverlayTextures();
+
+                    // Tag visibility toggle
+                    if (g_TagFiles.size() > 0 && ImGui::Checkbox("Show Tags", &g_TagsVisible)) {
+                        // Tags will be redrawn on next frame
+                    }
 
                     if (ImGui::Button("Reset View"))
                     {
