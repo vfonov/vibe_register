@@ -8,6 +8,8 @@
 #include <cstdio>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <stdexcept>
 #include <format>
 
@@ -24,11 +26,7 @@
 #include "Volume.h"
 #include "VulkanHelpers.h"
 
-// Include minc2_simple for tag file support
-// Note: minc2_simple headers are included via the target's PUBLIC include directories
-extern "C" {
-#include "minc2-simple-int.h"
-}
+
 
 // --- Clamp colour mode for under/over range voxels ---
 // -2 = "Current" (use volume's own colour map endpoint)
@@ -1384,24 +1382,74 @@ int main(int argc, char** argv)
             tagPath.replace_extension(".tag");
             if (std::filesystem::exists(tagPath)) {
                 try {
-                    minc2_tags_handle tags = minc2_tags_allocate0();
-                    if (minc2_tags_load(tags, tagPath.string().c_str()) == MINC2_SUCCESS) {
-                        std::vector<TagPoint> points;
-                        for (int i = 0; i < tags->n_tag_points; i++) {
-                            TagPoint point;
-                            point.position = glm::dvec3(
-                                tags->tags_volume1[i*3+0],
-                                tags->tags_volume1[i*3+1],
-                                tags->tags_volume1[i*3+2]);
-                            point.label = tags->labels && tags->labels[i] ? tags->labels[i] : "";
-                            points.push_back(point);
+                    std::ifstream file(tagPath.string());
+                    if (!file.is_open()) {
+                        throw std::runtime_error("Failed to open tag file");
+                    }
+                    
+                    std::vector<TagPoint> points;
+                    std::string line;
+                    bool inPointsSection = false;
+                    
+                    while (std::getline(file, line)) {
+                        // Trim whitespace
+                        auto start = line.find_first_not_of(" \t\r\n");
+                        auto end = line.find_last_not_of(" \t\r\n");
+                        if (start == std::string::npos) continue;
+                        line = line.substr(start, end - start + 1);
+                        
+                        // Skip empty lines and comments
+                        if (line.empty() || line[0] == '%') continue;
+                        
+                        // Check for points section start
+                        if (line.find("Points =") != std::string::npos) {
+                            inPointsSection = true;
+                            continue;
                         }
+                        
+                        // Check for points section end
+                        if (line == ";") {
+                            inPointsSection = false;
+                            continue;
+                        }
+                        
+                        // Parse tag point data
+                        if (inPointsSection) {
+                            // Remove trailing semicolon if present
+                            if (!line.empty() && line.back() == ';') {
+                                line = line.substr(0, line.length() - 1);
+                            }
+                            
+                            std::vector<double> values;
+                            std::istringstream iss(line);
+                            double val;
+                            while (iss >> val) {
+                                values.push_back(val);
+                            }
+                            
+                            if (values.size() >= 3) {
+                                TagPoint point;
+                                point.position = glm::dvec3(values[0], values[1], values[2]);
+                                point.label = "";
+                                
+                                // Try to extract label if present (quoted string at the end)
+                                size_t labelPos = line.find('"');
+                                if (labelPos != std::string::npos) {
+                                    size_t labelEnd = line.find('"', labelPos + 1);
+                                    if (labelEnd != std::string::npos) {
+                                        point.label = line.substr(labelPos + 1, labelEnd - labelPos - 1);
+                                    }
+                                }
+                                
+                                points.push_back(point);
+                            }
+                        }
+                    }
+                    
+                    if (!points.empty()) {
                         g_TagPoints.push_back(points);
                         std::cerr << "Loaded " << points.size() << " tags from " << tagPath.string() << "\n";
-                    } else {
-                        std::cerr << "Failed to load tag file: " << tagPath.string() << "\n";
                     }
-                    minc2_tags_free(tags);
                 } catch (const std::exception& e) {
                     std::cerr << "Exception loading tag file: " << e.what() << "\n";
                 }
