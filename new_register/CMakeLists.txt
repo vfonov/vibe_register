@@ -155,3 +155,9 @@ target_include_directories(test_center_of_mass PRIVATE include ${glm_SOURCE_DIR}
 target_link_libraries(test_center_of_mass PRIVATE minc2_simple glm)
 add_test(NAME CenterOfMassTest COMMAND test_center_of_mass
     ${CMAKE_SOURCE_DIR}/../test_data/mni_icbm152_t1_tal_nlin_sym_09c.mnc)
+
+add_executable(test_thick_slices_com tests/test_thick_slices_com.cpp src/Volume.cpp)
+target_include_directories(test_thick_slices_com PRIVATE include ${glm_SOURCE_DIR})
+target_link_libraries(test_thick_slices_com PRIVATE minc2_simple glm)
+add_test(NAME ThickSlicesCOMTest COMMAND test_thick_slices_com
+    ${CMAKE_SOURCE_DIR}/../test_data/mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc)
