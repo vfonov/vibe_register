@@ -1,121 +1,177 @@
-# Sub-Plan: Standardize to MINC Spatial Index Order
+# Sub-Plan: Modernize C-style Code to C++23
 
-## Current State
+## Overview
 
-The codebase uses a **custom "app convention"** for `sliceIndices`:
-- **App convention**: `[0]=Z, [1]=X, [2]=Y` (i.e., `.z=Z, .x=X, .y=Y`)
-- **MINC convention**: `[0]=X, [1]=Y, [2]=Z` (i.e., `.x=X, .y=Y, .z=Z`)
-
-## Goal
-
-Standardize **all** spatial coordinate arrays to use **MINC order** (index 0 = X, index 1 = Y, index 2 = Z).
-
----
-
-## Phase 1: Change Struct Definition — 1 change
-
-| # | Location | Current | Proposed |
-|---|----------|---------|----------|
-| 1.1 | `VolumeViewState::sliceIndices` (main.cpp:50) | `glm::ivec3 sliceIndices{0, 0, 0}; // .z=Z, .x=X, .y=Y (app convention)` | `glm::ivec3 sliceIndices{0, 0, 0}; // .x=X, .y=Y, .z=Z (MINC order)` |
+The codebase has several C-style patterns that can be modernized using C++23 features including:
+- `std::unique_ptr` for RAII
+- `std::array` for fixed-size arrays
+- Range-based for loops and C++23 ranges
+- `std::views::iota` and `std::views::enumerate`
+- `std::size()` (C++17)
+- `std::format` / `std::print` (C++20/23)
+- Structured bindings
+- `constexpr` and `consteval`
 
 ---
 
-## Phase 2: Update ResetViews — 1 change
+## Phase 1: Replace Manual Memory Management (Priority: HIGH)
 
-| # | Location | Current | Proposed |
-|---|----------|---------|----------|
-| 2.1 | ResetViews (main.cpp:609-611) | `sliceIndices[0]=dimZ/2, [1]=dimX/2, [2]=dimY/2` | `sliceIndices.x = dimensions.x/2; sliceIndices.y = dimensions.y/2; sliceIndices.z = dimensions.z/2;` |
+### 1.1 VulkanHelpers.cpp - Replace new/delete with unique_ptr
+| Location | Current | Proposed |
+|----------|---------|----------|
+| Line 37 | `VulkanTexture* tex = new VulkanTexture()` | Use `auto tex = std::make_unique<VulkanTexture>()` |
+| Line 47 | `delete tex` | Remove (unique_ptr auto-destroys) |
+| Line 307 | `delete tex` | Remove (unique_ptr auto-destroys) |
 
----
-
-## Phase 3: Update Crosshair Drawing — 6 changes
-
-| # | Location | Current | Proposed |
-|---|----------|---------|----------|
-| 3.1 | Transverse crosshair U (main.cpp:707) | `sliceIndices[1]` | `sliceIndices.x` |
-| 3.2 | Transverse crosshair V (main.cpp:709) | `sliceIndices[2]` | `sliceIndices.y` |
-| 3.3 | Sagittal crosshair U (main.cpp:715) | `sliceIndices[2]` | `sliceIndices.y` |
-| 3.4 | Sagittal crosshair V (main.cpp:717) | `sliceIndices[0]` | `sliceIndices.z` |
-| 3.5 | Coronal crosshair U (main.cpp:723) | `sliceIndices[1]` | `sliceIndices.x` |
-| 3.6 | Coronal crosshair V (main.cpp:725) | `sliceIndices[0]` | `sliceIndices.z` |
+### 1.2 Volume.cpp - Use unique_ptr with custom deleter for minc2 handle
+| Location | Current | Proposed |
+|----------|---------|----------|
+| Line 16-47 | `class Minc2Handle` with raw pointer | Use `std::unique_ptr<minc2_file_handle, decltype(&minc2_free)>` with lambda deleter |
 
 ---
 
-## Phase 4: Update Mouse Click Handling — 6 changes
+## Phase 2: Replace C-style Arrays with std::array/GLM (Priority: HIGH)
 
-| # | Location | Current | Proposed |
-|---|----------|---------|----------|
-| 4.1 | Transverse click X (main.cpp:787) | `sliceIndices[1] = voxX` | `sliceIndices.x = voxX` |
-| 4.2 | Transverse click Y (main.cpp:788) | `sliceIndices[2] = voxY` | `sliceIndices.y = voxY` |
-| 4.3 | Sagittal click Y (main.cpp:800) | `sliceIndices[2] = voxY` | `sliceIndices.y = voxY` |
-| 4.4 | Sagittal click Z (main.cpp:801) | `sliceIndices[0] = voxZ` | `sliceIndices.z = voxZ` |
-| 4.5 | Coronal click X (main.cpp:813) | `sliceIndices[1] = voxX` | `sliceIndices.x = voxX` |
-| 4.6 | Coronal click Z (main.cpp:814) | `sliceIndices[0] = voxZ` | `sliceIndices.z = voxZ` |
+### 2.1 main.cpp - valueRange
+| Location | Current | Proposed |
+|----------|---------|----------|
+| Line 51 | `float valueRange[2] = { 0.0f, 1.0f }` | `std::array<float, 2> valueRange = { 0.0f, 1.0f }` |
 
----
+### 2.2 Volume.cpp - dim_indices access
+| Location | Current | Proposed |
+|----------|---------|----------|
+| Line 122-124 | `dim_indices[0/1/2]` | Use `.x/.y/.z` (already GLM ivec3) |
+| Line 127 | `dim_indices[0] == -1` | `dim_indices.x == -1` |
+| Line 140-142 | `dirCos[axis][0/1/2]` | Use GLM column access: `dirCos[0][axis]`, etc. |
 
-## Phase 5: Update Overlay Crosshair — 6 changes
-
-Same pattern as Phase 3 (lines 1044-1064)
-
----
-
-## Phase 6: Update Overlay Mouse Click — 6 changes
-
-Same pattern as Phase 4 (lines 1122-1147)
-
----
-
-## Phase 7: Update Info Display — 1 change
-
-| # | Location | Current | Proposed |
-|---|----------|---------|----------|
-| 7.1 | Info voxel display (main.cpp:1967-1968) | `sliceIndices[1], sliceIndices[2], sliceIndices[0]` | `sliceIndices.x, sliceIndices.y, sliceIndices.z` |
+### 2.3 main.cpp - Remove remaining [0]/[1]/[2] array access
+| Location | Current | Proposed |
+|----------|---------|----------|
+| Line 320-322 | `ref.start[0/1/2]` | `ref.start.x/y/z` |
+| Line 338-340 | `vol.start[0/1/2]`, `vol.step[0/1/2]` | Use GLM accessors |
+| Line 347-349 | `vol.dimensions[0/1/2]` | Use GLM accessors |
+| Line 985-986 | `g_Volumes[0]`, `g_ViewStates[0]` | Keep (not array access) |
+| Line 1721 | `columnIds[0]` | Use `.front()` or structured binding |
 
 ---
 
-## Phase 8: Remove Sync Conversion Code — 2 changes
+## Phase 3: Use Range-Based For and C++23 Ranges (Priority: MEDIUM)
 
-| # | Location | Current | Proposed |
-|---|----------|---------|----------|
-| 8.1 | SyncCursors (main.cpp:558-585) | Conversion code: `voxelMINC(refState.sliceIndices.y, ...)` | Direct: `refState.sliceIndices` |
-| 8.2 | Sync checkbox (main.cpp:1783-1801) | Same conversion pattern | Remove conversion |
+### 3.1 ColourMap.cpp - Lazy initialization loop
+| Location | Current | Proposed |
+|----------|---------|----------|
+| Line 381-389 | Manual for loop with index | Use `std::views::iota` + lambda or `std::array` |
+
+### 3.2 Volume.cpp - Min/max calculation
+| Location | Current | Proposed |
+|----------|---------|----------|
+| Line 202-206 | Manual loop with comparisons | Use `std::ranges::minmax_element` (C++20) |
+
+### 3.3 Volume.cpp - Test data generation nested loops
+| Location | Current | Proposed |
+|----------|---------|----------|
+| Line 73-94 | Three nested for loops | Keep nested loops but use structured bindings |
+
+### 3.4 Volume.cpp - Dimension loop
+| Location | Current | Proposed |
+|----------|---------|----------|
+| Line 131-151 | Manual loop with index | Use `for (int axis = 0; axis < 3; ++axis)` with clear axis names |
+
+### 3.5 Volume.cpp - Total voxels calculation
+| Location | Current | Proposed |
+|----------|---------|----------|
+| Line 184-188 | Manual loop with multiplication | Use `std::accumulate` or manual calculation |
 
 ---
 
-## Phase 9: Update Config Serialization — 2 changes
+## Phase 4: constexpr and consteval (Priority: MEDIUM)
 
-| # | Location | Current | Proposed |
-|---|----------|---------|----------|
-| 9.1 | Config save (main.cpp:1757-1759) | `{sliceIndices[0], [1], [2]}` | Direct copy |
-| 9.2 | Config load clamp (main.cpp:1593-1598) | `v==0?dim[2] : v==1?dim[0] : dim[1]` | `v==0?dim.z : v==1?dim.x : dim.y` |
+### 4.1 ColourMap.cpp - countOf template
+| Location | Current | Proposed |
+|----------|---------|----------|
+| Line 265-266 | Custom `countOf` template | Use `std::size()` (C++17) or `std::size( array )` |
+
+### 4.2 main.cpp - Clamp constants
+| Location | Current | Proposed |
+|----------|---------|----------|
+| Line 43-44 | `constexpr int kClampCurrent` | Keep as constexpr |
+
+### 4.3 ColourMap.cpp - packRGBA function
+| Location | Current | Proposed |
+|----------|---------|----------|
+| Line 22-36 | `inline uint32_t packRGBA` | Consider making constexpr if inputs allow |
 
 ---
 
-## Phase 10: Cleanup Comments — 4 changes
+## Phase 5: auto Type and Structured Bindings (Priority: MEDIUM)
 
-| # | Location | Current | Proposed |
-|---|----------|---------|----------|
-| 10.1 | Struct comment (main.cpp:50) | `.z=Z, .x=X, .y=Y (app convention)` | `.x=X, .y=Y, .z=Z (MINC order)` |
-| 10.2 | Crosshair comment (main.cpp:702) | `[0]=Z, [1]=X, [2]=Y (app convention)` | Remove |
-| 10.3 | Volume.cpp comment (line 241) | "Callers must convert..." | Remove |
-| 10.4 | Volume.cpp comment (line 252) | "Callers must convert..." | Remove |
+### 5.1 AppConfig.cpp - Merge loop
+| Location | Current | Proposed |
+|----------|---------|----------|
+| Line 132-146 | Manual nested loop | Use structured bindings: `for (const auto& [localVol, mergedVol] : ...)` |
+
+### 5.2 TagWrapper.cpp - Point/label copy loops
+| Location | Current | Proposed |
+|----------|---------|----------|
+| Line 54-60 | Manual index-based loop | Use range-based for: `for (size_t i = 0; i < count; ++i)` or index_sequence |
+
+### 5.3 main.cpp - Config serialization loops
+| Location | Current | Proposed |
+|----------|---------|----------|
+| Line 1628-1636 | Manual array copy | Use direct assignment: `state.zoom = vc.zoom` |
 
 ---
 
-## Summary
+## Phase 6: Replace Magic Numbers (Priority: LOW)
 
-| Phase | Changes |
-|-------|---------|
-| 1 | 1 |
-| 2 | 1 |
-| 3 | 6 |
-| 4 | 6 |
-| 5 | 6 |
-| 6 | 6 |
-| 7 | 1 |
-| 8 | 2 |
-| 9 | 2 |
-| 10 | 4 |
+### 6.1 Volume.cpp - Hardcoded 256
+| Location | Current | Proposed |
+|----------|---------|----------|
+| Line 68 | `data.resize(256 * 256 * 256)` | Use `dimensions.x * dimensions.y * dimensions.z` |
+| Line 73,91 | Hardcoded `256` | Use `dimensions.x`, etc. |
 
-**Total: 35 changes**
+### 6.2 main.cpp - Array size calculation
+| Location | Current | Proposed |
+|----------|---------|----------|
+| Line 2004 | `sizeof(quickMaps) / sizeof(quickMaps[0])` | Use `std::size(quickMaps)` |
+
+---
+
+## Phase 7: Use std::format (C++20/23) (Priority: LOW)
+
+### 7.1 Replace printf/fprintf with std::print
+| Location | Current | Proposed |
+|----------|---------|----------|
+| Various | `printf`, `fprintf`, `std::cout` | Use `std::print` (C++23) where applicable |
+
+---
+
+## Summary of Changes
+
+| Phase | Focus Area | Files Affected |
+|-------|------------|----------------|
+| 1 | Memory management | VulkanHelpers.cpp, Volume.cpp |
+| 2 | C-style arrays | main.cpp, Volume.cpp |
+| 3 | Range-based loops | ColourMap.cpp, Volume.cpp |
+| 4 | constexpr/consteval | ColourMap.cpp, main.cpp |
+| 5 | auto & bindings | AppConfig.cpp, TagWrapper.cpp, main.cpp |
+| 6 | Magic numbers | Volume.cpp, main.cpp |
+| 7 | std::format | Various |
+
+---
+
+## Implementation Order
+
+1. **Phase 1** - Critical for resource safety (memory leaks)
+2. **Phase 2** - High impact, consistency with existing GLM usage
+3. **Phase 3** - Code readability and modern C++ style
+4. **Phase 4-7** - Incremental improvements
+
+---
+
+## Notes
+
+- Some C-style patterns are intentional for C library compatibility (minc2-simple API)
+- GLM already provides modern vector/matrix types - use them consistently
+- C++23 ranges require careful compiler support consideration
+- Test thoroughly after each phase
