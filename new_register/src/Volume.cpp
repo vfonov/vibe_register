@@ -246,6 +246,8 @@ double Volume::slicePixelAspect(int axisU, int axisV) const
 
 void Volume::transformVoxelToWorld(const int voxel[3], double world[3]) const
 {
+    // Input/output in MINC order: [0]=X, [1]=Y, [2]=Z.
+    // Callers must convert to/from app convention before calling.
     glm::dvec4 v(voxel[0], voxel[1], voxel[2], 1.0);
     glm::dvec4 w = voxelToWorld * v;
     world[0] = w.x;
@@ -255,12 +257,15 @@ void Volume::transformVoxelToWorld(const int voxel[3], double world[3]) const
 
 void Volume::transformWorldToVoxel(const double world[3], int voxel[3]) const
 {
+    // Input/output in MINC order: [0]=X, [1]=Y, [2]=Z.
+    // Callers must convert to/from app convention after calling.
     glm::dvec4 w(world[0], world[1], world[2], 1.0);
     glm::dvec4 v = worldToVoxel * w;
-    voxel[0] = static_cast<int>(std::round(v.x));
-    voxel[1] = static_cast<int>(std::round(v.y));
-    voxel[2] = static_cast<int>(std::round(v.z));
-    voxel[0] = std::clamp(voxel[0], 0, dimensions[0] - 1);
-    voxel[1] = std::clamp(voxel[1], 0, dimensions[1] - 1);
-    voxel[2] = std::clamp(voxel[2], 0, dimensions[2] - 1);
+    voxel[0] = static_cast<int>(std::round(v.x));  // X
+    voxel[1] = static_cast<int>(std::round(v.y));  // Y
+    voxel[2] = static_cast<int>(std::round(v.z));  // Z
+    
+    voxel[0] = std::clamp(voxel[0], 0, dimensions[0] - 1);  // X
+    voxel[1] = std::clamp(voxel[1], 0, dimensions[1] - 1);  // Y
+    voxel[2] = std::clamp(voxel[2], 0, dimensions[2] - 1);  // Z
 }

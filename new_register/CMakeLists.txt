@@ -175,4 +175,27 @@ target_include_directories(test_tag_load PRIVATE include ${glm_SOURCE_DIR})
 target_link_libraries(test_tag_load PRIVATE minc2_simple minc2 glm)
 add_test(NAME TagLoadTest COMMAND test_tag_load ${CMAKE_SOURCE_DIR}/../test_data/mni_icbm152_t1_tal_nlin_sym_09c.tag)
 
+# Volume info test - check dimensions and transformations
+add_executable(test_volume_info tests/test_volume_info.cpp)
+target_include_directories(test_volume_info PRIVATE include ${glm_SOURCE_DIR})
+target_link_libraries(test_volume_info PRIVATE minc2_simple minc2 glm)
+add_test(NAME VolumeInfoTest COMMAND test_volume_info)
+
+# World to voxel test
+add_executable(test_world_to_voxel tests/test_world_to_voxel.cpp src/Volume.cpp)
+target_include_directories(test_world_to_voxel PRIVATE include ${glm_SOURCE_DIR})
+target_link_libraries(test_world_to_voxel PRIVATE minc2_simple minc2 glm)
+add_test(NAME WorldToVoxelTest COMMAND test_world_to_voxel)
+
+# MINC dimensions test
+add_executable(test_minc_dims tests/test_minc_dims.cpp)
+target_include_directories(test_minc_dims PRIVATE include ${glm_SOURCE_DIR})
+target_link_libraries(test_minc_dims PRIVATE minc2_simple minc2 glm)
+add_test(NAME MincDimsTest COMMAND test_minc_dims)
+
+# Matrix debug test
+add_executable(test_matrix_debug tests/test_matrix_debug.cpp src/Volume.cpp)
+target_include_directories(test_matrix_debug PRIVATE include ${glm_SOURCE_DIR})
+target_link_libraries(test_matrix_debug PRIVATE minc2_simple minc2 glm)
+add_test(NAME MatrixDebugTest COMMAND test_matrix_debug)
 

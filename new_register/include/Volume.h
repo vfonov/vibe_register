@@ -56,10 +56,12 @@ public:
     double slicePixelAspect(int axisU, int axisV) const;
     
     /// Transform voxel coordinates (integers) to world coordinates using the
-    /// precomputed voxel-to-world matrix. Voxel i is centered at start + (i+0.5)*step.
+    /// precomputed voxel-to-world matrix.
+    /// Both voxel[] and world[] use MINC order: [0]=X, [1]=Y, [2]=Z.
     void transformVoxelToWorld(const int voxel[3], double world[3]) const;
     
     /// Transform world coordinates to voxel indices using the precomputed
-    /// world-to-voxel matrix. Result is rounded to nearest integer.
+    /// world-to-voxel matrix. Result is rounded to nearest integer and clamped.
+    /// Both world[] and voxel[] use MINC order: [0]=X, [1]=Y, [2]=Z.
     void transformWorldToVoxel(const double world[3], int voxel[3]) const;
 };

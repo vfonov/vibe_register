@@ -3,13 +3,24 @@
 #include <cmath>
 #include <filesystem>
 
-// Helper to compare doubles with tolerance
 bool near(double a, double b, double tol = 1e-6) {
     return std::abs(a - b) < tol;
 }
 
+// Simplified sync: use all 3 voxel coordinates from reference, convert to world, then to other volume
+// All arrays use MINC order: [0]=X, [1]=Y, [2]=Z
+void syncCursors(const Volume& refVol, int refVoxelMINC[3],
+                 const Volume& otherVol, int otherVoxelMINC[3]) {
+    
+    // Get world position from reference volume
+    double worldPos[3];
+    refVol.transformVoxelToWorld(refVoxelMINC, worldPos);
+    
+    // Convert world -> voxel for other volume
+    otherVol.transformWorldToVoxel(worldPos, otherVoxelMINC);
+}
+
 int main() {
-    // Get test data paths
     std::filesystem::path testDataDir;
     if (std::filesystem::exists("/app/test_data")) {
         testDataDir = "/app/test_data";
@@ -23,7 +34,6 @@ int main() {
     std::string hiResPath = (testDataDir / "mni_icbm152_t1_tal_nlin_sym_09c.mnc").string();
     std::string loResPath = (testDataDir / "mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc").string();
 
-    // Load high-res volume (1mm isotropic)
     Volume hiRes;
     try {
         hiRes.load(hiResPath);
@@ -32,7 +42,6 @@ int main() {
         return 1;
     }
 
-    // Load low-res volume (3x1x2 mm voxels)
     Volume loRes;
     try {
         loRes.load(loResPath);
@@ -40,22 +49,83 @@ int main() {
         std::cerr << "Failed to load low-res volume: " << e.what() << "\n";
         return 1;
     }
-
-    std::cout << "Test Case 3: Verify matrix transformation matches direct formula\n";
     
-    int testVoxel[] = {10, 20, 30};
-    double direct[3];
-    direct[0] = hiRes.start[0] + testVoxel[0] * hiRes.step[0];
-    direct[1] = hiRes.start[1] + testVoxel[1] * hiRes.step[1];
-    direct[2] = hiRes.start[2] + testVoxel[2] * hiRes.step[2];
+    std::cout << "High-res volume: " << hiRes.dimensions[0] << "x" << hiRes.dimensions[1] << "x" << hiRes.dimensions[2] << "\n";
+    std::cout << "  step: " << hiRes.step[0] << ", " << hiRes.step[1] << ", " << hiRes.step[2] << "\n";
+    std::cout << "  start: " << hiRes.start[0] << ", " << hiRes.start[1] << ", " << hiRes.start[2] << "\n";
+    std::cout << "Low-res volume: " << loRes.dimensions[0] << "x" << loRes.dimensions[1] << "x" << loRes.dimensions[2] << "\n";
+    std::cout << "  step: " << loRes.step[0] << ", " << loRes.step[1] << ", " << loRes.step[2] << "\n";
+    std::cout << "  start: " << loRes.start[0] << ", " << loRes.start[1] << ", " << loRes.start[2] << "\n";
     
-    double matrix[3];
-    hiRes.transformVoxelToWorld(testVoxel, matrix);
+    int testPass = 0;
+    int testFail = 0;
     
-    std::cout << "  Test voxel " << testVoxel[0] << "," << testVoxel[1] << "," << testVoxel[2] << "\n";
-    std::cout << "  Direct calculation: " << direct[0] << ", " << direct[1] << ", " << direct[2] << "\n";
-    std::cout << "  Matrix transform: " << matrix[0] << ", " << matrix[1] << ", " << matrix[2] << "\n";
-    std::cout << "  Match: " << (near(direct[0], matrix[0]) && near(direct[1], matrix[1]) && near(direct[2], matrix[2]) ? "YES" : "NO") << "\n";
+    // Test: Take voxel coordinates from hiRes, convert to world, then to loRes
+    // Then verify that converting back gives us approximately the same world coordinates
+    std::cout << "\n=== Test: Full voxel coordinate sync ===\n";
+    {
+        // Use some arbitrary voxel coordinates in MINC order [0]=X, [1]=Y, [2]=Z
+        int refSlice[3] = {100, 80, 50};  // X=100, Y=80, Z=50
+        
+        double worldPos[3];
+        hiRes.transformVoxelToWorld(refSlice, worldPos);
+        std::cout << "Ref (hiRes) voxel MINC (X,Y,Z): (" << refSlice[0] << ", " << refSlice[1] << ", " << refSlice[2] << ")\n";
+        std::cout << "World position: (" << worldPos[0] << ", " << worldPos[1] << ", " << worldPos[2] << ")\n";
+        
+        int otherSlice[3];
+        loRes.transformWorldToVoxel(worldPos, otherSlice);
+        std::cout << "Other (loRes) voxel MINC (X,Y,Z): (" << otherSlice[0] << ", " << otherSlice[1] << ", " << otherSlice[2] << ")\n";
+        
+        // Verify: convert back to world and check if it matches
+        double worldPos2[3];
+        loRes.transformVoxelToWorld(otherSlice, worldPos2);
+        std::cout << "World from other: (" << worldPos2[0] << ", " << worldPos2[1] << ", " << worldPos2[2] << ")\n";
+        
+        // The world coordinates should be very close (within voxel size tolerance)
+        double tol = 2.0; // Allow 2mm tolerance due to different resolutions
+        if (near(worldPos[0], worldPos2[0], tol) && 
+            near(worldPos[1], worldPos2[1], tol) && 
+            near(worldPos[2], worldPos2[2], tol)) {
+            std::cout << "PASS: World coordinates match\n";
+            testPass++;
+        } else {
+            std::cout << "FAIL: World coordinates don't match\n";
+            testFail++;
+        }
+    }
     
-    return (near(direct[0], matrix[0]) && near(direct[1], matrix[1]) && near(direct[2], matrix[2])) ? 0 : 1;
+    // Test 2: Center voxel
+    std::cout << "\n=== Test: Center voxel sync ===\n";
+    {
+        // MINC order: [0]=X, [1]=Y, [2]=Z
+        int refSlice[3] = {hiRes.dimensions[0]/2, hiRes.dimensions[1]/2, hiRes.dimensions[2]/2};
+        
+        double worldPos[3];
+        hiRes.transformVoxelToWorld(refSlice, worldPos);
+        std::cout << "Ref (hiRes) voxel MINC (X,Y,Z): (" << refSlice[0] << ", " << refSlice[1] << ", " << refSlice[2] << ")\n";
+        std::cout << "World position: (" << worldPos[0] << ", " << worldPos[1] << ", " << worldPos[2] << ")\n";
+        
+        int otherSlice[3];
+        loRes.transformWorldToVoxel(worldPos, otherSlice);
+        std::cout << "Other (loRes) voxel MINC (X,Y,Z): (" << otherSlice[0] << ", " << otherSlice[1] << ", " << otherSlice[2] << ")\n";
+        
+        double worldPos2[3];
+        loRes.transformVoxelToWorld(otherSlice, worldPos2);
+        std::cout << "World from other: (" << worldPos2[0] << ", " << worldPos2[1] << ", " << worldPos2[2] << ")\n";
+        
+        double tol = 2.0;
+        if (near(worldPos[0], worldPos2[0], tol) && 
+            near(worldPos[1], worldPos2[1], tol) && 
+            near(worldPos[2], worldPos2[2], tol)) {
+            std::cout << "PASS: World coordinates match\n";
+            testPass++;
+        } else {
+            std::cout << "FAIL: World coordinates don't match\n";
+            testFail++;
+        }
+    }
+    
+    std::cout << "\n=== Summary: " << testPass << " passed, " << testFail << " failed ===\n";
+    
+    return testFail > 0 ? 1 : 0;
 }

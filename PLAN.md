@@ -29,15 +29,12 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] Mouse wheel: zoom centered on cursor
 
 ### Multi-Volume Synchronization
-- [x] "Sync All" checkbox in Tools panel (when enabled, cursor position synchronized across all volumes)
+- [x] "Sync All" checkbox in Tools panel
 - [x] Left-click/drag, middle-drag scroll, and mouse wheel zoom respect sync setting
-- [x] When enabled, moving cursor in any view updates all other views to same slice positions
-- [ ] **Issue**: Center of mass calculation discrepancy
-  - Matrix transformations (voxel-to-world, world-to-voxel) are mathematically correct per MINC spec
-  - MINC uses: voxel i center is at `start + (i + 0.5) * step * dirCos`
-  - Center of mass computed from data: (0.5, -18.699, 2.644) mm
-  - Expected values from legacy: (0, -19.199, 2.144) mm
-  - Difference: exactly -0.5mm per dimension, likely due to different voxel center convention in legacy
+- [x] Voxel-to-world and world-to-voxel matrices built correctly in `Volume::load()`
+- [x] `SyncCursors()` uses simple voxel→world→voxel pipeline (no centers/steps heuristics)
+- [x] World (0,0,0) maps to correct voxel for both test volumes
+- [x] Fixed X↔Y swap bug in crosshairs, mouse clicks, sync, overlay, and info display
 
 ### Colour Maps
 - [x] 21 colour map types (Gray, HotMetal, Spectral, Red, Green, Blue, negative variants, Contour, etc.)
@@ -106,6 +103,14 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 ### Tests
 - [x] Volume loading tests (`test_real_data.cpp`)
 - [x] Colour map LUT tests (`test_colour_map.cpp`, 11 test cases)
+- [x] World↔voxel transform tests (`test_world_to_voxel.cpp`)
+- [x] Coordinate sync tests (`test_coordinate_sync.cpp`)
+- [x] Matrix debug dump tests (`test_matrix_debug.cpp`)
+- [x] MINC dimension info tests (`test_minc_dims.cpp`)
+- [x] Tag loading tests (`test_tag_load.cpp`)
+- [x] Thick-slices center of mass test (`test_thick_slices_com.cpp`)
+- [x] Center of mass test (`test_center_of_mass.cpp`)
+- [x] Volume info test (`test_volume_info.cpp`)
 
 ---
 
@@ -165,7 +170,6 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [ ] Volume caching for large volumes (>80MB)
 
 ### UI Features Not Yet Ported
-- [ ] Volume sync toggle (world coordinates shared between volumes)
 - [ ] Cursor visibility toggle
 - [ ] Voxel and World position readouts (editable text fields)
 - [ ] Volume value readout at cursor
@@ -200,21 +204,29 @@ new_register/
 │   ├── VulkanBackend.h
 │   └── VulkanHelpers.h
 ├── src/
-│   ├── main.cpp          (2126 lines — UI, state, rendering, main loop)
+│   ├── main.cpp          (~2425 lines — UI, state, rendering, main loop)
 │   ├── VulkanBackend.cpp  (710 lines)
 │   ├── ColourMap.cpp      (395 lines)
 │   ├── VulkanHelpers.cpp  (322 lines)
-│   ├── Volume.cpp         (210 lines)
+│   ├── Volume.cpp         (281 lines)
 │   └── AppConfig.cpp      (149 lines)
 └── tests/
     ├── test_real_data.cpp
-    └── test_colour_map.cpp
+    ├── test_colour_map.cpp
+    ├── test_world_to_voxel.cpp
+    ├── test_coordinate_sync.cpp
+    ├── test_matrix_debug.cpp
+    ├── test_minc_dims.cpp
+    ├── test_volume_info.cpp
+    ├── test_tag_load.cpp
+    ├── test_thick_slices_com.cpp
+    └── test_center_of_mass.cpp
 ```
 
-Total: ~3910 lines of application code.
+Total: ~4280 lines of application code.
 
 ### Suggested Refactoring
-- `main.cpp` (2102 lines) should be decomposed into separate modules:
+- `main.cpp` (~2425 lines) should be decomposed into separate modules:
   - `SliceView` — per-slice rendering, mouse interaction, crosshairs
   - `OverlayView` — multi-volume compositing and overlay panel
   - `UIState` — application state, volume collection, view state management
@@ -242,3 +254,8 @@ make
 cd new_register/build
 ctest --output-on-failure
 ```
+
+### Test Data
+- `test_data/mni_icbm152_t1_tal_nlin_sym_09c.mnc` — 1mm isotropic (193x229x193), X/Y/Z
+- `test_data/mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc` — 3x1x2mm (64x229x96)
+- Expected world (0,0,0) in MINC X,Y,Z order: voxel (96,132,78) for 1mm volume, (32,132,39) for thick-slices
