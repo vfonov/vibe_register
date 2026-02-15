@@ -1,4 +1,5 @@
 .git
 configure.in
 Makefile.am
+new_register/build
 
