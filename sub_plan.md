@@ -1,114 +1,121 @@
-# Sub-Plan: Migrate C-arrays to GLM vectors in new_register
+# Sub-Plan: Standardize to MINC Spatial Index Order
 
-## Phase 1: Volume.h (Class Members) — COMPLETED ✅
+## Current State
+
+The codebase uses a **custom "app convention"** for `sliceIndices`:
+- **App convention**: `[0]=Z, [1]=X, [2]=Y` (i.e., `.z=Z, .x=X, .y=Y`)
+- **MINC convention**: `[0]=X, [1]=Y, [2]=Z` (i.e., `.x=X, .y=Y, .z=Z`)
+
+## Goal
+
+Standardize **all** spatial coordinate arrays to use **MINC order** (index 0 = X, index 1 = Y, index 2 = Z).
+
+---
+
+## Phase 1: Change Struct Definition — 1 change
 
 | # | Location | Current | Proposed |
 |---|----------|---------|----------|
-| 1.1 | `Volume::dimensions` (line 12) | `int dimensions[3]` | `glm::ivec3 dimensions` |
-| 1.2 | `Volume::step` (line 16) | `double step[3]` | `glm::dvec3 step` |
-| 1.3 | `Volume::start` (line 19) | `double start[3]` | `glm::dvec3 start` |
-| 1.4 | `Volume::dirCos` (line 23) | `double dirCos[3][3]` | `glm::dmat3 dirCos` |
-
-**Completed**: All 4 class members migrated to GLM types.
+| 1.1 | `VolumeViewState::sliceIndices` (main.cpp:50) | `glm::ivec3 sliceIndices{0, 0, 0}; // .z=Z, .x=X, .y=Y (app convention)` | `glm::ivec3 sliceIndices{0, 0, 0}; // .x=X, .y=Y, .z=Z (MINC order)` |
 
 ---
 
-## Phase 2: Volume.h / Volume.cpp (Function Signatures) — 3 changes
+## Phase 2: Update ResetViews — 1 change
 
 | # | Location | Current | Proposed |
 |---|----------|---------|----------|
-| 1.1 | `Volume::dimensions` (line 12) | `int dimensions[3]` | `glm::ivec3 dimensions` |
-| 1.2 | `Volume::step` (line 16) | `double step[3]` | `glm::dvec3 step` |
-| 1.3 | `Volume::start` (line 19) | `double start[3]` | `glm::dvec3 start` |
-| 1.4 | `Volume::dirCos` (line 23) | `double dirCos[3][3]` | `glm::dmat3 dirCos` |
+| 2.1 | ResetViews (main.cpp:609-611) | `sliceIndices[0]=dimZ/2, [1]=dimX/2, [2]=dimY/2` | `sliceIndices.x = dimensions.x/2; sliceIndices.y = dimensions.y/2; sliceIndices.z = dimensions.z/2;` |
 
 ---
 
-## Phase 2: Volume.h / Volume.cpp (Function Signatures) — COMPLETED ✅
+## Phase 3: Update Crosshair Drawing — 6 changes
 
 | # | Location | Current | Proposed |
 |---|----------|---------|----------|
-| 2.1 | `Volume::worldExtent()` (line 51) | `void worldExtent(double extent[3])` | `void worldExtent(glm::dvec3& extent)` |
-| 2.2 | `Volume::transformVoxelToWorld()` (line 61) | `void transformVoxelToWorld(const int voxel[3], double world[3])` | `void transformVoxelToWorld(const glm::ivec3& voxel, glm::dvec3& world)` |
-| 2.3 | `Volume::transformWorldToVoxel()` (line 66) | `void transformWorldToVoxel(const double world[3], int voxel[3])` | `void transformWorldToVoxel(const glm::dvec3& world, glm::ivec3& voxel)` |
-
-**Completed**: All 3 function signatures updated.
+| 3.1 | Transverse crosshair U (main.cpp:707) | `sliceIndices[1]` | `sliceIndices.x` |
+| 3.2 | Transverse crosshair V (main.cpp:709) | `sliceIndices[2]` | `sliceIndices.y` |
+| 3.3 | Sagittal crosshair U (main.cpp:715) | `sliceIndices[2]` | `sliceIndices.y` |
+| 3.4 | Sagittal crosshair V (main.cpp:717) | `sliceIndices[0]` | `sliceIndices.z` |
+| 3.5 | Coronal crosshair U (main.cpp:723) | `sliceIndices[1]` | `sliceIndices.x` |
+| 3.6 | Coronal crosshair V (main.cpp:725) | `sliceIndices[0]` | `sliceIndices.z` |
 
 ---
 
-## Phase 3: Volume.cpp (Local Variables + Implementation) — COMPLETED ✅
+## Phase 4: Update Mouse Click Handling — 6 changes
 
 | # | Location | Current | Proposed |
 |---|----------|---------|----------|
-| 3.1 | `load()` function (line 126) | `int dim_indices[3]` | `glm::ivec3 dim_indices` |
-
-**Completed**: Local variable migrated and all array subscript accesses changed to `.x`, `.y`, `.z`.
+| 4.1 | Transverse click X (main.cpp:787) | `sliceIndices[1] = voxX` | `sliceIndices.x = voxX` |
+| 4.2 | Transverse click Y (main.cpp:788) | `sliceIndices[2] = voxY` | `sliceIndices.y = voxY` |
+| 4.3 | Sagittal click Y (main.cpp:800) | `sliceIndices[2] = voxY` | `sliceIndices.y = voxY` |
+| 4.4 | Sagittal click Z (main.cpp:801) | `sliceIndices[0] = voxZ` | `sliceIndices.z = voxZ` |
+| 4.5 | Coronal click X (main.cpp:813) | `sliceIndices[1] = voxX` | `sliceIndices.x = voxX` |
+| 4.6 | Coronal click Z (main.cpp:814) | `sliceIndices[0] = voxZ` | `sliceIndices.z = voxZ` |
 
 ---
 
-## Phase 4: main.cpp (Struct Members) — COMPLETED ✅
+## Phase 5: Update Overlay Crosshair — 6 changes
 
-**VolumeViewState struct**:
+Same pattern as Phase 3 (lines 1044-1064)
+
+---
+
+## Phase 6: Update Overlay Mouse Click — 6 changes
+
+Same pattern as Phase 4 (lines 1122-1147)
+
+---
+
+## Phase 7: Update Info Display — 1 change
 
 | # | Location | Current | Proposed |
 |---|----------|---------|----------|
-| 4.1 | `sliceIndices` | `int sliceIndices[3]` | `glm::ivec3 sliceIndices` |
-| 4.2 | `dragAccum` | `float dragAccum[3]` | `glm::dvec3 dragAccum` |
-| 4.3 | `zoom` | `float zoom[3]` | `glm::dvec3 zoom` |
-| 4.4 | `panU` | `float panU[3]` | `glm::dvec3 panU` |
-| 4.5 | `panV` | `float panV[3]` | `glm::dvec3 panV` |
-| 4.6 | `valueRange` | `float valueRange[2]` | Kept as `float[2]` for ImGui compatibility |
+| 7.1 | Info voxel display (main.cpp:1967-1968) | `sliceIndices[1], sliceIndices[2], sliceIndices[0]` | `sliceIndices.x, sliceIndices.y, sliceIndices.z` |
 
-**OverlayState struct**:
+---
+
+## Phase 8: Remove Sync Conversion Code — 2 changes
 
 | # | Location | Current | Proposed |
 |---|----------|---------|----------|
-| 4.7 | `zoom/panU/panV/dragAccum` | `float[3]` | `glm::dvec3` (each) |
-
-**Completed**: All struct members migrated (valueRange kept as float[2] for ImGui compatibility).
-
----
-
-## Phase 5: main.cpp (Helper Functions) — SKIPPED
-
-Not needed - the helper functions were already using the Volume class methods directly.
+| 8.1 | SyncCursors (main.cpp:558-585) | Conversion code: `voxelMINC(refState.sliceIndices.y, ...)` | Direct: `refState.sliceIndices` |
+| 8.2 | Sync checkbox (main.cpp:1783-1801) | Same conversion pattern | Remove conversion |
 
 ---
 
-## Phase 6: main.cpp (Call Sites) — COMPLETED ✅
+## Phase 9: Update Config Serialization — 2 changes
 
-Updated all transform function calls to use GLM types, fixed std::clamp type mismatches.
-
----
-
-## Phase 7: Test Files — COMPLETED ✅
-
-| # | File | Status |
-|---|------|--------|
-| 7.1 | `test_world_to_voxel.cpp` | ✅ Updated |
-| 7.2 | `test_coordinate_sync.cpp` | ✅ Updated |
-| 7.3 | `test_matrix_debug.cpp` | ✅ Updated |
-| 7.4 | `test_volume_info.cpp` | ✅ Already works (uses array subscripts) |
-| 7.5 | `test_thick_slices_com.cpp` | ✅ Updated |
-| 7.6 | `test_center_of_mass.cpp` | ✅ Already works (direct calculation) |
+| # | Location | Current | Proposed |
+|---|----------|---------|----------|
+| 9.1 | Config save (main.cpp:1757-1759) | `{sliceIndices[0], [1], [2]}` | Direct copy |
+| 9.2 | Config load clamp (main.cpp:1593-1598) | `v==0?dim[2] : v==1?dim[0] : dim[1]` | `v==0?dim.z : v==1?dim.x : dim.y` |
 
 ---
 
-## Phase 8: Config Serialization — COMPLETED ✅ (No changes needed)
+## Phase 10: Cleanup Comments — 4 changes
 
-`AppConfig.h` already uses `std::array<int, 3>` and `std::array<float, 3>` — kept as-is.
+| # | Location | Current | Proposed |
+|---|----------|---------|----------|
+| 10.1 | Struct comment (main.cpp:50) | `.z=Z, .x=X, .y=Y (app convention)` | `.x=X, .y=Y, .z=Z (MINC order)` |
+| 10.2 | Crosshair comment (main.cpp:702) | `[0]=Z, [1]=X, [2]=Y (app convention)` | Remove |
+| 10.3 | Volume.cpp comment (line 241) | "Callers must convert..." | Remove |
+| 10.4 | Volume.cpp comment (line 252) | "Callers must convert..." | Remove |
 
 ---
 
 ## Summary
 
-| Phase | Status |
-|-------|--------|
-| 1-3 | ✅ COMPLETED |
-| 4 | ✅ COMPLETED |
-| 5 | ⏭️ SKIPPED |
-| 6 | ✅ COMPLETED |
-| 7 | ✅ COMPLETED |
-| 8 | ✅ COMPLETED |
+| Phase | Changes |
+|-------|---------|
+| 1 | 1 |
+| 2 | 1 |
+| 3 | 6 |
+| 4 | 6 |
+| 5 | 6 |
+| 6 | 6 |
+| 7 | 1 |
+| 8 | 2 |
+| 9 | 2 |
+| 10 | 4 |
 
-**All phases completed!** Build succeeds, all 10 tests pass.
+**Total: 35 changes**
