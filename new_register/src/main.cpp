@@ -47,7 +47,7 @@ constexpr int kClampTransparent = -1;
 struct VolumeViewState
 {
     VulkanTexture* sliceTextures[3] = { nullptr, nullptr, nullptr };
-    glm::ivec3 sliceIndices{0, 0, 0};  // .z=Z, .x=X, .y=Y (app convention)
+    glm::ivec3 sliceIndices{0, 0, 0};  // .x=X, .y=Y, .z=Z (MINC order)
     float valueRange[2] = { 0.0f, 1.0f };  // Min, Max
     glm::dvec3 dragAccum{0.0, 0.0, 0.0};  // Middle-drag accumulator
     ColourMapType colourMap = ColourMapType::GrayScale;
@@ -216,7 +216,7 @@ void UpdateSliceTexture(int volumeIndex, int viewIndex)
     if (viewIndex == 0)  // Transverse (Z-slice)
     {
         w = dimX; h = dimY;
-        int z = state.sliceIndices[0];
+        int z = state.sliceIndices.z;
         if (z >= dimZ) z = dimZ - 1;
 
         pixels.resize(w * h);
@@ -231,7 +231,7 @@ void UpdateSliceTexture(int volumeIndex, int viewIndex)
     else if (viewIndex == 1)  // Sagittal (X-slice)
     {
         w = dimY; h = dimZ;
-        int x = state.sliceIndices[1];
+        int x = state.sliceIndices.x;
         if (x >= dimX) x = dimX - 1;
 
         pixels.resize(w * h);
@@ -246,7 +246,7 @@ void UpdateSliceTexture(int volumeIndex, int viewIndex)
     else  // Coronal (Y-slice)
     {
         w = dimX; h = dimZ;
-        int y = state.sliceIndices[2];
+        int y = state.sliceIndices.y;
         if (y >= dimY) y = dimY - 1;
 
         pixels.resize(w * h);
@@ -294,11 +294,14 @@ void UpdateOverlayTexture(int viewIndex)
 
     int w, h;
     // The overlay grid dimensions match the reference volume's slice
-    if (viewIndex == 0)      { w = ref.dimensions[0]; h = ref.dimensions[1]; }
-    else if (viewIndex == 1) { w = ref.dimensions[1]; h = ref.dimensions[2]; }
-    else                     { w = ref.dimensions[0]; h = ref.dimensions[2]; }
+    if (viewIndex == 0)      { w = ref.dimensions.x; h = ref.dimensions.y; }
+    else if (viewIndex == 1) { w = ref.dimensions.y; h = ref.dimensions.z; }
+    else                     { w = ref.dimensions.x; h = ref.dimensions.z; }
 
-    int sliceIdx = refState.sliceIndices[viewIndex];
+    int sliceIdx;
+    if (viewIndex == 0) sliceIdx = refState.sliceIndices.z;
+    else if (viewIndex == 1) sliceIdx = refState.sliceIndices.x;
+    else sliceIdx = refState.sliceIndices.y;
 
     std::vector<uint32_t> pixels(w * h);
 
@@ -555,16 +558,9 @@ static void SyncCursors()
     const Volume& refVol = g_Volumes[g_LastSyncSource];
     const VolumeViewState& refState = g_ViewStates[g_LastSyncSource];
     
-    // Convert sliceIndices [0]=Z,[1]=X,[2]=Y to MINC order [0]=X,[1]=Y,[2]=Z
-    glm::ivec3 voxelMINC(
-        refState.sliceIndices.y,  // X (sliceIndices[1])
-        refState.sliceIndices.z,  // Y (sliceIndices[2])
-        refState.sliceIndices.x   // Z (sliceIndices[0])
-    );
-    
-    // Get world position from reference volume
+    // Get world position from reference volume (sliceIndices in MINC order)
     glm::dvec3 worldPos;
-    refVol.transformVoxelToWorld(voxelMINC, worldPos);
+    refVol.transformVoxelToWorld(refState.sliceIndices, worldPos);
     
     // For each other volume, convert world coordinates to voxel coordinates
     for (int i = 0; i < static_cast<int>(g_Volumes.size()); ++i)
@@ -575,14 +571,14 @@ static void SyncCursors()
         Volume& otherVol = g_Volumes[i];
         VolumeViewState& otherState = g_ViewStates[i];
         
-        // Convert world -> voxel in MINC order [0]=X,[1]=Y,[2]=Z
-        glm::ivec3 newMINC;
-        otherVol.transformWorldToVoxel(worldPos, newMINC);
+        // Convert world -> voxel (MINC order)
+        glm::ivec3 newVoxel;
+        otherVol.transformWorldToVoxel(worldPos, newVoxel);
 
-        // Convert MINC order back to sliceIndices: [0]=Z,[1]=X,[2]=Y
-        otherState.sliceIndices.x = std::clamp(newMINC.z, 0, otherVol.dimensions.z - 1);  // Z
-        otherState.sliceIndices.y = std::clamp(newMINC.x, 0, otherVol.dimensions.x - 1);  // X
-        otherState.sliceIndices.z = std::clamp(newMINC.y, 0, otherVol.dimensions.y - 1);  // Y
+        // Store directly in MINC order
+        otherState.sliceIndices.x = std::clamp(newVoxel.x, 0, otherVol.dimensions.x - 1);
+        otherState.sliceIndices.y = std::clamp(newVoxel.y, 0, otherVol.dimensions.y - 1);
+        otherState.sliceIndices.z = std::clamp(newVoxel.z, 0, otherVol.dimensions.z - 1);
     }
     
     // Update textures for all volumes
@@ -606,9 +602,9 @@ void ResetViews()
 
         VolumeViewState& state = g_ViewStates[vi];
 
-        state.sliceIndices[0] = vol.dimensions[2] / 2;
-        state.sliceIndices[1] = vol.dimensions[0] / 2;
-        state.sliceIndices[2] = vol.dimensions[1] / 2;
+        state.sliceIndices.x = vol.dimensions.x / 2;
+        state.sliceIndices.y = vol.dimensions.y / 2;
+        state.sliceIndices.z = vol.dimensions.z / 2;
 
         state.valueRange[0] = vol.min_value;
         state.valueRange[1] = vol.max_value;
@@ -699,31 +695,29 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                     const float crossThick = 1.0f * g_DpiScale;
 
                     float normCrossU = 0.0f, normCrossV = 0.0f;
-                    // sliceIndices: [0]=Z, [1]=X, [2]=Y (app convention)
-                    // dimensions: [0]=X, [1]=Y, [2]=Z (MINC convention)
                     if (viewIndex == 0)
                     {
-                        // Transverse: shows XY at Z - U=X (sliceIndices[1]), V=Y (sliceIndices[2])
-                        normCrossU = static_cast<float>(state.sliceIndices[1]) /
-                                     static_cast<float>(std::max(vol.dimensions[0] - 1, 1));
-                        normCrossV = static_cast<float>(state.sliceIndices[2]) /
-                                     static_cast<float>(std::max(vol.dimensions[1] - 1, 1));
+                        // Transverse: shows XY at Z
+                        normCrossU = static_cast<float>(state.sliceIndices.x) /
+                                     static_cast<float>(std::max(vol.dimensions.x - 1, 1));
+                        normCrossV = static_cast<float>(state.sliceIndices.y) /
+                                     static_cast<float>(std::max(vol.dimensions.y - 1, 1));
                     }
                     else if (viewIndex == 1)
                     {
-                        // Sagittal: shows YZ at X - U=Y (sliceIndices[2]), V=Z (sliceIndices[0])
-                        normCrossU = static_cast<float>(state.sliceIndices[2]) /
-                                     static_cast<float>(std::max(vol.dimensions[1] - 1, 1));
-                        normCrossV = static_cast<float>(state.sliceIndices[0]) /
-                                     static_cast<float>(std::max(vol.dimensions[2] - 1, 1));
+                        // Sagittal: shows YZ at X
+                        normCrossU = static_cast<float>(state.sliceIndices.y) /
+                                     static_cast<float>(std::max(vol.dimensions.y - 1, 1));
+                        normCrossV = static_cast<float>(state.sliceIndices.z) /
+                                     static_cast<float>(std::max(vol.dimensions.z - 1, 1));
                     }
                     else
                     {
-                        // Coronal: shows XZ at Y - U=X (sliceIndices[1]), V=Z (sliceIndices[0])
-                        normCrossU = static_cast<float>(state.sliceIndices[1]) /
-                                     static_cast<float>(std::max(vol.dimensions[0] - 1, 1));
-                        normCrossV = static_cast<float>(state.sliceIndices[0]) /
-                                     static_cast<float>(std::max(vol.dimensions[2] - 1, 1));
+                        // Coronal: shows XZ at Y
+                        normCrossU = static_cast<float>(state.sliceIndices.x) /
+                                     static_cast<float>(std::max(vol.dimensions.x - 1, 1));
+                        normCrossV = static_cast<float>(state.sliceIndices.z) /
+                                     static_cast<float>(std::max(vol.dimensions.z - 1, 1));
                     }
 
                     // V is flipped (image top = max voxel)
@@ -782,10 +776,10 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                     if (viewIndex == 0)
                     {
                         // Transverse: click sets X and Y cursor positions
-                        int voxX = static_cast<int>(normU * (vol.dimensions[0] - 1) + 0.5f);
-                        int voxY = static_cast<int>(normV * (vol.dimensions[1] - 1) + 0.5f);
-                        state.sliceIndices[1] = std::clamp(voxX, 0, vol.dimensions[0] - 1);  // X -> sliceIndices[1]
-                        state.sliceIndices[2] = std::clamp(voxY, 0, vol.dimensions[1] - 1);  // Y -> sliceIndices[2]
+                        int voxX = static_cast<int>(normU * (vol.dimensions.x - 1) + 0.5f);
+                        int voxY = static_cast<int>(normV * (vol.dimensions.y - 1) + 0.5f);
+                        state.sliceIndices.x = std::clamp(voxX, 0, vol.dimensions.x - 1);
+                        state.sliceIndices.y = std::clamp(voxY, 0, vol.dimensions.y - 1);
                         dirtyMask |= (1 << 1) | (1 << 2);
                         if (g_SyncCursors) {
                             g_LastSyncSource = vi;
@@ -795,10 +789,10 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                     else if (viewIndex == 1)
                     {
                         // Sagittal: click sets Y and Z cursor positions
-                        int voxY = static_cast<int>(normU * (vol.dimensions[1] - 1) + 0.5f);
-                        int voxZ = static_cast<int>(normV * (vol.dimensions[2] - 1) + 0.5f);
-                        state.sliceIndices[2] = std::clamp(voxY, 0, vol.dimensions[1] - 1);  // Y -> sliceIndices[2]
-                        state.sliceIndices[0] = std::clamp(voxZ, 0, vol.dimensions[2] - 1);  // Z -> sliceIndices[0]
+                        int voxY = static_cast<int>(normU * (vol.dimensions.y - 1) + 0.5f);
+                        int voxZ = static_cast<int>(normV * (vol.dimensions.z - 1) + 0.5f);
+                        state.sliceIndices.y = std::clamp(voxY, 0, vol.dimensions.y - 1);
+                        state.sliceIndices.z = std::clamp(voxZ, 0, vol.dimensions.z - 1);
                         dirtyMask |= (1 << 0) | (1 << 2);
                         if (g_SyncCursors) {
                             g_LastSyncSource = vi;
@@ -808,10 +802,10 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                     else
                     {
                         // Coronal: click sets X and Z cursor positions
-                        int voxX = static_cast<int>(normU * (vol.dimensions[0] - 1) + 0.5f);
-                        int voxZ = static_cast<int>(normV * (vol.dimensions[2] - 1) + 0.5f);
-                        state.sliceIndices[1] = std::clamp(voxX, 0, vol.dimensions[0] - 1);  // X -> sliceIndices[1]
-                        state.sliceIndices[0] = std::clamp(voxZ, 0, vol.dimensions[2] - 1);  // Z -> sliceIndices[0]
+                        int voxX = static_cast<int>(normU * (vol.dimensions.x - 1) + 0.5f);
+                        int voxZ = static_cast<int>(normV * (vol.dimensions.z - 1) + 0.5f);
+                        state.sliceIndices.x = std::clamp(voxX, 0, vol.dimensions.x - 1);
+                        state.sliceIndices.z = std::clamp(voxZ, 0, vol.dimensions.z - 1);
                         dirtyMask |= (1 << 0) | (1 << 1);
                         if (g_SyncCursors) {
                             g_LastSyncSource = vi;
@@ -839,22 +833,13 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                     float dragY = ImGui::GetIO().MouseDelta.y;
                     if (dragY != 0.0f)
                     {
-                        // sliceIndices: [0]=Z, [1]=X, [2]=Y
-                        // dimensions: [0]=X, [1]=Y, [2]=Z
-                        int sliceDim = -1;
                         int maxSliceVal = 0;
                         if (viewIndex == 0) {
-                            // Transverse: scroll Z slice
-                            sliceDim = 0;
-                            maxSliceVal = vol.dimensions[2];
+                            maxSliceVal = vol.dimensions.z;
                         } else if (viewIndex == 1) {
-                            // Sagittal: scroll X slice
-                            sliceDim = 1;
-                            maxSliceVal = vol.dimensions[0];
+                            maxSliceVal = vol.dimensions.x;
                         } else {
-                            // Coronal: scroll Y slice
-                            sliceDim = 2;
-                            maxSliceVal = vol.dimensions[1];
+                            maxSliceVal = vol.dimensions.y;
                         }
                         float sliceDelta = -dragY / imgSize.y *
                                            static_cast<float>(maxSliceVal);
@@ -863,10 +848,17 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                         if (steps != 0)
                         {
                             state.dragAccum[viewIndex] -= static_cast<float>(steps);
-                            state.sliceIndices[sliceDim] = std::clamp(
-                                state.sliceIndices[sliceDim] + steps,
-                                0, maxSliceVal - 1);
-                            dirtyMask |= (1 << sliceDim);
+                            if (viewIndex == 0) {
+                                state.sliceIndices.z = std::clamp(
+                                    state.sliceIndices.z + steps, 0, maxSliceVal - 1);
+                            } else if (viewIndex == 1) {
+                                state.sliceIndices.x = std::clamp(
+                                    state.sliceIndices.x + steps, 0, maxSliceVal - 1);
+                            } else {
+                                state.sliceIndices.y = std::clamp(
+                                    state.sliceIndices.y + steps, 0, maxSliceVal - 1);
+                            }
+                            dirtyMask |= (1 << viewIndex);
                             if (g_SyncCursors) {
                                 g_LastSyncSource = vi;
                                 g_LastSyncView = viewIndex;
@@ -907,41 +899,50 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
             // Slice navigation slider (hidden in clean mode)
             if (!g_CleanMode)
             {
-                // sliceIndices: [0]=Z, [1]=X, [2]=Y
-                // dimensions: [0]=X, [1]=Y, [2]=Z
                 int sliceDim = -1;
                 int maxSlice = 0;
                 if (viewIndex == 0) {
                     // Transverse: Z slice
                     sliceDim = 0;
-                    maxSlice = vol.dimensions[2];
+                    maxSlice = vol.dimensions.z;
                 } else if (viewIndex == 1) {
                     // Sagittal: X slice
                     sliceDim = 1;
-                    maxSlice = vol.dimensions[0];
+                    maxSlice = vol.dimensions.x;
                 } else {
                     // Coronal: Y slice
                     sliceDim = 2;
-                    maxSlice = vol.dimensions[1];
+                    maxSlice = vol.dimensions.y;
                 }
 
                 ImGui::PushID(vi * 3 + viewIndex);
                 {
                     if (ImGui::Button("-"))
                     {
-                        if (state.sliceIndices[sliceDim] > 0)
+                        int currentSlice = (viewIndex == 0) ? state.sliceIndices.z
+                                             : (viewIndex == 1) ? state.sliceIndices.x
+                                                                 : state.sliceIndices.y;
+                        if (currentSlice > 0)
                         {
-                            state.sliceIndices[sliceDim]--;
-                            dirtyMask |= (1 << sliceDim);
+                            if (viewIndex == 0) state.sliceIndices.z--;
+                            else if (viewIndex == 1) state.sliceIndices.x--;
+                            else state.sliceIndices.y--;
+                            dirtyMask |= (1 << viewIndex);
                         }
                     }
                     ImGui::SameLine();
 
                     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 30.0f * g_DpiScale);
-                    if (ImGui::SliderInt("##slice", &state.sliceIndices[sliceDim],
+                    int sliceValue = (viewIndex == 0) ? state.sliceIndices.z
+                                      : (viewIndex == 1) ? state.sliceIndices.x
+                                                          : state.sliceIndices.y;
+                    if (ImGui::SliderInt("##slice", &sliceValue,
                                          0, maxSlice - 1, "Slice %d"))
                     {
-                        dirtyMask |= (1 << sliceDim);
+                        if (viewIndex == 0) state.sliceIndices.z = sliceValue;
+                        else if (viewIndex == 1) state.sliceIndices.x = sliceValue;
+                        else state.sliceIndices.y = sliceValue;
+                        dirtyMask |= (1 << viewIndex);
                         if (g_SyncCursors) {
                             g_LastSyncSource = vi;
                             g_LastSyncView = viewIndex;
@@ -951,10 +952,15 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                     ImGui::SameLine();
                     if (ImGui::Button("+"))
                     {
-                        if (state.sliceIndices[sliceDim] < maxSlice - 1)
+                        int currentSlice = (viewIndex == 0) ? state.sliceIndices.z
+                                             : (viewIndex == 1) ? state.sliceIndices.x
+                                                                 : state.sliceIndices.y;
+                        if (currentSlice < maxSlice - 1)
                         {
-                            state.sliceIndices[sliceDim]++;
-                            dirtyMask |= (1 << sliceDim);
+                            if (viewIndex == 0) state.sliceIndices.z++;
+                            else if (viewIndex == 1) state.sliceIndices.x++;
+                            else state.sliceIndices.y++;
+                            dirtyMask |= (1 << viewIndex);
                             if (g_SyncCursors) {
                                 g_LastSyncSource = vi;
                                 g_LastSyncView = viewIndex;
@@ -1037,31 +1043,29 @@ int RenderOverlayView(int viewIndex, const ImVec2& childSize)
                     const float crossThick = 1.0f * g_DpiScale;
 
                     float normCrossU = 0.0f, normCrossV = 0.0f;
-                    // sliceIndices: [0]=Z, [1]=X, [2]=Y (app convention)
-                    // dimensions: [0]=X, [1]=Y, [2]=Z (MINC convention)
                     if (viewIndex == 0)
                     {
-                        // Transverse: shows XY at Z - U=X (sliceIndices[1]), V=Y (sliceIndices[2])
-                        normCrossU = static_cast<float>(refState.sliceIndices[1]) /
-                                     static_cast<float>(std::max(ref.dimensions[0] - 1, 1));
-                        normCrossV = static_cast<float>(refState.sliceIndices[2]) /
-                                     static_cast<float>(std::max(ref.dimensions[1] - 1, 1));
+                        // Transverse: shows XY at Z
+                        normCrossU = static_cast<float>(refState.sliceIndices.x) /
+                                     static_cast<float>(std::max(ref.dimensions.x - 1, 1));
+                        normCrossV = static_cast<float>(refState.sliceIndices.y) /
+                                     static_cast<float>(std::max(ref.dimensions.y - 1, 1));
                     }
                     else if (viewIndex == 1)
                     {
-                        // Sagittal: shows YZ at X - U=Y (sliceIndices[2]), V=Z (sliceIndices[0])
-                        normCrossU = static_cast<float>(refState.sliceIndices[2]) /
-                                     static_cast<float>(std::max(ref.dimensions[1] - 1, 1));
-                        normCrossV = static_cast<float>(refState.sliceIndices[0]) /
-                                     static_cast<float>(std::max(ref.dimensions[2] - 1, 1));
+                        // Sagittal: shows YZ at X
+                        normCrossU = static_cast<float>(refState.sliceIndices.y) /
+                                     static_cast<float>(std::max(ref.dimensions.y - 1, 1));
+                        normCrossV = static_cast<float>(refState.sliceIndices.z) /
+                                     static_cast<float>(std::max(ref.dimensions.z - 1, 1));
                     }
                     else
                     {
-                        // Coronal: shows XZ at Y - U=X (sliceIndices[1]), V=Z (sliceIndices[0])
-                        normCrossU = static_cast<float>(refState.sliceIndices[1]) /
-                                     static_cast<float>(std::max(ref.dimensions[0] - 1, 1));
-                        normCrossV = static_cast<float>(refState.sliceIndices[0]) /
-                                     static_cast<float>(std::max(ref.dimensions[2] - 1, 1));
+                        // Coronal: shows XZ at Y
+                        normCrossU = static_cast<float>(refState.sliceIndices.x) /
+                                     static_cast<float>(std::max(ref.dimensions.x - 1, 1));
+                        normCrossV = static_cast<float>(refState.sliceIndices.z) /
+                                     static_cast<float>(std::max(ref.dimensions.z - 1, 1));
                     }
 
                     normCrossV = 1.0f - normCrossV;
@@ -1115,36 +1119,36 @@ int RenderOverlayView(int viewIndex, const ImVec2& childSize)
                     if (viewIndex == 0)
                     {
                         // Transverse: click sets X and Y cursor positions
-                        int voxX = static_cast<int>(normU * (ref.dimensions[0] - 1) + 0.5f);
-                        int voxY = static_cast<int>(normV * (ref.dimensions[1] - 1) + 0.5f);
+                        int voxX = static_cast<int>(normU * (ref.dimensions.x - 1) + 0.5f);
+                        int voxY = static_cast<int>(normV * (ref.dimensions.y - 1) + 0.5f);
                         for (auto& st : g_ViewStates)
                         {
-                            st.sliceIndices[1] = std::clamp(voxX, 0, ref.dimensions[0] - 1);  // X -> sliceIndices[1]
-                            st.sliceIndices[2] = std::clamp(voxY, 0, ref.dimensions[1] - 1);  // Y -> sliceIndices[2]
+                            st.sliceIndices.x = std::clamp(voxX, 0, ref.dimensions.x - 1);
+                            st.sliceIndices.y = std::clamp(voxY, 0, ref.dimensions.y - 1);
                         }
                         dirtyMask |= (1 << 1) | (1 << 2);
                     }
                     else if (viewIndex == 1)
                     {
                         // Sagittal: click sets Y and Z cursor positions
-                        int voxY = static_cast<int>(normU * (ref.dimensions[1] - 1) + 0.5f);
-                        int voxZ = static_cast<int>(normV * (ref.dimensions[2] - 1) + 0.5f);
+                        int voxY = static_cast<int>(normU * (ref.dimensions.y - 1) + 0.5f);
+                        int voxZ = static_cast<int>(normV * (ref.dimensions.z - 1) + 0.5f);
                         for (auto& st : g_ViewStates)
                         {
-                            st.sliceIndices[2] = std::clamp(voxY, 0, ref.dimensions[1] - 1);  // Y -> sliceIndices[2]
-                            st.sliceIndices[0] = std::clamp(voxZ, 0, ref.dimensions[2] - 1);  // Z -> sliceIndices[0]
+                            st.sliceIndices.y = std::clamp(voxY, 0, ref.dimensions.y - 1);
+                            st.sliceIndices.z = std::clamp(voxZ, 0, ref.dimensions.z - 1);
                         }
                         dirtyMask |= (1 << 0) | (1 << 2);
                     }
                     else
                     {
                         // Coronal: click sets X and Z cursor positions
-                        int voxX = static_cast<int>(normU * (ref.dimensions[0] - 1) + 0.5f);
-                        int voxZ = static_cast<int>(normV * (ref.dimensions[2] - 1) + 0.5f);
+                        int voxX = static_cast<int>(normU * (ref.dimensions.x - 1) + 0.5f);
+                        int voxZ = static_cast<int>(normV * (ref.dimensions.z - 1) + 0.5f);
                         for (auto& st : g_ViewStates)
                         {
-                            st.sliceIndices[1] = std::clamp(voxX, 0, ref.dimensions[0] - 1);  // X -> sliceIndices[1]
-                            st.sliceIndices[0] = std::clamp(voxZ, 0, ref.dimensions[2] - 1);  // Z -> sliceIndices[0]
+                            st.sliceIndices.x = std::clamp(voxX, 0, ref.dimensions.x - 1);
+                            st.sliceIndices.z = std::clamp(voxZ, 0, ref.dimensions.z - 1);
                         }
                         dirtyMask |= (1 << 0) | (1 << 1);
                     }
@@ -1179,11 +1183,16 @@ int RenderOverlayView(int viewIndex, const ImVec2& childSize)
                         if (steps != 0)
                         {
                             g_Overlay.dragAccum[viewIndex] -= static_cast<float>(steps);
-                            int newSlice = std::clamp(
-                                refState.sliceIndices[viewIndex] + steps,
-                                0, maxSliceVal - 1);
+                            int refSlice = (viewIndex == 0) ? refState.sliceIndices.z
+                                            : (viewIndex == 1) ? refState.sliceIndices.x
+                                                               : refState.sliceIndices.y;
+                            int newSlice = std::clamp(refSlice + steps, 0, maxSliceVal - 1);
                             for (auto& st : g_ViewStates)
-                                st.sliceIndices[viewIndex] = newSlice;
+                            {
+                                if (viewIndex == 0) st.sliceIndices.z = newSlice;
+                                else if (viewIndex == 1) st.sliceIndices.x = newSlice;
+                                else st.sliceIndices.y = newSlice;
+                            }
                             dirtyMask |= (1 << viewIndex);
                         }
                     }
@@ -1220,42 +1229,62 @@ int RenderOverlayView(int viewIndex, const ImVec2& childSize)
             // Slice navigation slider (synced to all volumes, hidden in clean mode)
             if (!g_CleanMode)
             {
-                int maxSlice = (viewIndex == 0) ? ref.dimensions[2]
-                             : (viewIndex == 1) ? ref.dimensions[0]
-                                                : ref.dimensions[1];
+                int maxSlice = (viewIndex == 0) ? ref.dimensions.z
+                             : (viewIndex == 1) ? ref.dimensions.x
+                                                : ref.dimensions.y;
 
                 ImGui::PushID(100 + viewIndex);
                 {
                     if (ImGui::Button("-"))
                     {
-                        if (refState.sliceIndices[viewIndex] > 0)
+                        int refSlice = (viewIndex == 0) ? refState.sliceIndices.z
+                                            : (viewIndex == 1) ? refState.sliceIndices.x
+                                                               : refState.sliceIndices.y;
+                        if (refSlice > 0)
                         {
-                            int newSlice = refState.sliceIndices[viewIndex] - 1;
+                            int newSlice = refSlice - 1;
                             for (auto& st : g_ViewStates)
-                                st.sliceIndices[viewIndex] = newSlice;
+                            {
+                                if (viewIndex == 0) st.sliceIndices.z = newSlice;
+                                else if (viewIndex == 1) st.sliceIndices.x = newSlice;
+                                else st.sliceIndices.y = newSlice;
+                            }
                             dirtyMask |= (1 << viewIndex);
                         }
                     }
                     ImGui::SameLine();
 
                     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 30.0f * g_DpiScale);
-                    int sliceVal = refState.sliceIndices[viewIndex];
+                    int sliceVal = (viewIndex == 0) ? refState.sliceIndices.z
+                                : (viewIndex == 1) ? refState.sliceIndices.x
+                                                   : refState.sliceIndices.y;
                     if (ImGui::SliderInt("##slice", &sliceVal,
                                          0, maxSlice - 1, "Slice %d"))
                     {
                         for (auto& st : g_ViewStates)
-                            st.sliceIndices[viewIndex] = sliceVal;
+                        {
+                            if (viewIndex == 0) st.sliceIndices.z = sliceVal;
+                            else if (viewIndex == 1) st.sliceIndices.x = sliceVal;
+                            else st.sliceIndices.y = sliceVal;
+                        }
                         dirtyMask |= (1 << viewIndex);
                     }
 
                     ImGui::SameLine();
                     if (ImGui::Button("+"))
                     {
-                        if (refState.sliceIndices[viewIndex] < maxSlice - 1)
+                        int refSlice = (viewIndex == 0) ? refState.sliceIndices.z
+                                            : (viewIndex == 1) ? refState.sliceIndices.x
+                                                               : refState.sliceIndices.y;
+                        if (refSlice < maxSlice - 1)
                         {
-                            int newSlice = refState.sliceIndices[viewIndex] + 1;
+                            int newSlice = refSlice + 1;
                             for (auto& st : g_ViewStates)
-                                st.sliceIndices[viewIndex] = newSlice;
+                            {
+                                if (viewIndex == 0) st.sliceIndices.z = newSlice;
+                                else if (viewIndex == 1) st.sliceIndices.x = newSlice;
+                                else st.sliceIndices.y = newSlice;
+                            }
                             dirtyMask |= (1 << viewIndex);
                         }
                     }
@@ -1588,17 +1617,12 @@ int main(int argc, char** argv)
                     state.valueRange[1] = vc->valueMax.value();
 
                 // Slice indices (-1 means keep the midpoint default)
-                for (int v = 0; v < 3; ++v)
-                {
-                    if (vc->sliceIndices[v] >= 0)
-                    {
-                        int maxSlice = (v == 0) ? vol.dimensions[2]
-                                     : (v == 1) ? vol.dimensions[0]
-                                                 : vol.dimensions[1];
-                        state.sliceIndices[v] = std::clamp(
-                            vc->sliceIndices[v], 0, maxSlice - 1);
-                    }
-                }
+                if (vc->sliceIndices[0] >= 0)
+                    state.sliceIndices.x = std::clamp(vc->sliceIndices[0], 0, vol.dimensions.x - 1);
+                if (vc->sliceIndices[1] >= 0)
+                    state.sliceIndices.y = std::clamp(vc->sliceIndices[1], 0, vol.dimensions.y - 1);
+                if (vc->sliceIndices[2] >= 0)
+                    state.sliceIndices.z = std::clamp(vc->sliceIndices[2], 0, vol.dimensions.z - 1);
 
                 // Zoom & pan
                 state.zoom[0] = vc->zoom[0];
@@ -1754,9 +1778,9 @@ int main(int argc, char** argv)
                             colourMapName(st.colourMap));
                         vc.valueMin = st.valueRange[0];
                         vc.valueMax = st.valueRange[1];
-                        vc.sliceIndices = {st.sliceIndices[0],
-                                           st.sliceIndices[1],
-                                           st.sliceIndices[2]};
+                        vc.sliceIndices = {st.sliceIndices.x,
+                                           st.sliceIndices.y,
+                                           st.sliceIndices.z};
                         vc.zoom = {st.zoom[0], st.zoom[1], st.zoom[2]};
                         vc.panU = {st.panU[0], st.panU[1], st.panU[2]};
                         vc.panV = {st.panV[0], st.panV[1], st.panV[2]};
@@ -1780,26 +1804,18 @@ int main(int argc, char** argv)
                     g_LastSyncSource = 0;
                     g_LastSyncView = 0;
                     
-                    // Convert sliceIndices [0]=Z,[1]=X,[2]=Y to MINC [0]=X,[1]=Y,[2]=Z
-                    glm::ivec3 voxelMINC(
-                        g_ViewStates[0].sliceIndices.y,  // X
-                        g_ViewStates[0].sliceIndices.z,  // Y
-                        g_ViewStates[0].sliceIndices.x   // Z
-                    );
-                    
-                    // Get world position from reference volume (0)
+                    // Get world position from reference volume (0) - sliceIndices in MINC order
                     glm::dvec3 worldPos;
-                    g_Volumes[0].transformVoxelToWorld(voxelMINC, worldPos);
+                    g_Volumes[0].transformVoxelToWorld(g_ViewStates[0].sliceIndices, worldPos);
                     
                     // Find corresponding slice indices in all other volumes
                     for (int vi = 1; vi < numVolumes; ++vi)
                     {
-                        glm::ivec3 newMINC;
-                        g_Volumes[vi].transformWorldToVoxel(worldPos, newMINC);
-                        // Convert MINC [0]=X,[1]=Y,[2]=Z back to app [0]=Z,[1]=X,[2]=Y
-                        g_ViewStates[vi].sliceIndices.x = newMINC.z;  // Z
-                        g_ViewStates[vi].sliceIndices.y = newMINC.x;  // X
-                        g_ViewStates[vi].sliceIndices.z = newMINC.y;  // Y
+                        glm::ivec3 newVoxel;
+                        g_Volumes[vi].transformWorldToVoxel(worldPos, newVoxel);
+                        g_ViewStates[vi].sliceIndices.x = std::clamp(newVoxel.x, 0, g_Volumes[vi].dimensions.x - 1);
+                        g_ViewStates[vi].sliceIndices.y = std::clamp(newVoxel.y, 0, g_Volumes[vi].dimensions.y - 1);
+                        g_ViewStates[vi].sliceIndices.z = std::clamp(newVoxel.z, 0, g_Volumes[vi].dimensions.z - 1);
                     }
                     UpdateAllOverlayTextures();
                 }
@@ -1831,9 +1847,9 @@ int main(int argc, char** argv)
                             colourMapName(st.colourMap));
                         vc.valueMin = st.valueRange[0];
                         vc.valueMax = st.valueRange[1];
-                        vc.sliceIndices = {st.sliceIndices[0],
-                                           st.sliceIndices[1],
-                                           st.sliceIndices[2]};
+                        vc.sliceIndices = {st.sliceIndices.x,
+                                           st.sliceIndices.y,
+                                           st.sliceIndices.z};
                         vc.zoom = {st.zoom[0], st.zoom[1], st.zoom[2]};
                         vc.panU = {st.panU[0], st.panU[1], st.panU[2]};
                         vc.panV = {st.panV[0], st.panV[1], st.panV[2]};
@@ -1962,15 +1978,12 @@ int main(int argc, char** argv)
                     ImGui::Separator();
                     ImGui::Text("Current slice position:");
                     
-                    // sliceIndices stored as: [0]=Z, [1]=X, [2]=Y (app convention)
-                    // Display as X, Y, Z for user
+                    // sliceIndices stored in MINC order: .x=X, .y=Y, .z=Z
                     ImGui::Text("  Voxel: (%d, %d, %d)",
-                                state.sliceIndices.y, state.sliceIndices.z, state.sliceIndices.x);
+                                state.sliceIndices.x, state.sliceIndices.y, state.sliceIndices.z);
                     
-                    // Convert to world - MINC order: [0]=X, [1]=Y, [2]=Z
-                    glm::ivec3 voxelForTransform(state.sliceIndices.y, state.sliceIndices.z, state.sliceIndices.x);
                     glm::dvec3 worldPos;
-                    vol.transformVoxelToWorld(voxelForTransform, worldPos);
+                    vol.transformVoxelToWorld(state.sliceIndices, worldPos);
                     ImGui::Text("  World: (%.2f, %.2f, %.2f) mm",
                                 worldPos.x, worldPos.y, worldPos.z);
 

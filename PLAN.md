@@ -233,6 +233,19 @@ Total: ~4280 lines of application code.
   - Test files updated to use GLM types
   - Note: `valueRange` kept as `float[2]` for ImGui compatibility, config serialization uses `std::array`
 
+- [x] Standardized spatial index order to MINC convention (index 0 = X, index 1 = Y, index 2 = Z)
+  - Changed `sliceIndices` from custom "app convention" (`[0]=Z,[1]=X,[2]=Y`) to MINC order (`[0]=X,[1]=Y,[2]=Z`)
+  - Updated all crosshair drawing, mouse click handling, overlay crosshair, overlay mouse click
+  - Updated info display to use direct MINC order
+  - Removed sync conversion code (now uses direct world coordinate pipeline)
+  - Updated config serialization/deserialization
+  - Removed "app convention" comments throughout codebase
+
+- [x] Fixed test files to return non-zero on failure
+  - `test_minc_dims.cpp`: Added assertions for dimension IDs, lengths, steps, start values, world→voxel transformation
+  - `test_volume_info.cpp`: Added assertions for ndim, dimensions, steps, start values, coordinate transformations
+  - `test_matrix_debug.cpp`: Added assertions for dimensions, steps, start values, round-trip transformation, cross-volume sync
+
 ### Suggested Refactoring
 - `main.cpp` (~2425 lines) should be decomposed into separate modules:
   - `SliceView` — per-slice rendering, mouse interaction, crosshairs
