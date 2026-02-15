@@ -26,6 +26,8 @@
 #include "Volume.h"
 #include "VulkanHelpers.h"
 
+#include <glm/glm.hpp>
+
 extern "C" {
 #include "minc2-simple.h"
 }
@@ -45,15 +47,15 @@ constexpr int kClampTransparent = -1;
 struct VolumeViewState
 {
     VulkanTexture* sliceTextures[3] = { nullptr, nullptr, nullptr };
-    int sliceIndices[3] = { 0, 0, 0 };  // [0]=Z, [1]=X, [2]=Y (app convention)
+    glm::ivec3 sliceIndices{0, 0, 0};  // .z=Z, .x=X, .y=Y (app convention)
     float valueRange[2] = { 0.0f, 1.0f };  // Min, Max
-    float dragAccum[3] = { 0.0f, 0.0f, 0.0f };  // Middle-drag accumulator
+    glm::dvec3 dragAccum{0.0, 0.0, 0.0};  // Middle-drag accumulator
     ColourMapType colourMap = ColourMapType::GrayScale;
 
     // Per-view zoom & pan
-    float zoom[3] = { 1.0f, 1.0f, 1.0f };        // Zoom factor (1 = fit)
-    float panU[3] = { 0.0f, 0.0f, 0.0f };         // Pan offset in normalised UV [0..1]
-    float panV[3] = { 0.0f, 0.0f, 0.0f };
+    glm::dvec3 zoom{1.0, 1.0, 1.0};        // Zoom factor (1 = fit)
+    glm::dvec3 panU{0.0, 0.0, 0.0};         // Pan offset in normalised UV [0..1]
+    glm::dvec3 panV{0.0, 0.0, 0.0};
 
     // Alpha for overlay blending (0 = invisible, 1 = opaque)
     float overlayAlpha = 1.0f;
@@ -67,10 +69,10 @@ struct VolumeViewState
 struct OverlayState
 {
     VulkanTexture* textures[3] = { nullptr, nullptr, nullptr };
-    float zoom[3] = { 1.0f, 1.0f, 1.0f };
-    float panU[3] = { 0.5f, 0.5f, 0.5f };
-    float panV[3] = { 0.5f, 0.5f, 0.5f };
-    float dragAccum[3] = { 0.0f, 0.0f, 0.0f };
+    glm::dvec3 zoom{1.0, 1.0, 1.0};
+    glm::dvec3 panU{0.5, 0.5, 0.5};
+    glm::dvec3 panV{0.5, 0.5, 0.5};
+    glm::dvec3 dragAccum{0.0, 0.0, 0.0};
 };
 
 // --- Tag point structure ---
@@ -490,8 +492,8 @@ static bool drawTagsOnSlice(int volumeIndex, int viewIndex, const ImVec2& imgPos
     
     for (const auto& tag : g_TagPoints[volumeIndex]) {
         // Get voxel indices for this tag's world position
-        int voxel[3];
-        vol.transformWorldToVoxel(&tag.position.x, voxel);
+        glm::ivec3 voxel;
+        vol.transformWorldToVoxel(tag.position, voxel);
         
         // Check if tag is on the current slice (within 0.5 voxel)
         if (std::abs(voxel[sliceIdx] - sliceIdx) > 0.5f) {
@@ -554,14 +556,14 @@ static void SyncCursors()
     const VolumeViewState& refState = g_ViewStates[g_LastSyncSource];
     
     // Convert sliceIndices [0]=Z,[1]=X,[2]=Y to MINC order [0]=X,[1]=Y,[2]=Z
-    int voxelMINC[3] = {
-        refState.sliceIndices[1],  // X
-        refState.sliceIndices[2],  // Y
-        refState.sliceIndices[0]   // Z
-    };
+    glm::ivec3 voxelMINC(
+        refState.sliceIndices.y,  // X (sliceIndices[1])
+        refState.sliceIndices.z,  // Y (sliceIndices[2])
+        refState.sliceIndices.x   // Z (sliceIndices[0])
+    );
     
     // Get world position from reference volume
-    double worldPos[3];
+    glm::dvec3 worldPos;
     refVol.transformVoxelToWorld(voxelMINC, worldPos);
     
     // For each other volume, convert world coordinates to voxel coordinates
@@ -574,13 +576,13 @@ static void SyncCursors()
         VolumeViewState& otherState = g_ViewStates[i];
         
         // Convert world -> voxel in MINC order [0]=X,[1]=Y,[2]=Z
-        int newMINC[3];
+        glm::ivec3 newMINC;
         otherVol.transformWorldToVoxel(worldPos, newMINC);
 
         // Convert MINC order back to sliceIndices: [0]=Z,[1]=X,[2]=Y
-        otherState.sliceIndices[0] = std::clamp(newMINC[2], 0, otherVol.dimensions[2] - 1);  // Z
-        otherState.sliceIndices[1] = std::clamp(newMINC[0], 0, otherVol.dimensions[0] - 1);  // X
-        otherState.sliceIndices[2] = std::clamp(newMINC[1], 0, otherVol.dimensions[1] - 1);  // Y
+        otherState.sliceIndices.x = std::clamp(newMINC.z, 0, otherVol.dimensions.z - 1);  // Z
+        otherState.sliceIndices.y = std::clamp(newMINC.x, 0, otherVol.dimensions.x - 1);  // X
+        otherState.sliceIndices.z = std::clamp(newMINC.y, 0, otherVol.dimensions.y - 1);  // Y
     }
     
     // Update textures for all volumes
@@ -825,9 +827,9 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                     float dragY = ImGui::GetIO().MouseDelta.y;
                     if (dragY != 0.0f)
                     {
-                        float factor = 1.0f - dragY * 0.005f;
+                        double factor = 1.0 - dragY * 0.005;
                         state.zoom[viewIndex] = std::clamp(
-                            state.zoom[viewIndex] * factor, 0.1f, 50.0f);
+                            state.zoom[viewIndex] * factor, 0.1, 50.0);
                     }
                 }
                 // Middle button drag (no Shift): scroll current slice
@@ -887,12 +889,12 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                         float cursorU = uv0.x + (mouse.x - imgPos.x) / imgSize.x * (uv1.x - uv0.x);
                         float cursorV = uv0.y + (mouse.y - imgPos.y) / imgSize.y * (uv1.y - uv0.y);
 
-                        float factor = (wheel > 0) ? 1.1f : 1.0f / 1.1f;
-                        float newZoom = std::clamp(
-                            state.zoom[viewIndex] * factor, 0.1f, 50.0f);
+                        double factor = (wheel > 0) ? 1.1 : 1.0 / 1.1;
+                        double newZoom = std::clamp(
+                            state.zoom[viewIndex] * factor, 0.1, 50.0);
 
                         // Adjust pan so the point under the cursor stays fixed
-                        float zOld = state.zoom[viewIndex];
+                        double zOld = state.zoom[viewIndex];
                         state.panU[viewIndex] = cursorU +
                             (state.panU[viewIndex] - cursorU) * (zOld / newZoom);
                         state.panV[viewIndex] = cursorV +
@@ -1155,9 +1157,9 @@ int RenderOverlayView(int viewIndex, const ImVec2& childSize)
                     float dragY = ImGui::GetIO().MouseDelta.y;
                     if (dragY != 0.0f)
                     {
-                        float factor = 1.0f - dragY * 0.005f;
+                        double factor = 1.0 - dragY * 0.005;
                         g_Overlay.zoom[viewIndex] = std::clamp(
-                            g_Overlay.zoom[viewIndex] * factor, 0.1f, 50.0f);
+                            g_Overlay.zoom[viewIndex] * factor, 0.1, 50.0);
                     }
                 }
                 // Middle drag: scroll slice (synced)
@@ -1201,11 +1203,11 @@ int RenderOverlayView(int viewIndex, const ImVec2& childSize)
                         float cursorU = uv0.x + (mouse.x - imgPos.x) / imgSize.x * (uv1.x - uv0.x);
                         float cursorV = uv0.y + (mouse.y - imgPos.y) / imgSize.y * (uv1.y - uv0.y);
 
-                        float factor = (wheel > 0) ? 1.1f : 1.0f / 1.1f;
-                        float newZoom = std::clamp(
-                            g_Overlay.zoom[viewIndex] * factor, 0.1f, 50.0f);
+                        double factor = (wheel > 0) ? 1.1 : 1.0 / 1.1;
+                        double newZoom = std::clamp(
+                            g_Overlay.zoom[viewIndex] * factor, 0.1, 50.0);
 
-                        float zOld = g_Overlay.zoom[viewIndex];
+                        double zOld = g_Overlay.zoom[viewIndex];
                         g_Overlay.panU[viewIndex] = cursorU +
                             (g_Overlay.panU[viewIndex] - cursorU) * (zOld / newZoom);
                         g_Overlay.panV[viewIndex] = cursorV +
@@ -1779,25 +1781,25 @@ int main(int argc, char** argv)
                     g_LastSyncView = 0;
                     
                     // Convert sliceIndices [0]=Z,[1]=X,[2]=Y to MINC [0]=X,[1]=Y,[2]=Z
-                    int voxelMINC[3] = {
-                        g_ViewStates[0].sliceIndices[1],  // X
-                        g_ViewStates[0].sliceIndices[2],  // Y
-                        g_ViewStates[0].sliceIndices[0]   // Z
-                    };
+                    glm::ivec3 voxelMINC(
+                        g_ViewStates[0].sliceIndices.y,  // X
+                        g_ViewStates[0].sliceIndices.z,  // Y
+                        g_ViewStates[0].sliceIndices.x   // Z
+                    );
                     
                     // Get world position from reference volume (0)
-                    double worldPos[3];
+                    glm::dvec3 worldPos;
                     g_Volumes[0].transformVoxelToWorld(voxelMINC, worldPos);
                     
                     // Find corresponding slice indices in all other volumes
                     for (int vi = 1; vi < numVolumes; ++vi)
                     {
-                        int newMINC[3];
+                        glm::ivec3 newMINC;
                         g_Volumes[vi].transformWorldToVoxel(worldPos, newMINC);
                         // Convert MINC [0]=X,[1]=Y,[2]=Z back to app [0]=Z,[1]=X,[2]=Y
-                        g_ViewStates[vi].sliceIndices[0] = newMINC[2];  // Z
-                        g_ViewStates[vi].sliceIndices[1] = newMINC[0];  // X
-                        g_ViewStates[vi].sliceIndices[2] = newMINC[1];  // Y
+                        g_ViewStates[vi].sliceIndices.x = newMINC.z;  // Z
+                        g_ViewStates[vi].sliceIndices.y = newMINC.x;  // X
+                        g_ViewStates[vi].sliceIndices.z = newMINC.y;  // Y
                     }
                     UpdateAllOverlayTextures();
                 }
@@ -1963,14 +1965,14 @@ int main(int argc, char** argv)
                     // sliceIndices stored as: [0]=Z, [1]=X, [2]=Y (app convention)
                     // Display as X, Y, Z for user
                     ImGui::Text("  Voxel: (%d, %d, %d)",
-                                state.sliceIndices[1], state.sliceIndices[2], state.sliceIndices[0]);
+                                state.sliceIndices.y, state.sliceIndices.z, state.sliceIndices.x);
                     
                     // Convert to world - MINC order: [0]=X, [1]=Y, [2]=Z
-                    int voxelForTransform[3] = { state.sliceIndices[1], state.sliceIndices[2], state.sliceIndices[0] };
-                    double worldPos[3];
+                    glm::ivec3 voxelForTransform(state.sliceIndices.y, state.sliceIndices.z, state.sliceIndices.x);
+                    glm::dvec3 worldPos;
                     vol.transformVoxelToWorld(voxelForTransform, worldPos);
                     ImGui::Text("  World: (%.2f, %.2f, %.2f) mm",
-                                worldPos[0], worldPos[1], worldPos[2]);
+                                worldPos.x, worldPos.y, worldPos.z);
 
                     ImGui::Separator();
 

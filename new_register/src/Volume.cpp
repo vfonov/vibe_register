@@ -48,30 +48,22 @@ private:
 
 Volume::Volume()
 {
-    dimensions[0] = 0;
-    dimensions[1] = 0;
-    dimensions[2] = 0;
+    dimensions = glm::ivec3(0, 0, 0);
 }
 
 Volume::~Volume() {}
 
 void Volume::generate_test_data()
 {
-    dimensions[0] = 256;
-    dimensions[1] = 256;
-    dimensions[2] = 256;
+    dimensions = glm::ivec3(256, 256, 256);
 
-    step[0] = 1.0;
-    step[1] = 1.0;
-    step[2] = 1.0;
+    step = glm::dvec3(1.0, 1.0, 1.0);
 
-    start[0] = -128.0;
-    start[1] = -128.0;
-    start[2] = -128.0;
+    start = glm::dvec3(-128.0, -128.0, -128.0);
 
-    dirCos[0][0] = 1.0; dirCos[0][1] = 0.0; dirCos[0][2] = 0.0;
-    dirCos[1][0] = 0.0; dirCos[1][1] = 1.0; dirCos[1][2] = 0.0;
-    dirCos[2][0] = 0.0; dirCos[2][1] = 0.0; dirCos[2][2] = 1.0;
+    dirCos = glm::dmat3(1.0, 0.0, 0.0,
+                        0.0, 1.0, 0.0,
+                        0.0, 0.0, 1.0);
 
     data.resize(256 * 256 * 256);
 
@@ -123,7 +115,7 @@ void Volume::load(const std::string& filename)
         throw std::runtime_error("Failed to get dimension info: " + filename);
 
     // Find X, Y, Z dimension indices
-    int dim_indices[3] = { -1, -1, -1 };
+    glm::ivec3 dim_indices{-1, -1, -1};
 
     for (int i = 0; i < ndim; ++i)
     {
@@ -167,8 +159,8 @@ void Volume::load(const std::string& filename)
                        dirCos[1][0], dirCos[1][1], dirCos[1][2],
                        dirCos[2][0], dirCos[2][1], dirCos[2][2]);
     
-    glm::dvec3 scale(step[0], step[1], step[2]);
-    glm::dvec3 trans(start[0], start[1], start[2]);
+    glm::dvec3 scale(step.x, step.y, step.z);
+    glm::dvec3 trans(start.x, start.y, start.z);
     
     // dirCos * diag(scale) = each column scaled by scale
     glm::dmat3 affine = dirCos3;
@@ -221,19 +213,18 @@ void Volume::load(const std::string& filename)
 
 float Volume::get(int x, int y, int z) const
 {
-    if (x < 0 || x >= dimensions[0] ||
-        y < 0 || y >= dimensions[1] ||
-        z < 0 || z >= dimensions[2]) return 0.0f;
+    if (x < 0 || x >= dimensions.x ||
+        y < 0 || y >= dimensions.y ||
+        z < 0 || z >= dimensions.z) return 0.0f;
 
-    return data[z * dimensions[1] * dimensions[0] + y * dimensions[0] + x];
+    return data[z * dimensions.y * dimensions.x + y * dimensions.x + x];
 }
 
-void Volume::worldExtent(double extent[3]) const
+void Volume::worldExtent(glm::dvec3& extent) const
 {
-    for (int i = 0; i < 3; ++i)
-    {
-        extent[i] = std::abs(step[i]) * dimensions[i];
-    }
+    extent.x = std::abs(step.x) * dimensions.x;
+    extent.y = std::abs(step.y) * dimensions.y;
+    extent.z = std::abs(step.z) * dimensions.z;
 }
 
 double Volume::slicePixelAspect(int axisU, int axisV) const
@@ -244,28 +235,28 @@ double Volume::slicePixelAspect(int axisU, int axisV) const
     return su / sv;
 }
 
-void Volume::transformVoxelToWorld(const int voxel[3], double world[3]) const
+void Volume::transformVoxelToWorld(const glm::ivec3& voxel, glm::dvec3& world) const
 {
-    // Input/output in MINC order: [0]=X, [1]=Y, [2]=Z.
+    // Input/output in MINC order: .x = X, .y = Y, .z = Z.
     // Callers must convert to/from app convention before calling.
-    glm::dvec4 v(voxel[0], voxel[1], voxel[2], 1.0);
+    glm::dvec4 v(static_cast<double>(voxel.x), static_cast<double>(voxel.y), static_cast<double>(voxel.z), 1.0);
     glm::dvec4 w = voxelToWorld * v;
-    world[0] = w.x;
-    world[1] = w.y;
-    world[2] = w.z;
+    world.x = w.x;
+    world.y = w.y;
+    world.z = w.z;
 }
 
-void Volume::transformWorldToVoxel(const double world[3], int voxel[3]) const
+void Volume::transformWorldToVoxel(const glm::dvec3& world, glm::ivec3& voxel) const
 {
-    // Input/output in MINC order: [0]=X, [1]=Y, [2]=Z.
+    // Input/output in MINC order: .x = X, .y = Y, .z = Z.
     // Callers must convert to/from app convention after calling.
-    glm::dvec4 w(world[0], world[1], world[2], 1.0);
+    glm::dvec4 w(world.x, world.y, world.z, 1.0);
     glm::dvec4 v = worldToVoxel * w;
-    voxel[0] = static_cast<int>(std::round(v.x));  // X
-    voxel[1] = static_cast<int>(std::round(v.y));  // Y
-    voxel[2] = static_cast<int>(std::round(v.z));  // Z
+    voxel.x = static_cast<int>(std::round(v.x));  // X
+    voxel.y = static_cast<int>(std::round(v.y));  // Y
+    voxel.z = static_cast<int>(std::round(v.z));  // Z
     
-    voxel[0] = std::clamp(voxel[0], 0, dimensions[0] - 1);  // X
-    voxel[1] = std::clamp(voxel[1], 0, dimensions[1] - 1);  // Y
-    voxel[2] = std::clamp(voxel[2], 0, dimensions[2] - 1);  // Z
+    voxel.x = std::clamp(voxel.x, 0, dimensions.x - 1);  // X
+    voxel.y = std::clamp(voxel.y, 0, dimensions.y - 1);  // Y
+    voxel.z = std::clamp(voxel.z, 0, dimensions.z - 1);  // Z
 }

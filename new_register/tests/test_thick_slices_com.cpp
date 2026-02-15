@@ -1,6 +1,7 @@
 #include "Volume.h"
 #include <iostream>
 #include <cmath>
+#include <glm/glm.hpp>
 
 int main() {
     Volume vol;
@@ -13,18 +14,18 @@ int main() {
 
     double sumX = 0, sumY = 0, sumZ = 0, total = 0;
     
-    for (int z = 0; z < vol.dimensions[2]; ++z) {
-        for (int y = 0; y < vol.dimensions[1]; ++y) {
-            for (int x = 0; x < vol.dimensions[0]; ++x) {
-                float val = vol.data[z * vol.dimensions[1] * vol.dimensions[0] + y * vol.dimensions[0] + x];
+    for (int z = 0; z < vol.dimensions.z; ++z) {
+        for (int y = 0; y < vol.dimensions.y; ++y) {
+            for (int x = 0; x < vol.dimensions.x; ++x) {
+                float val = vol.data[z * vol.dimensions.y * vol.dimensions.x + y * vol.dimensions.x + x];
                 if (val > 0) {
-                    double world[3];
-                    int voxel[3] = {x, y, z};
+                    glm::dvec3 world;
+                    glm::ivec3 voxel(x, y, z);
                     vol.transformVoxelToWorld(voxel, world);
                     
-                    sumX += world[0] * val;
-                    sumY += world[1] * val;
-                    sumZ += world[2] * val;
+                    sumX += world.x * val;
+                    sumY += world.y * val;
+                    sumZ += world.z * val;
                     total += val;
                 }
             }

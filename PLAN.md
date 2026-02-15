@@ -225,6 +225,14 @@ new_register/
 
 Total: ~4280 lines of application code.
 
+### Code Quality Improvements
+- [x] Migrated C-style arrays (`int[3]`, `double[3]`) to GLM vector types (`glm::ivec3`, `glm::dvec3`, `glm::dmat3`)
+  - Volume class: `dimensions`, `step`, `start`, `dirCos` → GLM types
+  - VolumeViewState/OverlayState: `sliceIndices`, `zoom`, `panU`, `panV`, `dragAccum` → GLM types
+  - Transform functions: `transformVoxelToWorld()`, `transformWorldToVoxel()`, `worldExtent()` → GLM types
+  - Test files updated to use GLM types
+  - Note: `valueRange` kept as `float[2]` for ImGui compatibility, config serialization uses `std::array`
+
 ### Suggested Refactoring
 - `main.cpp` (~2425 lines) should be decomposed into separate modules:
   - `SliceView` — per-slice rendering, mouse interaction, crosshairs

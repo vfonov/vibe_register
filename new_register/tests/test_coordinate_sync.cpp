@@ -2,18 +2,19 @@
 #include <iostream>
 #include <cmath>
 #include <filesystem>
+#include <glm/glm.hpp>
 
 bool near(double a, double b, double tol = 1e-6) {
     return std::abs(a - b) < tol;
 }
 
 // Simplified sync: use all 3 voxel coordinates from reference, convert to world, then to other volume
-// All arrays use MINC order: [0]=X, [1]=Y, [2]=Z
-void syncCursors(const Volume& refVol, int refVoxelMINC[3],
-                 const Volume& otherVol, int otherVoxelMINC[3]) {
+// All vectors use MINC order: .x = X, .y = Y, .z = Z
+void syncCursors(const Volume& refVol, const glm::ivec3& refVoxelMINC,
+                 const Volume& otherVol, glm::ivec3& otherVoxelMINC) {
     
     // Get world position from reference volume
-    double worldPos[3];
+    glm::dvec3 worldPos;
     refVol.transformVoxelToWorld(refVoxelMINC, worldPos);
     
     // Convert world -> voxel for other volume
@@ -50,12 +51,12 @@ int main() {
         return 1;
     }
     
-    std::cout << "High-res volume: " << hiRes.dimensions[0] << "x" << hiRes.dimensions[1] << "x" << hiRes.dimensions[2] << "\n";
-    std::cout << "  step: " << hiRes.step[0] << ", " << hiRes.step[1] << ", " << hiRes.step[2] << "\n";
-    std::cout << "  start: " << hiRes.start[0] << ", " << hiRes.start[1] << ", " << hiRes.start[2] << "\n";
-    std::cout << "Low-res volume: " << loRes.dimensions[0] << "x" << loRes.dimensions[1] << "x" << loRes.dimensions[2] << "\n";
-    std::cout << "  step: " << loRes.step[0] << ", " << loRes.step[1] << ", " << loRes.step[2] << "\n";
-    std::cout << "  start: " << loRes.start[0] << ", " << loRes.start[1] << ", " << loRes.start[2] << "\n";
+    std::cout << "High-res volume: " << hiRes.dimensions.x << "x" << hiRes.dimensions.y << "x" << hiRes.dimensions.z << "\n";
+    std::cout << "  step: " << hiRes.step.x << ", " << hiRes.step.y << ", " << hiRes.step.z << "\n";
+    std::cout << "  start: " << hiRes.start.x << ", " << hiRes.start.y << ", " << hiRes.start.z << "\n";
+    std::cout << "Low-res volume: " << loRes.dimensions.x << "x" << loRes.dimensions.y << "x" << loRes.dimensions.z << "\n";
+    std::cout << "  step: " << loRes.step.x << ", " << loRes.step.y << ", " << loRes.step.z << "\n";
+    std::cout << "  start: " << loRes.start.x << ", " << loRes.start.y << ", " << loRes.start.z << "\n";
     
     int testPass = 0;
     int testFail = 0;
@@ -64,28 +65,28 @@ int main() {
     // Then verify that converting back gives us approximately the same world coordinates
     std::cout << "\n=== Test: Full voxel coordinate sync ===\n";
     {
-        // Use some arbitrary voxel coordinates in MINC order [0]=X, [1]=Y, [2]=Z
-        int refSlice[3] = {100, 80, 50};  // X=100, Y=80, Z=50
+        // Use some arbitrary voxel coordinates in MINC order .x = X, .y = Y, .z = Z
+        glm::ivec3 refSlice(100, 80, 50);  // X=100, Y=80, Z=50
         
-        double worldPos[3];
+        glm::dvec3 worldPos;
         hiRes.transformVoxelToWorld(refSlice, worldPos);
-        std::cout << "Ref (hiRes) voxel MINC (X,Y,Z): (" << refSlice[0] << ", " << refSlice[1] << ", " << refSlice[2] << ")\n";
-        std::cout << "World position: (" << worldPos[0] << ", " << worldPos[1] << ", " << worldPos[2] << ")\n";
+        std::cout << "Ref (hiRes) voxel MINC (X,Y,Z): (" << refSlice.x << ", " << refSlice.y << ", " << refSlice.z << ")\n";
+        std::cout << "World position: (" << worldPos.x << ", " << worldPos.y << ", " << worldPos.z << ")\n";
         
-        int otherSlice[3];
+        glm::ivec3 otherSlice;
         loRes.transformWorldToVoxel(worldPos, otherSlice);
-        std::cout << "Other (loRes) voxel MINC (X,Y,Z): (" << otherSlice[0] << ", " << otherSlice[1] << ", " << otherSlice[2] << ")\n";
+        std::cout << "Other (loRes) voxel MINC (X,Y,Z): (" << otherSlice.x << ", " << otherSlice.y << ", " << otherSlice.z << ")\n";
         
         // Verify: convert back to world and check if it matches
-        double worldPos2[3];
+        glm::dvec3 worldPos2;
         loRes.transformVoxelToWorld(otherSlice, worldPos2);
-        std::cout << "World from other: (" << worldPos2[0] << ", " << worldPos2[1] << ", " << worldPos2[2] << ")\n";
+        std::cout << "World from other: (" << worldPos2.x << ", " << worldPos2.y << ", " << worldPos2.z << ")\n";
         
         // The world coordinates should be very close (within voxel size tolerance)
         double tol = 2.0; // Allow 2mm tolerance due to different resolutions
-        if (near(worldPos[0], worldPos2[0], tol) && 
-            near(worldPos[1], worldPos2[1], tol) && 
-            near(worldPos[2], worldPos2[2], tol)) {
+        if (near(worldPos.x, worldPos2.x, tol) && 
+            near(worldPos.y, worldPos2.y, tol) && 
+            near(worldPos.z, worldPos2.z, tol)) {
             std::cout << "PASS: World coordinates match\n";
             testPass++;
         } else {
@@ -97,26 +98,26 @@ int main() {
     // Test 2: Center voxel
     std::cout << "\n=== Test: Center voxel sync ===\n";
     {
-        // MINC order: [0]=X, [1]=Y, [2]=Z
-        int refSlice[3] = {hiRes.dimensions[0]/2, hiRes.dimensions[1]/2, hiRes.dimensions[2]/2};
+        // MINC order: .x = X, .y = Y, .z = Z
+        glm::ivec3 refSlice(hiRes.dimensions.x/2, hiRes.dimensions.y/2, hiRes.dimensions.z/2);
         
-        double worldPos[3];
+        glm::dvec3 worldPos;
         hiRes.transformVoxelToWorld(refSlice, worldPos);
-        std::cout << "Ref (hiRes) voxel MINC (X,Y,Z): (" << refSlice[0] << ", " << refSlice[1] << ", " << refSlice[2] << ")\n";
-        std::cout << "World position: (" << worldPos[0] << ", " << worldPos[1] << ", " << worldPos[2] << ")\n";
+        std::cout << "Ref (hiRes) voxel MINC (X,Y,Z): (" << refSlice.x << ", " << refSlice.y << ", " << refSlice.z << ")\n";
+        std::cout << "World position: (" << worldPos.x << ", " << worldPos.y << ", " << worldPos.z << ")\n";
         
-        int otherSlice[3];
+        glm::ivec3 otherSlice;
         loRes.transformWorldToVoxel(worldPos, otherSlice);
-        std::cout << "Other (loRes) voxel MINC (X,Y,Z): (" << otherSlice[0] << ", " << otherSlice[1] << ", " << otherSlice[2] << ")\n";
+        std::cout << "Other (loRes) voxel MINC (X,Y,Z): (" << otherSlice.x << ", " << otherSlice.y << ", " << otherSlice.z << ")\n";
         
-        double worldPos2[3];
+        glm::dvec3 worldPos2;
         loRes.transformVoxelToWorld(otherSlice, worldPos2);
-        std::cout << "World from other: (" << worldPos2[0] << ", " << worldPos2[1] << ", " << worldPos2[2] << ")\n";
+        std::cout << "World from other: (" << worldPos2.x << ", " << worldPos2.y << ", " << worldPos2.z << ")\n";
         
         double tol = 2.0;
-        if (near(worldPos[0], worldPos2[0], tol) && 
-            near(worldPos[1], worldPos2[1], tol) && 
-            near(worldPos[2], worldPos2[2], tol)) {
+        if (near(worldPos.x, worldPos2.x, tol) && 
+            near(worldPos.y, worldPos2.y, tol) && 
+            near(worldPos.z, worldPos2.z, tol)) {
             std::cout << "PASS: World coordinates match\n";
             testPass++;
         } else {

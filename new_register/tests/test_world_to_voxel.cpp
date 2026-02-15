@@ -2,6 +2,7 @@
 #include <iostream>
 #include <cmath>
 #include <filesystem>
+#include <glm/glm.hpp>
 
 int main() {
     std::filesystem::path testDataDir;
@@ -34,84 +35,84 @@ int main() {
     }
     
     std::cout << "=== Volume 1 (high-res) ===\n";
-    std::cout << "Dimensions: " << hiRes.dimensions[0] << "x" << hiRes.dimensions[1] << "x" << hiRes.dimensions[2] << "\n";
-    std::cout << "Step: " << hiRes.step[0] << ", " << hiRes.step[1] << ", " << hiRes.step[2] << "\n";
-    std::cout << "Start: " << hiRes.start[0] << ", " << hiRes.start[1] << ", " << hiRes.start[2] << "\n";
+    std::cout << "Dimensions: " << hiRes.dimensions.x << "x" << hiRes.dimensions.y << "x" << hiRes.dimensions.z << "\n";
+    std::cout << "Step: " << hiRes.step.x << ", " << hiRes.step.y << ", " << hiRes.step.z << "\n";
+    std::cout << "Start: " << hiRes.start.x << ", " << hiRes.start.y << ", " << hiRes.start.z << "\n";
     
     std::cout << "\n=== Volume 2 (thick-slices) ===\n";
-    std::cout << "Dimensions: " << loRes.dimensions[0] << "x" << loRes.dimensions[1] << "x" << loRes.dimensions[2] << "\n";
-    std::cout << "Step: " << loRes.step[0] << ", " << loRes.step[1] << ", " << loRes.step[2] << "\n";
-    std::cout << "Start: " << loRes.start[0] << ", " << loRes.start[1] << ", " << loRes.start[2] << "\n";
+    std::cout << "Dimensions: " << loRes.dimensions.x << "x" << loRes.dimensions.y << "x" << loRes.dimensions.z << "\n";
+    std::cout << "Step: " << loRes.step.x << ", " << loRes.step.y << ", " << loRes.step.z << "\n";
+    std::cout << "Start: " << loRes.start.x << ", " << loRes.start.y << ", " << loRes.start.z << "\n";
     
     // Test world coordinate (0, 0, 0)
-    double worldPos[3] = {0.0, 0.0, 0.0};
+    glm::dvec3 worldPos(0.0, 0.0, 0.0);
     
     std::cout << "\n=== Test: World (0,0,0) -> Voxel (MINC X,Y,Z order) ===\n";
     
     // For hiRes: expected voxel (96, 132, 78) in MINC X,Y,Z order
-    int voxelHiRes[3];
+    glm::ivec3 voxelHiRes;
     hiRes.transformWorldToVoxel(worldPos, voxelHiRes);
     std::cout << "Volume 1 (high-res):\n";
-    std::cout << "  World: (" << worldPos[0] << ", " << worldPos[1] << ", " << worldPos[2] << ")\n";
-    std::cout << "  Voxel (X,Y,Z): (" << voxelHiRes[0] << ", " << voxelHiRes[1] << ", " << voxelHiRes[2] << ")\n";
+    std::cout << "  World: (" << worldPos.x << ", " << worldPos.y << ", " << worldPos.z << ")\n";
+    std::cout << "  Voxel (X,Y,Z): (" << voxelHiRes.x << ", " << voxelHiRes.y << ", " << voxelHiRes.z << ")\n";
     std::cout << "  Expected: (96, 132, 78)\n";
     
     // For loRes: expected voxel (32, 132, 39) in MINC X,Y,Z order
     // Math: voxelX = (0-(-95))/3 = 31.67 -> 32, voxelY = 132, voxelZ = (0-(-77.5))/2 = 38.75 -> 39
-    int voxelLoResExact[3];
+    glm::ivec3 voxelLoResExact;
     loRes.transformWorldToVoxel(worldPos, voxelLoResExact);
     std::cout << "Volume 2 (thick-slices):\n";
-    std::cout << "  World: (" << worldPos[0] << ", " << worldPos[1] << ", " << worldPos[2] << ")\n";
-    std::cout << "  Voxel (X,Y,Z rounded): (" << voxelLoResExact[0] << ", " << voxelLoResExact[1] << ", " << voxelLoResExact[2] << ")\n";
+    std::cout << "  World: (" << worldPos.x << ", " << worldPos.y << ", " << worldPos.z << ")\n";
+    std::cout << "  Voxel (X,Y,Z rounded): (" << voxelLoResExact.x << ", " << voxelLoResExact.y << ", " << voxelLoResExact.z << ")\n";
     std::cout << "  Expected: (31.666..., 132, 38.75) -> rounded to (32, 132, 39)\n";
     
     // Now test the sync logic in reverse: voxel -> world -> voxel (MINC order)
     std::cout << "\n=== Test: Voxel -> World -> Voxel round trip ===\n";
     
     // For hiRes: start with MINC voxel (96, 132, 78) = X,Y,Z
-    int hiResVoxel[3] = {96, 132, 78};
-    double hiResWorld[3];
+    glm::ivec3 hiResVoxel(96, 132, 78);
+    glm::dvec3 hiResWorld;
     hiRes.transformVoxelToWorld(hiResVoxel, hiResWorld);
-    std::cout << "Volume 1: voxel (" << hiResVoxel[0] << ", " << hiResVoxel[1] << ", " << hiResVoxel[2] << ") -> world ("
-              << hiResWorld[0] << ", " << hiResWorld[1] << ", " << hiResWorld[2] << ")\n";
+    std::cout << "Volume 1: voxel (" << hiResVoxel.x << ", " << hiResVoxel.y << ", " << hiResVoxel.z << ") -> world ("
+              << hiResWorld.x << ", " << hiResWorld.y << ", " << hiResWorld.z << ")\n";
     
     // Convert that world to loRes voxel
-    int loResVoxel[3];
+    glm::ivec3 loResVoxel;
     loRes.transformWorldToVoxel(hiResWorld, loResVoxel);
-    std::cout << "Volume 2: world (" << hiResWorld[0] << ", " << hiResWorld[1] << ", " << hiResWorld[2] << ") -> voxel ("
-              << loResVoxel[0] << ", " << loResVoxel[1] << ", " << loResVoxel[2] << ")\n";
+    std::cout << "Volume 2: world (" << hiResWorld.x << ", " << hiResWorld.y << ", " << hiResWorld.z << ") -> voxel ("
+              << loResVoxel.x << ", " << loResVoxel.y << ", " << loResVoxel.z << ")\n";
     std::cout << "Expected: (32, 132, 39) or nearby (MINC X,Y,Z)\n";
     
     // Verify round-trip: loRes voxel -> world -> hiRes voxel
-    double loResWorld[3];
+    glm::dvec3 loResWorld;
     loRes.transformVoxelToWorld(loResVoxel, loResWorld);
-    std::cout << "Round-trip check: Volume 2 voxel (" << loResVoxel[0] << ", " << loResVoxel[1] << ", " << loResVoxel[2] 
-              << ") -> world (" << loResWorld[0] << ", " << loResWorld[1] << ", " << loResWorld[2] << ")\n";
+    std::cout << "Round-trip check: Volume 2 voxel (" << loResVoxel.x << ", " << loResVoxel.y << ", " << loResVoxel.z 
+              << ") -> world (" << loResWorld.x << ", " << loResWorld.y << ", " << loResWorld.z << ")\n";
     
     // === Assertions ===
     int errors = 0;
     
     // Volume 1: world(0,0,0) -> voxel(96, 132, 78) in MINC X,Y,Z
-    if (voxelHiRes[0] != 96 || voxelHiRes[1] != 132 || voxelHiRes[2] != 78)
+    if (voxelHiRes.x != 96 || voxelHiRes.y != 132 || voxelHiRes.z != 78)
     {
         std::cerr << "FAIL: HiRes world(0,0,0) -> voxel expected (96,132,78), got ("
-                  << voxelHiRes[0] << "," << voxelHiRes[1] << "," << voxelHiRes[2] << ")\n";
+                  << voxelHiRes.x << "," << voxelHiRes.y << "," << voxelHiRes.z << ")\n";
         errors++;
     }
     
     // Volume 2: world(0,0,0) -> voxel(32, 132, 39) in MINC X,Y,Z
-    if (voxelLoResExact[0] != 32 || voxelLoResExact[1] != 132 || voxelLoResExact[2] != 39)
+    if (voxelLoResExact.x != 32 || voxelLoResExact.y != 132 || voxelLoResExact.z != 39)
     {
         std::cerr << "FAIL: LoRes world(0,0,0) -> voxel expected (32,132,39), got ("
-                  << voxelLoResExact[0] << "," << voxelLoResExact[1] << "," << voxelLoResExact[2] << ")\n";
+                  << voxelLoResExact.x << "," << voxelLoResExact.y << "," << voxelLoResExact.z << ")\n";
         errors++;
     }
     
     // Volume 1 center: voxel(96,132,78) -> world(0,0,0)
-    if (std::abs(hiResWorld[0]) > 0.01 || std::abs(hiResWorld[1]) > 0.01 || std::abs(hiResWorld[2]) > 0.01)
+    if (std::abs(hiResWorld.x) > 0.01 || std::abs(hiResWorld.y) > 0.01 || std::abs(hiResWorld.z) > 0.01)
     {
         std::cerr << "FAIL: HiRes voxel(96,132,78) -> world expected (0,0,0), got ("
-                  << hiResWorld[0] << "," << hiResWorld[1] << "," << hiResWorld[2] << ")\n";
+                  << hiResWorld.x << "," << hiResWorld.y << "," << hiResWorld.z << ")\n";
         errors++;
     }
     

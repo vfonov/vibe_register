@@ -9,22 +9,20 @@
 
 class Volume {
 public:
-    int dimensions[3] = { 0, 0, 0 };  // X, Y, Z voxel counts
+    glm::ivec3 dimensions{0, 0, 0};  // X, Y, Z voxel counts
 
     /// Voxel spacing in mm along each axis (always positive after
     /// setup_standard_order).  Index 0 = X, 1 = Y, 2 = Z.
-    double step[3] = { 1.0, 1.0, 1.0 };
+    glm::dvec3 step{1.0, 1.0, 1.0};
 
     /// World coordinate of the first voxel along each axis.
-    double start[3] = { 0.0, 0.0, 0.0 };
+    glm::dvec3 start{0.0, 0.0, 0.0};
 
     /// Direction cosines per axis (unit vectors in world space).
     /// dirCos[i] is a 3-element vector for axis i.
-    double dirCos[3][3] = {
-        { 1.0, 0.0, 0.0 },   // X axis
-        { 0.0, 1.0, 0.0 },   // Y axis
-        { 0.0, 0.0, 1.0 }    // Z axis
-    };
+    glm::dmat3 dirCos{1.0, 0.0, 0.0,
+                      0.0, 1.0, 0.0,
+                      0.0, 0.0, 1.0};
 
     std::vector<float> data;
     float min_value = 0.0f;
@@ -48,7 +46,7 @@ public:
 
     /// Return the physical (world-space) size of the volume along each
     /// axis:  |step[i]| * dimensions[i].
-    void worldExtent(double extent[3]) const;
+    void worldExtent(glm::dvec3& extent) const;
 
     /// Compute the pixel aspect ratio for a 2D slice view whose two
     /// in-plane axes are axisU and axisV.  Returns |step[axisU]| /
@@ -57,11 +55,11 @@ public:
     
     /// Transform voxel coordinates (integers) to world coordinates using the
     /// precomputed voxel-to-world matrix.
-    /// Both voxel[] and world[] use MINC order: [0]=X, [1]=Y, [2]=Z.
-    void transformVoxelToWorld(const int voxel[3], double world[3]) const;
+    /// Both voxel and world use MINC order: .x = X, .y = Y, .z = Z.
+    void transformVoxelToWorld(const glm::ivec3& voxel, glm::dvec3& world) const;
     
     /// Transform world coordinates to voxel indices using the precomputed
     /// world-to-voxel matrix. Result is rounded to nearest integer and clamped.
-    /// Both world[] and voxel[] use MINC order: [0]=X, [1]=Y, [2]=Z.
-    void transformWorldToVoxel(const double world[3], int voxel[3]) const;
+    /// Both world and voxel use MINC order: .x = X, .y = Y, .z = Z.
+    void transformWorldToVoxel(const glm::dvec3& world, glm::ivec3& voxel) const;
 };
