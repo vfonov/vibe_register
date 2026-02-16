@@ -470,7 +470,7 @@ static void worldToSliceIndices(const Volume& vol, const double world[3], int in
 // Returns true if any tag was drawn
 static bool drawTagsOnSlice(int volumeIndex, int viewIndex, const ImVec2& imgPos, 
                            const ImVec2& imgSize, const ImVec2& uv0, const ImVec2& uv1,
-                           const Volume& vol)
+                           const Volume& vol, const glm::ivec3& currentSlice)
 {
     if (!g_TagsVisible || volumeIndex >= static_cast<int>(g_TagPoints.size()) ||
         g_TagPoints[volumeIndex].empty()) {
@@ -479,15 +479,29 @@ static bool drawTagsOnSlice(int volumeIndex, int viewIndex, const ImVec2& imgPos
     
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImU32 tagColor = IM_COL32(255, 0, 0, 200);  // Red with alpha
-    const float tagRadius = 4.0f * g_DpiScale;
     
     bool drawn = false;
     
-    // Determine which slice we're looking at based on view index
-    int sliceIdx = 0;
-    if (viewIndex == 0) sliceIdx = 0;  // Transverse: view along Z, show XY at slice Z
-    else if (viewIndex == 1) sliceIdx = 1;  // Sagittal: view along X, show YZ at slice X
-    else sliceIdx = 2;  // Coronal: view along Y, show XZ at slice Y
+    // Determine which axis corresponds to the slice plane for each view
+    // viewIndex: 0=Transverse (XY at Z), 1=Sagittal (YZ at X), 2=Coronal (XZ at Y)
+    int sliceAxis = 0;
+    int dimU = 0, dimV = 0;
+    if (viewIndex == 0) {  // Transverse: view along Z axis
+        sliceAxis = 2;  // Z slice
+        dimU = 0;  // X
+        dimV = 1;  // Y
+    } else if (viewIndex == 1) {  // Sagittal: view along X axis
+        sliceAxis = 0;  // X slice
+        dimU = 2;  // Z
+        dimV = 1;  // Y
+    } else {  // Coronal: view along Y axis
+        sliceAxis = 1;  // Y slice
+        dimU = 0;  // X
+        dimV = 2;  // Z
+    }
+    
+    // Get current slice position for this view
+    int currentSlicePos = currentSlice[sliceAxis];
     
     // Map image UV to full UV through zoom/pan
     float uvSpanU = uv1.x - uv0.x;
@@ -498,23 +512,34 @@ static bool drawTagsOnSlice(int volumeIndex, int viewIndex, const ImVec2& imgPos
         glm::ivec3 voxel;
         vol.transformWorldToVoxel(tag.position, voxel);
         
-        // Check if tag is on the current slice (within 0.5 voxel)
-        if (std::abs(voxel[sliceIdx] - sliceIdx) > 0.5f) {
+        // Calculate distance from current slice
+        int tagSlicePos = voxel[sliceAxis];
+        int sliceDistance = std::abs(tagSlicePos - currentSlicePos);
+        
+        // Only show tags within 4 slices of the current slice
+        if (sliceDistance > 4) {
             continue;
         }
         
-        // Convert voxel to normalized UV coordinates for this view
-        float normU = 0.0f, normV = 0.0f;
-        if (viewIndex == 0) {  // Transverse: X vs Y
-            normU = static_cast<float>(voxel[0]) / static_cast<float>(std::max(vol.dimensions[0] - 1, 1));
-            normV = static_cast<float>(voxel[1]) / static_cast<float>(std::max(vol.dimensions[1] - 1, 1));
-        } else if (viewIndex == 1) {  // Sagittal: Z vs Y
-            normU = static_cast<float>(voxel[2]) / static_cast<float>(std::max(vol.dimensions[2] - 1, 1));
-            normV = static_cast<float>(voxel[1]) / static_cast<float>(std::max(vol.dimensions[1] - 1, 1));
-        } else {  // Coronal: X vs Z
-            normU = static_cast<float>(voxel[0]) / static_cast<float>(std::max(vol.dimensions[0] - 1, 1));
-            normV = static_cast<float>(voxel[2]) / static_cast<float>(std::max(vol.dimensions[2] - 1, 1));
+        // Determine circle diameter based on distance
+        // 5 voxels if exactly on slice, 3 if 1 slice away, 1 if 2-4 slices away
+        int diameterVoxels = 5;
+        if (sliceDistance == 1) {
+            diameterVoxels = 3;
+        } else if (sliceDistance >= 2) {
+            diameterVoxels = 1;
         }
+        
+        // Convert voxel diameter to screen pixels
+        // Calculate pixels per voxel for this view
+        float pixelsPerVoxelU = imgSize.x / static_cast<float>(std::max(vol.dimensions[dimU] - 1, 1));
+        float pixelsPerVoxelV = imgSize.y / static_cast<float>(std::max(vol.dimensions[dimV] - 1, 1));
+        float avgPixelsPerVoxel = (pixelsPerVoxelU + pixelsPerVoxelV) * 0.5f;
+        float circleRadius = (diameterVoxels * avgPixelsPerVoxel * 0.5f) * g_DpiScale;
+        
+        // Convert voxel to normalized UV coordinates for this view
+        float normU = static_cast<float>(voxel[dimU]) / static_cast<float>(std::max(vol.dimensions[dimU] - 1, 1));
+        float normV = static_cast<float>(voxel[dimV]) / static_cast<float>(std::max(vol.dimensions[dimV] - 1, 1));
         
         // V is flipped (image top = max voxel)
         normV = 1.0f - normV;
@@ -527,16 +552,9 @@ static bool drawTagsOnSlice(int volumeIndex, int viewIndex, const ImVec2& imgPos
         ImVec2 clipMin = imgPos;
         ImVec2 clipMax(imgPos.x + imgSize.x, imgPos.y + imgSize.y);
         
-        // Draw crosshair for tag
+        // Draw circle for tag
         dl->PushClipRect(clipMin, clipMax, true);
-        dl->AddLine(
-            ImVec2(screenX - tagRadius, screenY),
-            ImVec2(screenX + tagRadius, screenY),
-            tagColor, 1.5f * g_DpiScale);
-        dl->AddLine(
-            ImVec2(screenX, screenY - tagRadius),
-            ImVec2(screenX, screenY + tagRadius),
-            tagColor, 1.5f * g_DpiScale);
+        dl->AddCircle(ImVec2(screenX, screenY), circleRadius, tagColor, 0, 2.0f * g_DpiScale);
         dl->PopClipRect();
         
         drawn = true;
@@ -745,6 +763,9 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
 
                     dl->PopClipRect();
                 }
+
+                // --- Draw tag points ---
+                drawTagsOnSlice(vi, viewIndex, imgPos, imgSize, uv0, uv1, vol, state.sliceIndices);
 
                 // --- Mouse interaction on the image ---
                 bool imageHovered = ImGui::IsItemHovered();
@@ -1460,10 +1481,14 @@ int main(int argc, char** argv)
                 std::cerr << "Failed to load volume: " << e.what() << "\n";
             }
         }
-        
-        // Try to load corresponding .tag file (same basename as first volume)
-        if (g_Volumes.size() > 0) {
-            std::filesystem::path tagPath(g_VolumePaths[0]);
+
+        // Initialize g_TagPoints to match g_Volumes size BEFORE loading tags
+        g_TagPoints.resize(g_Volumes.size());
+
+        // Try to load corresponding .tag file for each volume
+        for (size_t volIdx = 0; volIdx < g_Volumes.size(); ++volIdx) {
+            if (g_VolumePaths[volIdx].empty()) continue;
+            std::filesystem::path tagPath(g_VolumePaths[volIdx]);
             tagPath.replace_extension(".tag");
             if (std::filesystem::exists(tagPath)) {
                 try {
@@ -1480,8 +1505,8 @@ int main(int argc, char** argv)
                                 point.label = tags->labels && tags->labels[i] ? tags->labels[i] : "";
                                 points.push_back(point);
                             }
-                            g_TagPoints.push_back(points);
-                            std::cerr << "Loaded " << points.size() << " tags from " << tagPath.string() << "\n";
+                            g_TagPoints[volIdx] = std::move(points);
+                            std::cerr << "Loaded " << g_TagPoints[volIdx].size() << " tags from " << tagPath.string() << "\n";
                         }
                         minc2_tags_free(tags);
                     }
