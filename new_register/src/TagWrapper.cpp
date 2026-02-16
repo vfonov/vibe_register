@@ -78,11 +78,7 @@ void TagWrapper::load(const std::string& path) {
     points_.reserve(count);
     const double* vol1 = tags_->tags_volume1;
     for (int i = 0; i < count; ++i) {
-        glm::vec3 p;
-        p.x = static_cast<float>(vol1[i * 3 + 0]);
-        p.y = static_cast<float>(vol1[i * 3 + 1]);
-        p.z = static_cast<float>(vol1[i * 3 + 2]);
-        points_.push_back(p);
+        points_.push_back(glm::dvec3(vol1[i * 3 + 0], vol1[i * 3 + 1], vol1[i * 3 + 2]));
     }
 
     // Copy labels if present. The C struct has a char** labels pointer.
@@ -143,9 +139,7 @@ void TagWrapper::setPoints(const std::vector<glm::dvec3>& points) {
     points_.clear();
     points_.reserve(points.size());
     for (const auto& p : points) {
-        points_.push_back(glm::vec3(static_cast<float>(p.x), 
-                                     static_cast<float>(p.y), 
-                                     static_cast<float>(p.z)));
+        points_.push_back(p);
     }
 }
 

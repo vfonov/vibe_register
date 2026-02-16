@@ -501,10 +501,7 @@ static bool drawTagsOnSlice(int viewIndex, const ImVec2& imgPos,
     for (const auto& tagPos : tagPoints) {
         // Get voxel indices for this tag's world position
         glm::ivec3 voxel;
-        glm::dvec3 worldPos(static_cast<double>(tagPos.x), 
-                            static_cast<double>(tagPos.y), 
-                            static_cast<double>(tagPos.z));
-        vol.transformWorldToVoxel(worldPos, voxel);
+        vol.transformWorldToVoxel(tagPos, voxel);
         
         // Calculate distance from current slice
         int tagSlicePos = voxel[sliceAxis];

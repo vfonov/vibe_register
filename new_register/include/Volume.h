@@ -72,7 +72,7 @@ public:
     void loadTags(const std::string& path);
     void saveTags(const std::string& path);
     void clearTags();
-    const std::vector<glm::vec3>& getTagPoints() const { return tags.points(); }
+    const std::vector<glm::dvec3>& getTagPoints() const { return tags.points(); }
     const std::vector<std::string>& getTagLabels() const { return tags.labels(); }
     int getTagCount() const { return tags.tagCount(); }
     bool hasTags() const { return tags.hasTags(); }
