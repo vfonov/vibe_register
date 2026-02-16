@@ -6,14 +6,14 @@
    },
    "volumes": [
       {
-         "path": "test_data/mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc",
-         "colour_map": "Green",
-         "value_min": 0.021680187,
-         "value_max": 97.39371,
+         "path": "test_data/mni_icbm152_t1_tal_nlin_sym_09c.mnc",
+         "colour_map": "Red",
+         "value_min": 0.01061781,
+         "value_max": 98.55861,
          "slice_indices": [
-            47,
-            32,
-            126
+            49,
+            172,
+            114
          ],
          "zoom": [
             1,
@@ -32,14 +32,14 @@
          ]
       },
       {
-         "path": "test_data/mni_icbm152_t1_tal_nlin_sym_09c.mnc",
-         "colour_map": "Red",
-         "value_min": 0.01061781,
-         "value_max": 98.55861,
+         "path": "test_data/mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc",
+         "colour_map": "Green",
+         "value_min": 0.021680187,
+         "value_max": 97.39371,
          "slice_indices": [
-            96,
-            96,
-            114
+            16,
+            172,
+            57
          ],
          "zoom": [
             1,

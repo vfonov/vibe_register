@@ -193,3 +193,35 @@ This is a rewrite of the `register` application using modern C++23, Vulkan, ImGu
 - `std::vector`, `std::string` allowed.
 - `PascalCase` for classes, `camelCase` for methods/variables.
 - use `std::cerr` for printing debugging mesages or something more moden
+
+## 7. C++23 Modernization (new_register)
+
+The codebase is being modernized from C-style patterns to C++23. Phases 1-2 are complete (unique_ptr, std::array). Remaining phases:
+
+### Phase 3: Range-Based For and C++23 Ranges
+- ColourMap.cpp: Replace manual for loops with `std::views::iota` + lambda
+- Volume.cpp: Use `std::ranges::minmax_element` for min/max calculation
+- Volume.cpp: Use range-based for for dimension loops
+
+### Phase 4: constexpr and consteval
+- ColourMap.cpp: Replace custom `countOf` template with `std::size()`
+- Consider making `packRGBA` constexpr
+
+### Phase 5: auto Type and Structured Bindings
+- AppConfig.cpp: Use structured bindings in merge loop
+- TagWrapper.cpp: Use range-based for for point/label copy loops
+- main.cpp: Use direct assignment for config serialization
+
+### Phase 6: Replace Magic Numbers
+- Volume.cpp: Replace hardcoded `256` with `dimensions.x * dimensions.y * dimensions.z`
+- main.cpp: Replace `sizeof(quickMaps) / sizeof(quickMaps[0])` with `std::size(quickMaps)`
+
+### Phase 7: Use std::format
+- Replace `printf`/`fprintf`/`std::cout` with `std::print` where applicable
+
+### Build & Test
+```bash
+cd new_register/build
+cmake .. && make
+ctest --output-on-failure
+```
