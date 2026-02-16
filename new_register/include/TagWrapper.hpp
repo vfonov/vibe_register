@@ -43,13 +43,41 @@ public:
      */
     int volumeCount() const { return n_volumes_; }
 
+    /** Save tags to a .tag file.
+     * @param path Path to the tag file to save.
+     * @throws std::runtime_error on failure.
+     */
+    void save(const std::string& path);
+
+    /** Set tag points (for creating new tag files).
+     * @param points Vector of glm::dvec3 world coordinates.
+     */
+    void setPoints(const std::vector<glm::dvec3>& points);
+
+    /** Set tag labels.
+     * @param labels Vector of label strings (must match points size).
+     */
+    void setLabels(const std::vector<std::string>& labels);
+
+    /** Check if any tags are loaded.
+     * @return true if tags are not empty.
+     */
+    bool hasTags() const { return !points_.empty(); }
+
+    /** Get number of tag points.
+     * @return Number of tag points.
+     */
+    int tagCount() const { return static_cast<int>(points_.size()); }
+
+    void clear();
+
+    TagWrapper(TagWrapper&& other) noexcept;
+    TagWrapper& operator=(TagWrapper&& other) noexcept;
+
 private:
     // Non‑copyable
     TagWrapper(const TagWrapper&) = delete;
     TagWrapper& operator=(const TagWrapper&) = delete;
-
-    // Helper to free resources
-    void clear();
 
     minc2_tags* tags_;                // Raw C structure allocated by minc2_simple
     int n_volumes_;                   // Number of volumes stored in the tag file

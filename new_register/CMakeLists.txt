@@ -137,7 +137,7 @@ target_compile_definitions(new_register PRIVATE
 # --- Testing ---
 enable_testing()
 
-add_executable(test_real_data tests/test_real_data.cpp src/Volume.cpp)
+add_executable(test_real_data tests/test_real_data.cpp src/Volume.cpp src/TagWrapper.cpp)
 target_include_directories(test_real_data PRIVATE include ${glm_SOURCE_DIR})
 target_link_libraries(test_real_data PRIVATE minc2_simple glm)
 
@@ -152,18 +152,18 @@ add_executable(test_colour_map tests/test_colour_map.cpp src/ColourMap.cpp)
 target_include_directories(test_colour_map PRIVATE include)
 add_test(NAME ColourMapTests COMMAND test_colour_map)
 
-add_executable(test_coordinate_sync tests/test_coordinate_sync.cpp src/Volume.cpp)
+add_executable(test_coordinate_sync tests/test_coordinate_sync.cpp src/Volume.cpp src/TagWrapper.cpp)
 target_include_directories(test_coordinate_sync PRIVATE include ${glm_SOURCE_DIR})
 target_link_libraries(test_coordinate_sync PRIVATE minc2_simple glm)
 add_test(NAME CoordinateSyncTest COMMAND test_coordinate_sync)
 
-add_executable(test_center_of_mass tests/test_center_of_mass.cpp src/Volume.cpp)
+add_executable(test_center_of_mass tests/test_center_of_mass.cpp src/Volume.cpp src/TagWrapper.cpp)
 target_include_directories(test_center_of_mass PRIVATE include ${glm_SOURCE_DIR})
 target_link_libraries(test_center_of_mass PRIVATE minc2_simple glm)
 add_test(NAME CenterOfMassTest COMMAND test_center_of_mass
     ${CMAKE_SOURCE_DIR}/../test_data/mni_icbm152_t1_tal_nlin_sym_09c.mnc)
 
-add_executable(test_thick_slices_com tests/test_thick_slices_com.cpp src/Volume.cpp)
+add_executable(test_thick_slices_com tests/test_thick_slices_com.cpp src/Volume.cpp src/TagWrapper.cpp)
 target_include_directories(test_thick_slices_com PRIVATE include ${glm_SOURCE_DIR})
 target_link_libraries(test_thick_slices_com PRIVATE minc2_simple glm)
 add_test(NAME ThickSlicesCOMTest COMMAND test_thick_slices_com
@@ -182,7 +182,7 @@ target_link_libraries(test_volume_info PRIVATE minc2_simple minc2 glm)
 add_test(NAME VolumeInfoTest COMMAND test_volume_info)
 
 # World to voxel test
-add_executable(test_world_to_voxel tests/test_world_to_voxel.cpp src/Volume.cpp)
+add_executable(test_world_to_voxel tests/test_world_to_voxel.cpp src/Volume.cpp src/TagWrapper.cpp)
 target_include_directories(test_world_to_voxel PRIVATE include ${glm_SOURCE_DIR})
 target_link_libraries(test_world_to_voxel PRIVATE minc2_simple minc2 glm)
 add_test(NAME WorldToVoxelTest COMMAND test_world_to_voxel)
@@ -194,7 +194,7 @@ target_link_libraries(test_minc_dims PRIVATE minc2_simple minc2 glm)
 add_test(NAME MincDimsTest COMMAND test_minc_dims)
 
 # Matrix debug test
-add_executable(test_matrix_debug tests/test_matrix_debug.cpp src/Volume.cpp)
+add_executable(test_matrix_debug tests/test_matrix_debug.cpp src/Volume.cpp src/TagWrapper.cpp)
 target_include_directories(test_matrix_debug PRIVATE include ${glm_SOURCE_DIR})
 target_link_libraries(test_matrix_debug PRIVATE minc2_simple minc2 glm)
 add_test(NAME MatrixDebugTest COMMAND test_matrix_debug)

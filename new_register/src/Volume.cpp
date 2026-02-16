@@ -68,6 +68,43 @@ Volume::Volume()
 
 Volume::~Volume() {}
 
+Volume::Volume(Volume&& other) noexcept
+    : dimensions(other.dimensions),
+      step(other.step),
+      start(other.start),
+      dirCos(other.dirCos),
+      data(std::move(other.data)),
+      min_value(other.min_value),
+      max_value(other.max_value),
+      voxelToWorld(other.voxelToWorld),
+      worldToVoxel(other.worldToVoxel),
+      tags(std::move(other.tags))
+{
+    other.dimensions = glm::ivec3(0, 0, 0);
+    other.min_value = 0.0f;
+    other.max_value = 1.0f;
+}
+
+Volume& Volume::operator=(Volume&& other) noexcept {
+    if (this != &other) {
+        dimensions = other.dimensions;
+        step = other.step;
+        start = other.start;
+        dirCos = other.dirCos;
+        data = std::move(other.data);
+        min_value = other.min_value;
+        max_value = other.max_value;
+        voxelToWorld = other.voxelToWorld;
+        worldToVoxel = other.worldToVoxel;
+        tags = std::move(other.tags);
+        
+        other.dimensions = glm::ivec3(0, 0, 0);
+        other.min_value = 0.0f;
+        other.max_value = 1.0f;
+    }
+    return *this;
+}
+
 void Volume::generate_test_data()
 {
     dimensions = glm::ivec3(256, 256, 256);
@@ -270,4 +307,16 @@ void Volume::transformWorldToVoxel(const glm::dvec3& world, glm::ivec3& voxel) c
     voxel.x = std::clamp(voxel.x, 0, dimensions.x - 1);
     voxel.y = std::clamp(voxel.y, 0, dimensions.y - 1);
     voxel.z = std::clamp(voxel.z, 0, dimensions.z - 1);
+}
+
+void Volume::loadTags(const std::string& path) {
+    tags.load(path);
+}
+
+void Volume::saveTags(const std::string& path) {
+    tags.save(path);
+}
+
+void Volume::clearTags() {
+    tags.clear();
 }

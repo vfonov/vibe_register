@@ -27,6 +27,32 @@ void TagWrapper::clear() {
     n_volumes_ = 0;
 }
 
+TagWrapper::TagWrapper(TagWrapper&& other) noexcept
+    : tags_(other.tags_),
+      n_volumes_(other.n_volumes_),
+      points_(std::move(other.points_)),
+      labels_(std::move(other.labels_))
+{
+    other.tags_ = nullptr;
+    other.n_volumes_ = 0;
+}
+
+TagWrapper& TagWrapper::operator=(TagWrapper&& other) noexcept {
+    if (this != &other) {
+        if (tags_) {
+            minc2_tags_free(tags_);
+        }
+        tags_ = other.tags_;
+        n_volumes_ = other.n_volumes_;
+        points_ = std::move(other.points_);
+        labels_ = std::move(other.labels_);
+        
+        other.tags_ = nullptr;
+        other.n_volumes_ = 0;
+    }
+    return *this;
+}
+
 void TagWrapper::load(const std::string& path) {
     clear();
 
@@ -75,4 +101,54 @@ void TagWrapper::load(const std::string& path) {
     }
 
     return;
+}
+
+void TagWrapper::save(const std::string& path) {
+    if (points_.empty()) {
+        throw std::runtime_error("No tags to save");
+    }
+
+    if (!tags_) {
+        tags_ = minc2_tags_allocate0();
+        if (!tags_) {
+            throw std::runtime_error("Failed to allocate tag structure");
+        }
+    }
+
+    int count = static_cast<int>(points_.size());
+    if (minc2_tags_init(tags_, count, 1, 0, 0, 0, 1) != MINC2_SUCCESS) {
+        throw std::runtime_error("Failed to initialize tag structure");
+    }
+
+    for (int i = 0; i < count; ++i) {
+        tags_->tags_volume1[i * 3 + 0] = points_[i].x;
+        tags_->tags_volume1[i * 3 + 1] = points_[i].y;
+        tags_->tags_volume1[i * 3 + 2] = points_[i].z;
+    }
+
+    if (!labels_.empty() && labels_.size() == static_cast<size_t>(count)) {
+        for (int i = 0; i < count; ++i) {
+            if (!labels_[i].empty()) {
+                tags_->labels[i] = strdup(labels_[i].c_str());
+            }
+        }
+    }
+
+    if (minc2_tags_save(tags_, path.c_str()) != MINC2_SUCCESS) {
+        throw std::runtime_error("Failed to save tag file: " + path);
+    }
+}
+
+void TagWrapper::setPoints(const std::vector<glm::dvec3>& points) {
+    points_.clear();
+    points_.reserve(points.size());
+    for (const auto& p : points) {
+        points_.push_back(glm::vec3(static_cast<float>(p.x), 
+                                     static_cast<float>(p.y), 
+                                     static_cast<float>(p.z)));
+    }
+}
+
+void TagWrapper::setLabels(const std::vector<std::string>& labels) {
+    labels_ = labels;
 }

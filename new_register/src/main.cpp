@@ -75,15 +75,6 @@ struct OverlayState
     glm::dvec3 dragAccum{0.0, 0.0, 0.0};
 };
 
-// --- Tag point structure ---
-struct TagPoint
-{
-    glm::dvec3 position;  // World coordinates
-    std::string label;
-};
-
-// --- Tag file state ---
-std::vector<std::vector<TagPoint>> g_TagPoints;  // Tags per volume
 bool g_TagsVisible = true;
 
 // --- Application State ---
@@ -468,12 +459,11 @@ static void worldToSliceIndices(const Volume& vol, const double world[3], int in
 
 // --- Draw tag points on a slice view ---
 // Returns true if any tag was drawn
-static bool drawTagsOnSlice(int volumeIndex, int viewIndex, const ImVec2& imgPos, 
+static bool drawTagsOnSlice(int viewIndex, const ImVec2& imgPos, 
                            const ImVec2& imgSize, const ImVec2& uv0, const ImVec2& uv1,
                            const Volume& vol, const glm::ivec3& currentSlice)
 {
-    if (!g_TagsVisible || volumeIndex >= static_cast<int>(g_TagPoints.size()) ||
-        g_TagPoints[volumeIndex].empty()) {
+    if (!g_TagsVisible || !vol.hasTags()) {
         return false;
     }
     
@@ -507,10 +497,14 @@ static bool drawTagsOnSlice(int volumeIndex, int viewIndex, const ImVec2& imgPos
     float uvSpanU = uv1.x - uv0.x;
     float uvSpanV = uv1.y - uv0.y;
     
-    for (const auto& tag : g_TagPoints[volumeIndex]) {
+    const auto& tagPoints = vol.getTagPoints();
+    for (const auto& tagPos : tagPoints) {
         // Get voxel indices for this tag's world position
         glm::ivec3 voxel;
-        vol.transformWorldToVoxel(tag.position, voxel);
+        glm::dvec3 worldPos(static_cast<double>(tagPos.x), 
+                            static_cast<double>(tagPos.y), 
+                            static_cast<double>(tagPos.z));
+        vol.transformWorldToVoxel(worldPos, voxel);
         
         // Calculate distance from current slice
         int tagSlicePos = voxel[sliceAxis];
@@ -765,7 +759,7 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
                 }
 
                 // --- Draw tag points ---
-                drawTagsOnSlice(vi, viewIndex, imgPos, imgSize, uv0, uv1, vol, state.sliceIndices);
+                drawTagsOnSlice(viewIndex, imgPos, imgSize, uv0, uv1, vol, state.sliceIndices);
 
                 // --- Mouse interaction on the image ---
                 bool imageHovered = ImGui::IsItemHovered();
@@ -1482,9 +1476,6 @@ int main(int argc, char** argv)
             }
         }
 
-        // Initialize g_TagPoints to match g_Volumes size BEFORE loading tags
-        g_TagPoints.resize(g_Volumes.size());
-
         // Try to load corresponding .tag file for each volume
         for (size_t volIdx = 0; volIdx < g_Volumes.size(); ++volIdx) {
             if (g_VolumePaths[volIdx].empty()) continue;
@@ -1492,24 +1483,9 @@ int main(int argc, char** argv)
             tagPath.replace_extension(".tag");
             if (std::filesystem::exists(tagPath)) {
                 try {
-                    minc2_tags_handle tags = minc2_tags_allocate0();
-                    if (minc2_tags_load(tags, tagPath.string().c_str()) == MINC2_SUCCESS) {
-                        if (tags->n_tag_points > 0) {
-                            std::vector<TagPoint> points;
-                            for (int i = 0; i < tags->n_tag_points; i++) {
-                                TagPoint point;
-                                point.position = glm::dvec3(
-                                    tags->tags_volume1[i*3+0],
-                                    tags->tags_volume1[i*3+1],
-                                    tags->tags_volume1[i*3+2]);
-                                point.label = tags->labels && tags->labels[i] ? tags->labels[i] : "";
-                                points.push_back(point);
-                            }
-                            g_TagPoints[volIdx] = std::move(points);
-                            std::cerr << "Loaded " << g_TagPoints[volIdx].size() << " tags from " << tagPath.string() << "\n";
-                        }
-                        minc2_tags_free(tags);
-                    }
+                    g_Volumes[volIdx].loadTags(tagPath.string());
+                    std::cerr << "Loaded " << g_Volumes[volIdx].getTagCount() 
+                              << " tags from " << tagPath.string() << "\n";
                 } catch (const std::exception& e) {
                     std::cerr << "Exception loading tag file: " << e.what() << "\n";
                 }
@@ -2406,8 +2382,15 @@ int main(int argc, char** argv)
                     if (alphaChanged)
                         UpdateAllOverlayTextures();
 
-                    // Tag visibility toggle
-                    if (!g_TagPoints.empty() && ImGui::Checkbox("Show Tags", &g_TagsVisible)) {
+                    // Tag visibility toggle - check if any volume has tags
+                    bool anyVolumeHasTags = false;
+                    for (const auto& vol : g_Volumes) {
+                        if (vol.hasTags()) {
+                            anyVolumeHasTags = true;
+                            break;
+                        }
+                    }
+                    if (anyVolumeHasTags && ImGui::Checkbox("Show Tags", &g_TagsVisible)) {
                         // Tags will be redrawn on next frame
                     }
 

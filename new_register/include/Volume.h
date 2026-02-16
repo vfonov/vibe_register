@@ -7,6 +7,8 @@
 
 #include <glm/glm.hpp>
 
+#include "TagWrapper.hpp"
+
 class Volume {
 public:
     glm::ivec3 dimensions{0, 0, 0};  // X, Y, Z voxel counts
@@ -38,6 +40,9 @@ public:
     Volume();
     ~Volume();
 
+    Volume(Volume&& other) noexcept;
+    Volume& operator=(Volume&& other) noexcept;
+
     /// Load a MINC2 volume from disk.
     /// @throws std::runtime_error on any failure (file not found, bad format, etc.)
     void load(const std::string& filename);
@@ -62,4 +67,15 @@ public:
     /// world-to-voxel matrix. Result is rounded to nearest integer and clamped.
     /// Both world and voxel use MINC order: .x = X, .y = Y, .z = Z.
     void transformWorldToVoxel(const glm::dvec3& world, glm::ivec3& voxel) const;
+
+    /// Tag management methods
+    void loadTags(const std::string& path);
+    void saveTags(const std::string& path);
+    void clearTags();
+    const std::vector<glm::vec3>& getTagPoints() const { return tags.points(); }
+    const std::vector<std::string>& getTagLabels() const { return tags.labels(); }
+    int getTagCount() const { return tags.tagCount(); }
+    bool hasTags() const { return tags.hasTags(); }
+
+    TagWrapper tags;
 };
