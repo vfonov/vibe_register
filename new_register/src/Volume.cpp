@@ -40,6 +40,21 @@ public:
 
     Minc2Handle(const Minc2Handle&) = delete;
     Minc2Handle& operator=(const Minc2Handle&) = delete;
+    Minc2Handle(Minc2Handle&& other) noexcept : h_(other.h_), opened_(other.opened_) {
+        other.h_ = nullptr;
+        other.opened_ = false;
+    }
+    Minc2Handle& operator=(Minc2Handle&& other) noexcept {
+        if (this != &other) {
+            if (opened_) minc2_close(h_);
+            minc2_free(h_);
+            h_ = other.h_;
+            opened_ = other.opened_;
+            other.h_ = nullptr;
+            other.opened_ = false;
+        }
+        return *this;
+    }
 
 private:
     minc2_file_handle h_ = nullptr;

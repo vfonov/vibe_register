@@ -4,6 +4,7 @@
 #include <cstring>
 #include <stdexcept>
 #include <string>
+#include <memory>
 
 static VkDevice g_Device = VK_NULL_HANDLE;
 static VkPhysicalDevice g_PhysicalDevice = VK_NULL_HANDLE;
@@ -33,8 +34,8 @@ void Init(VkDevice device, VkPhysicalDevice physical_device, uint32_t queue_fami
     g_CommandPool = command_pool;
 }
 
-VulkanTexture* CreateTexture(int w, int h, const void* data) {
-    VulkanTexture* tex = new VulkanTexture();
+std::unique_ptr<VulkanTexture> CreateTexture(int w, int h, const void* data) {
+    auto tex = std::make_unique<VulkanTexture>();
     tex->width = w;
     tex->height = h;
     tex->size = w * h * 4;
@@ -44,7 +45,6 @@ VulkanTexture* CreateTexture(int w, int h, const void* data) {
     // Helper: clean up partially-created texture on failure, then throw.
     auto fail = [&](const char* msg) -> void {
         tex->cleanup(g_Device);
-        delete tex;
         throw std::runtime_error(std::string("CreateTexture: ") + msg);
     };
 
@@ -117,7 +117,7 @@ VulkanTexture* CreateTexture(int w, int h, const void* data) {
 
     // Upload Data (using staging buffer)
     if (data) {
-        UpdateTexture(tex, data);
+        UpdateTexture(tex.get(), data);
     }
 
     return tex;
@@ -304,7 +304,6 @@ void UpdateTexture(VulkanTexture* tex, const void* data) {
 void DestroyTexture(VulkanTexture* tex) {
     if (!tex) return;
     tex->cleanup(g_Device);
-    delete tex;
 }
 
 } // namespace

@@ -46,9 +46,9 @@ constexpr int kClampTransparent = -1;
 // --- Per-volume view state ---
 struct VolumeViewState
 {
-    VulkanTexture* sliceTextures[3] = { nullptr, nullptr, nullptr };
+    std::unique_ptr<VulkanTexture> sliceTextures[3];
     glm::ivec3 sliceIndices{0, 0, 0};  // .x=X, .y=Y, .z=Z (MINC order)
-    float valueRange[2] = { 0.0f, 1.0f };  // Min, Max
+    std::array<float, 2> valueRange = { 0.0f, 1.0f };  // Min, Max
     glm::dvec3 dragAccum{0.0, 0.0, 0.0};  // Middle-drag accumulator
     ColourMapType colourMap = ColourMapType::GrayScale;
 
@@ -68,7 +68,7 @@ struct VolumeViewState
 // --- Overlay panel state (uses first volume's grid as reference) ---
 struct OverlayState
 {
-    VulkanTexture* textures[3] = { nullptr, nullptr, nullptr };
+    std::unique_ptr<VulkanTexture> textures[3];
     glm::dvec3 zoom{1.0, 1.0, 1.0};
     glm::dvec3 panU{0.5, 0.5, 0.5};
     glm::dvec3 panV{0.5, 0.5, 0.5};
@@ -259,7 +259,7 @@ void UpdateSliceTexture(int volumeIndex, int viewIndex)
         }
     }
 
-    VulkanTexture*& tex = state.sliceTextures[viewIndex];
+    std::unique_ptr<VulkanTexture>& tex = state.sliceTextures[viewIndex];
     if (!tex)
     {
         tex = VulkanHelpers::CreateTexture(w, h, pixels.data());
@@ -268,12 +268,12 @@ void UpdateSliceTexture(int volumeIndex, int viewIndex)
     {
         if (tex->width != w || tex->height != h)
         {
-            VulkanHelpers::DestroyTexture(tex);
+            VulkanHelpers::DestroyTexture(tex.get());
             tex = VulkanHelpers::CreateTexture(w, h, pixels.data());
         }
         else
         {
-            VulkanHelpers::UpdateTexture(tex, pixels.data());
+            VulkanHelpers::UpdateTexture(tex.get(), pixels.data());
         }
     }
 }
@@ -408,7 +408,7 @@ void UpdateOverlayTexture(int viewIndex)
         }
     }
 
-    VulkanTexture*& tex = g_Overlay.textures[viewIndex];
+    std::unique_ptr<VulkanTexture>& tex = g_Overlay.textures[viewIndex];
     if (!tex)
     {
         tex = VulkanHelpers::CreateTexture(w, h, pixels.data());
@@ -417,12 +417,12 @@ void UpdateOverlayTexture(int viewIndex)
     {
         if (tex->width != w || tex->height != h)
         {
-            VulkanHelpers::DestroyTexture(tex);
+            VulkanHelpers::DestroyTexture(tex.get());
             tex = VulkanHelpers::CreateTexture(w, h, pixels.data());
         }
         else
         {
-            VulkanHelpers::UpdateTexture(tex, pixels.data());
+            VulkanHelpers::UpdateTexture(tex.get(), pixels.data());
         }
     }
 }
@@ -636,7 +636,7 @@ int RenderSliceView(int vi, int viewIndex, const ImVec2& childSize,
 
         if (state.sliceTextures[viewIndex])
         {
-            VulkanTexture* tex = state.sliceTextures[viewIndex];
+            VulkanTexture* tex = state.sliceTextures[viewIndex].get();
             ImVec2 avail = ImGui::GetContentRegionAvail();
             float sliderHeight = 30.0f * g_DpiScale;
             avail.y -= sliderHeight;
@@ -992,7 +992,7 @@ int RenderOverlayView(int viewIndex, const ImVec2& childSize)
     {
         if (g_Overlay.textures[viewIndex])
         {
-            VulkanTexture* tex = g_Overlay.textures[viewIndex];
+            VulkanTexture* tex = g_Overlay.textures[viewIndex].get();
             ImVec2 avail = ImGui::GetContentRegionAvail();
             float sliderHeight = 30.0f * g_DpiScale;
             avail.y -= sliderHeight;
@@ -2415,25 +2415,17 @@ int main(int argc, char** argv)
     // then shut down ImGui, then shut down the backend.
     backend->waitIdle();
 
-    // Destroy overlay textures
+    // Destroy overlay textures - unique_ptr auto-deletes
     for (int i = 0; i < 3; ++i)
     {
-        if (g_Overlay.textures[i])
-        {
-            VulkanHelpers::DestroyTexture(g_Overlay.textures[i]);
-            g_Overlay.textures[i] = nullptr;
-        }
+        g_Overlay.textures[i].reset();
     }
 
     for (auto& state : g_ViewStates)
     {
         for (int i = 0; i < 3; ++i)
         {
-            if (state.sliceTextures[i])
-            {
-                VulkanHelpers::DestroyTexture(state.sliceTextures[i]);
-                state.sliceTextures[i] = nullptr;
-            }
+            state.sliceTextures[i].reset();
         }
     }
 
