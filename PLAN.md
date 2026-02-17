@@ -53,6 +53,8 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] Per-volume alpha sliders (3+ volumes)
 - [x] Single blend slider for two-volume case
 - [x] Own zoom/pan/crosshair controls
+- [x] **Fixed direction cosines**: overlay now uses proper `transformVoxelToWorld`/`transformWorldToVoxel` matrices
+- [x] **Fixed out-of-bounds handling**: out-of-volume pixels show transparent background instead of clamped edge values
 
 ### Configuration
 - [x] JSON config persistence using Glaze
@@ -152,7 +154,9 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [ ] Configurable FWHM (Full-Width Half-Maximum)
 - [ ] Filter selection dialog per volume
 
-### Interpolation
+### Interpolation (Future)
+- [ ] Add interpolation methods: Nearest Neighbor, Linear (Trilinear), Cubic (Tricubic)
+- [ ] Per-volume interpolation type selection
 - [ ] Flat (nearest neighbour) vs Smooth (linear) toggle
 - [ ] Global toggle affecting all views
 
@@ -198,18 +202,24 @@ new_register/
 ├── CMakeLists.txt
 ├── include/
 │   ├── AppConfig.h
+│   ├── AppState.h
 │   ├── ColourMap.h
 │   ├── GraphicsBackend.h
+│   ├── Interface.h
 │   ├── Volume.h
+│   ├── ViewManager.h
 │   ├── VulkanBackend.h
 │   └── VulkanHelpers.h
 ├── src/
-│   ├── main.cpp          (~2425 lines — UI, state, rendering, main loop)
-│   ├── VulkanBackend.cpp  (710 lines)
-│   ├── ColourMap.cpp      (395 lines)
-│   ├── VulkanHelpers.cpp  (322 lines)
-│   ├── Volume.cpp         (281 lines)
-│   └── AppConfig.cpp      (149 lines)
+│   ├── main.cpp
+│   ├── AppState.cpp
+│   ├── ViewManager.cpp
+│   ├── Interface.cpp
+│   ├── VulkanBackend.cpp
+│   ├── ColourMap.cpp
+│   ├── VulkanHelpers.cpp
+│   ├── Volume.cpp
+│   └── AppConfig.cpp
 └── tests/
     ├── test_real_data.cpp
     ├── test_colour_map.cpp
@@ -222,8 +232,6 @@ new_register/
     ├── test_thick_slices_com.cpp
     └── test_center_of_mass.cpp
 ```
-
-Total: ~4280 lines of application code.
 
 ### Code Quality Improvements
 - [x] Migrated C-style arrays (`int[3]`, `double[3]`) to GLM vector types (`glm::ivec3`, `glm::dvec3`, `glm::dmat3`)
@@ -246,13 +254,10 @@ Total: ~4280 lines of application code.
   - `test_volume_info.cpp`: Added assertions for ndim, dimensions, steps, start values, coordinate transformations
   - `test_matrix_debug.cpp`: Added assertions for dimensions, steps, start values, round-trip transformation, cross-volume sync
 
-### Suggested Refactoring
-- `main.cpp` (~2425 lines) should be decomposed into separate modules:
-  - `SliceView` — per-slice rendering, mouse interaction, crosshairs
-  - `OverlayView` — multi-volume compositing and overlay panel
-  - `UIState` — application state, volume collection, view state management
-  - `main.cpp` — main loop, window setup, Tools panel only
-- Overlay compositing is currently CPU-side (per-pixel loop); consider GPU compute shader for large volumes.
+- [x] Refactored main.cpp into AppState, ViewManager, and Interface components
+  - AppState: Data layer (volumes, view states, config)
+  - ViewManager: Logic layer (texture generation, cursor sync)
+  - Interface: Presentation layer (ImGui rendering, mouse events)
 
 ### Dependencies
 - `minc2-simple` (static, from `legacy/minc2-simple`)
