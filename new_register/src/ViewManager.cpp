@@ -167,9 +167,8 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
                 refZ = py;
             }
 
-            double wx = ref.start.x + refX * ref.step.x;
-            double wy = ref.start.y + refY * ref.step.y;
-            double wz = ref.start.z + refZ * ref.step.z;
+            glm::dvec3 worldPos;
+            ref.transformVoxelToWorld(glm::ivec3(refX, refY, refZ), worldPos);
 
             float accR = 0.0f, accG = 0.0f, accB = 0.0f;
             float totalWeight = 0.0f;
@@ -182,13 +181,11 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
                 if (st.overlayAlpha <= 0.0f)
                     continue;
 
-                double vx = (wx - vol.start.x) / vol.step.x;
-                double vy = (wy - vol.start.y) / vol.step.y;
-                double vz = (wz - vol.start.z) / vol.step.z;
-
-                int ix = static_cast<int>(std::round(vx));
-                int iy = static_cast<int>(std::round(vy));
-                int iz = static_cast<int>(std::round(vz));
+                glm::ivec3 targetVoxel;
+                vol.transformWorldToVoxel(worldPos, targetVoxel);
+                int ix = targetVoxel.x;
+                int iy = targetVoxel.y;
+                int iz = targetVoxel.z;
 
                 if (ix < 0 || ix >= vol.dimensions.x ||
                     iy < 0 || iy >= vol.dimensions.y ||
