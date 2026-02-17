@@ -296,7 +296,7 @@ void Volume::transformVoxelToWorld(const glm::ivec3& voxel, glm::dvec3& world) c
     world.z = w.z;
 }
 
-void Volume::transformWorldToVoxel(const glm::dvec3& world, glm::ivec3& voxel) const
+bool Volume::transformWorldToVoxel(const glm::dvec3& world, glm::ivec3& voxel) const
 {
     glm::dvec4 w(world.x, world.y, world.z, 1.0);
     glm::dvec4 v = worldToVoxel * w;
@@ -304,9 +304,15 @@ void Volume::transformWorldToVoxel(const glm::dvec3& world, glm::ivec3& voxel) c
     voxel.y = static_cast<int>(std::round(v.y));
     voxel.z = static_cast<int>(std::round(v.z));
     
+    bool inBounds = voxel.x >= 0 && voxel.x < dimensions.x &&
+                    voxel.y >= 0 && voxel.y < dimensions.y &&
+                    voxel.z >= 0 && voxel.z < dimensions.z;
+    
     voxel.x = std::clamp(voxel.x, 0, dimensions.x - 1);
     voxel.y = std::clamp(voxel.y, 0, dimensions.y - 1);
     voxel.z = std::clamp(voxel.z, 0, dimensions.z - 1);
+    
+    return inBounds;
 }
 
 void Volume::loadTags(const std::string& path) {

@@ -64,9 +64,10 @@ public:
     void transformVoxelToWorld(const glm::ivec3& voxel, glm::dvec3& world) const;
     
     /// Transform world coordinates to voxel indices using the precomputed
-    /// world-to-voxel matrix. Result is rounded to nearest integer and clamped.
+    /// world-to-voxel matrix. Result is rounded to nearest integer.
     /// Both world and voxel use MINC order: .x = X, .y = Y, .z = Z.
-    void transformWorldToVoxel(const glm::dvec3& world, glm::ivec3& voxel) const;
+    /// Returns true if the point is within volume bounds, false otherwise.
+    bool transformWorldToVoxel(const glm::dvec3& world, glm::ivec3& voxel) const;
 
     /// Tag management methods
     void loadTags(const std::string& path);

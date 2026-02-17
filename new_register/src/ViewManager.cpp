@@ -182,17 +182,10 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
                     continue;
 
                 glm::ivec3 targetVoxel;
-                vol.transformWorldToVoxel(worldPos, targetVoxel);
-                int ix = targetVoxel.x;
-                int iy = targetVoxel.y;
-                int iz = targetVoxel.z;
-
-                if (ix < 0 || ix >= vol.dimensions.x ||
-                    iy < 0 || iy >= vol.dimensions.y ||
-                    iz < 0 || iz >= vol.dimensions.z)
+                if (!vol.transformWorldToVoxel(worldPos, targetVoxel))
                     continue;
 
-                float raw = vol.get(ix, iy, iz);
+                float raw = vol.get(targetVoxel.x, targetVoxel.y, targetVoxel.z);
                 float rangeMin = st.valueRange[0];
                 float rangeMax = st.valueRange[1];
                 float rangeSpan = rangeMax - rangeMin;
