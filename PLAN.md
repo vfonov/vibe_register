@@ -260,7 +260,9 @@ new_register/
   - Interface: Presentation layer (ImGui rendering, mouse events)
 
 ### Dependencies
-- `minc2-simple` (static, from `legacy/minc2-simple`)
+- **MINC libraries** (FetchContent with system fallback):
+  - `LIBMINC`: Try system first via `find_package` with `MINC_TOOLKIT` env var hints, fallback to FetchContent from `https://github.com/BIC-MNI/libminc.git` (develop branch)
+  - `minc2-simple`: FetchContent from `https://github.com/NIST-MNI/minc2-simple.git` (develop branch)
 - `ImGui` (FetchContent, docking branch)
 - `GLFW` (system)
 - `Vulkan` (system)
