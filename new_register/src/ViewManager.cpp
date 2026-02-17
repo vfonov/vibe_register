@@ -310,15 +310,24 @@ void ViewManager::syncZoom(int sourceVolume, int viewIndex) {
     if (!state_.syncZoom_ || state_.volumes_.size() < 2)
         return;
 
-    double sourceZoom = state_.viewStates_[sourceVolume].zoom[viewIndex];
+    double sourceZoom;
+    bool fromOverlay = (sourceVolume < 0);
+
+    if (fromOverlay) {
+        sourceZoom = state_.overlay_.zoom[viewIndex];
+    } else {
+        sourceZoom = state_.viewStates_[sourceVolume].zoom[viewIndex];
+    }
 
     for (int i = 0; i < state_.volumeCount(); ++i) {
-        if (i == sourceVolume)
+        if (!fromOverlay && i == sourceVolume)
             continue;
         state_.viewStates_[i].zoom[viewIndex] = sourceZoom;
     }
 
-    state_.overlay_.zoom[viewIndex] = sourceZoom;
+    if (!fromOverlay) {
+        state_.overlay_.zoom[viewIndex] = sourceZoom;
+    }
 
     for (int i = 0; i < state_.volumeCount(); ++i) {
         updateSliceTexture(i, viewIndex);
@@ -330,18 +339,28 @@ void ViewManager::syncPan(int sourceVolume, int viewIndex) {
     if (!state_.syncPan_ || state_.volumes_.size() < 2)
         return;
 
-    double sourcePanU = state_.viewStates_[sourceVolume].panU[viewIndex];
-    double sourcePanV = state_.viewStates_[sourceVolume].panV[viewIndex];
+    double sourcePanU, sourcePanV;
+    bool fromOverlay = (sourceVolume < 0);
+
+    if (fromOverlay) {
+        sourcePanU = state_.overlay_.panU[viewIndex];
+        sourcePanV = state_.overlay_.panV[viewIndex];
+    } else {
+        sourcePanU = state_.viewStates_[sourceVolume].panU[viewIndex];
+        sourcePanV = state_.viewStates_[sourceVolume].panV[viewIndex];
+    }
 
     for (int i = 0; i < state_.volumeCount(); ++i) {
-        if (i == sourceVolume)
+        if (!fromOverlay && i == sourceVolume)
             continue;
         state_.viewStates_[i].panU[viewIndex] = sourcePanU;
         state_.viewStates_[i].panV[viewIndex] = sourcePanV;
     }
 
-    state_.overlay_.panU[viewIndex] = sourcePanU;
-    state_.overlay_.panV[viewIndex] = sourcePanV;
+    if (!fromOverlay) {
+        state_.overlay_.panU[viewIndex] = sourcePanU;
+        state_.overlay_.panV[viewIndex] = sourcePanV;
+    }
 
     for (int i = 0; i < state_.volumeCount(); ++i) {
         updateSliceTexture(i, viewIndex);

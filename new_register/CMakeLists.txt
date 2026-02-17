@@ -116,12 +116,14 @@ target_include_directories(new_register PRIVATE
 )
 
 # --- Linking ---
+set(MINC2_LIB "${CMAKE_BINARY_DIR}/_deps/libminc-build/libminc2.a")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L${CMAKE_BINARY_DIR}/_deps/libminc-build")
 target_link_libraries(new_register PRIVATE
     glfw
     Vulkan::Vulkan
     imgui
     minc2-simple-static
-    minc2
+    ${MINC2_LIB}
     glaze::glaze
     glm
 )

@@ -1105,11 +1105,9 @@ int Interface::renderOverlayView(int viewIndex, const ImVec2& childSize) {
                     state_.overlay_.panU[viewIndex] -= delta.x / imgSize.x * uvSpanU;
                     state_.overlay_.panV[viewIndex] -= delta.y / imgSize.y * uvSpanV;
                     if (state_.syncPan_) {
-                        for (int vi = 0; vi < state_.volumeCount(); ++vi) {
-                            state_.viewStates_[vi].panU[viewIndex] = state_.overlay_.panU[viewIndex];
-                            state_.viewStates_[vi].panV[viewIndex] = state_.overlay_.panV[viewIndex];
-                        }
-                        viewManager_.updateAllOverlayTextures();
+                        state_.lastSyncSource_ = -1;
+                        state_.lastSyncView_ = viewIndex;
+                        viewManager_.syncPan(-1, viewIndex);
                     }
                 } else if (imageHovered && !shiftHeld &&
                            ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
@@ -1155,10 +1153,9 @@ int Interface::renderOverlayView(int viewIndex, const ImVec2& childSize) {
                         state_.overlay_.zoom[viewIndex] = std::clamp(
                             state_.overlay_.zoom[viewIndex] * factor, 0.1, 50.0);
                         if (state_.syncZoom_) {
-                            for (int vi = 0; vi < state_.volumeCount(); ++vi) {
-                                state_.viewStates_[vi].zoom[viewIndex] = state_.overlay_.zoom[viewIndex];
-                            }
-                            viewManager_.updateAllOverlayTextures();
+                            state_.lastSyncSource_ = -1;
+                            state_.lastSyncView_ = viewIndex;
+                            viewManager_.syncZoom(-1, viewIndex);
                         }
                     }
                 } else if (imageHovered && !shiftHeld &&
@@ -1211,15 +1208,12 @@ int Interface::renderOverlayView(int viewIndex, const ImVec2& childSize) {
                         state_.overlay_.zoom[viewIndex] = newZoom;
 
                         if (state_.syncZoom_ || state_.syncPan_) {
-                            for (int vi = 0; vi < state_.volumeCount(); ++vi) {
-                                if (state_.syncZoom_)
-                                    state_.viewStates_[vi].zoom[viewIndex] = state_.overlay_.zoom[viewIndex];
-                                if (state_.syncPan_) {
-                                    state_.viewStates_[vi].panU[viewIndex] = state_.overlay_.panU[viewIndex];
-                                    state_.viewStates_[vi].panV[viewIndex] = state_.overlay_.panV[viewIndex];
-                                }
-                            }
-                            viewManager_.updateAllOverlayTextures();
+                            state_.lastSyncSource_ = -1;
+                            state_.lastSyncView_ = viewIndex;
+                            if (state_.syncZoom_)
+                                viewManager_.syncZoom(-1, viewIndex);
+                            if (state_.syncPan_)
+                                viewManager_.syncPan(-1, viewIndex);
                         }
                     }
                 }
