@@ -332,21 +332,12 @@ void Interface::renderVolumeColumn(int vi) {
         if (!state_.cleanMode_) {
             ImGui::BeginChild("##controls", ImVec2(viewWidth, 0), ImGuiChildFlags_Borders);
             {
-                ImGui::Text("Dimensions: %d x %d x %d",
-                            vol.dimensions.x, vol.dimensions.y, vol.dimensions.z);
-                ImGui::Text("Voxel size: %.3f x %.3f x %.3f mm",
-                            vol.step.x, vol.step.y, vol.step.z);
-
-                ImGui::Separator();
-                ImGui::Text("Current slice position:");
-
-                ImGui::Text("  Voxel: (%d, %d, %d)",
-                            state.sliceIndices.x, state.sliceIndices.y, state.sliceIndices.z);
-
                 glm::dvec3 worldPos;
                 vol.transformVoxelToWorld(state.sliceIndices, worldPos);
-                ImGui::Text("  World: (%.2f, %.2f, %.2f) mm",
-                            worldPos.x, worldPos.y, worldPos.z);
+                float intensity = vol.get(state.sliceIndices.x, state.sliceIndices.y, state.sliceIndices.z);
+                ImGui::Text("V: %d,%d,%d  W: %.1f,%.1f,%.1f  I: %.2f",
+                            state.sliceIndices.x, state.sliceIndices.y, state.sliceIndices.z,
+                            worldPos.x, worldPos.y, worldPos.z, intensity);
 
                 ImGui::Separator();
 
@@ -943,11 +934,11 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                     }
                     ImGui::SameLine();
 
-                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 30.0f * state_.dpiScale_);
+                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 20.0f * state_.dpiScale_);
                     int sliceValue = (viewIndex == 0) ? state.sliceIndices.z
                                   : (viewIndex == 1) ? state.sliceIndices.x
                                                       : state.sliceIndices.y;
-                    if (ImGui::SliderInt("##slice", &sliceValue, 0, maxSlice - 1, "Slice %d")) {
+                    if (ImGui::SliderInt("##slice", &sliceValue, 0, maxSlice - 1, "%d")) {
                         if (viewIndex == 0)
                             state.sliceIndices.z = sliceValue;
                         else if (viewIndex == 1)
