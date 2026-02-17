@@ -537,7 +537,7 @@ void Interface::renderVolumeColumn(int vi) {
                         changed = true;
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(inputW);
-                    if (ImGui::InputFloat("##min", &state.valueRange[0], 0.0f, 0.0f, "%.4g"))
+                    if (ImGui::InputDouble("##min", &state.valueRange[0], 0.0, 0.0, "%.4g"))
                         changed = true;
                     ImGui::SameLine();
                     if (ImGui::Button("Auto")) {
@@ -547,7 +547,7 @@ void Interface::renderVolumeColumn(int vi) {
                     }
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(inputW);
-                    if (ImGui::InputFloat("##max", &state.valueRange[1], 0.0f, 0.0f, "%.4g"))
+                    if (ImGui::InputDouble("##max", &state.valueRange[1], 0.0, 0.0, "%.4g"))
                         changed = true;
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(clampW);

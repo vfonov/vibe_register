@@ -10,12 +10,12 @@ struct VolumeConfig
 {
     std::string path;                            // Volume file path
     std::string colourMap = "GrayScale";         // Colour map name
-    std::optional<float> valueMin;               // Value range min (nullopt = auto)
-    std::optional<float> valueMax;               // Value range max (nullopt = auto)
+    std::optional<double> valueMin;              // Value range min (nullopt = auto)
+    std::optional<double> valueMax;              // Value range max (nullopt = auto)
     std::array<int, 3> sliceIndices = {-1, -1, -1};  // -1 means "use midpoint"
-    std::array<float, 3> zoom = {1.0f, 1.0f, 1.0f};
-    std::array<float, 3> panU = {0.5f, 0.5f, 0.5f};
-    std::array<float, 3> panV = {0.5f, 0.5f, 0.5f};
+    std::array<double, 3> zoom = {1.0, 1.0, 1.0};
+    std::array<double, 3> panU = {0.5, 0.5, 0.5};
+    std::array<double, 3> panV = {0.5, 0.5, 0.5};
 };
 
 /// Global application defaults.

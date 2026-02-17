@@ -18,7 +18,7 @@ constexpr int kClampTransparent = -1;
 struct VolumeViewState {
     std::unique_ptr<VulkanTexture> sliceTextures[3];
     glm::ivec3 sliceIndices{0, 0, 0};
-    std::array<float, 2> valueRange = {0.0f, 1.0f};
+    std::array<double, 2> valueRange = {0.0, 1.0};
     glm::dvec3 dragAccum{0.0, 0.0, 0.0};
     ColourMapType colourMap = ColourMapType::GrayScale;
 
