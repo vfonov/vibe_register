@@ -1,349 +1,248 @@
-# Sub-Plan: main.cpp Refactoring (Split into Components)
+# Plan: Overlay Interpolation Support
 
-## Goal
-Split the monolithic `main.cpp` (~2450 lines) into independent logical components to simplify support and future development. Maintain C++23 standards.
+## Problem Statement
 
-## Current State
-- `main.cpp` contains:
-  - Global state variables (`g_Volumes`, `g_ViewStates`, `g_Overlay`, etc.)
-  - State structs: `VolumeViewState`, `OverlayState`
-  - Texture generation logic (`UpdateSliceTexture`, `UpdateOverlayTexture`)
-  - UI rendering (`RenderSliceView`, `RenderOverlayView`, Tools panel)
-  - Mouse/keyboard interaction handling
-  - Main event loop
-  - CLI parsing and config loading
+The current overlay rendering in `ViewManager::updateOverlayTexture`:
+1. Uses simplified coordinate transformation that ignores direction cosines
+2. Uses only nearest-neighbor sampling for all data types
+
+We need to:
+1. Fix the coordinate transformation to use proper voxel-to-world matrices (direction cosines)
+2. Support three interpolation methods: nearest neighbor, linear, cubic
 
 ---
 
-## Architecture Overview
+## Architecture (Functional Style)
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        main.cpp                              │
-│  - Initialization                                            │
-│  - Main event loop                                           │
-│  - Orchestration                                             │
-└─────────────────────────────────────────────────────────────┘
-         │                  │                  │
-         ▼                  ▼                  ▼
-┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-│   AppState      │ │  ViewManager    │ │   Interface     │
-│  (Data/State)   │ │  (Logic)        │ │  (Presentation) │
-│                 │ │                 │ │                 │
-│ - volumes       │ │ - Texture gen   │ │ - ImGui windows │
-│ - viewStates    │ │ - Slice updates │ │ - Mouse events  │
-│ - overlay       │ │ - Cursor sync   │ │ - Rendering     │
-│ - global flags  │ │ - View reset    │ │ - Layout        │
-└─────────────────┘ └─────────────────┘ └─────────────────┘
+```cpp
+// Interpolation type enum
+enum class InterpolationType {
+    NearestNeighbor,
+    Linear,   // Bilinear for 2D, Trilinear for 3D
+    Cubic     // Bicubic for 2D, Tricubic for 3D
+};
+
+// Interpolation function signature
+using InterpFunction = std::function<float(const Volume&, double x, double y, double z)>;
+
+// Registry of interpolation functions
+std::unordered_map<InterpolationType, InterpFunction> interpolationFunctions = {
+    {InterpolationType::NearestNeighbor, sampleNearestNeighbor},
+    {InterpolationType::Linear, sampleLinear},
+    {InterpolationType::Cubic, sampleCubic},
+};
 ```
 
 ---
 
-## Phase 1: Create AppState (Data Layer)
+## Phase 1: Fix Direction Cosines Transformation (Priority - Critical)
 
-### 1.1 New Files
-- `new_register/include/AppState.h`
-- `new_register/src/AppState.cpp`
+**Task 1.1**: Modify `updateOverlayTexture` to use proper transformation matrices
 
-### 1.2 Responsibilities
-- Store all global application state
-- Manage lifecycle of volumes and view states
+**Current code** (ViewManager.cpp:170-191):
+```cpp
+double wx = ref.start.x + refX * ref.step.x;
+double wy = ref.start.y + refY * ref.step.y;
+double wz = ref.start.z + refZ * ref.step.z;
 
-### 1.3 Structs to Move
-| Struct | Description |
-|--------|-------------|
-| `VolumeViewState` | Per-volume view: slice indices, zoom, pan, colour map, value range |
-| `OverlayState` | Overlay panel state: zoom, pan, textures |
-
-### 1.4 Members to Move
-| Variable | Type | Description |
-|----------|------|-------------|
-| `volumes_` | `std::vector<Volume>` | All loaded volumes |
-| `volumeNames_` | `std::vector<std::string>` | Display names (file basenames) |
-| `volumePaths_` | `std::vector<std::string>` | Full file paths |
-| `viewStates_` | `std::vector<VolumeViewState>` | Per-volume view state |
-| `overlay_` | `OverlayState` | Overlay panel state |
-| `tagsVisible_` | `bool` | Tag visibility toggle |
-| `cleanMode_` | `bool` | Hide UI controls |
-| `syncCursors_` | `bool` | Synchronize cursor position |
-| `lastSyncSource_` | `int` | Last interacted volume index |
-| `lastSyncView_` | `int` | Last interacted view index |
-| `dpiScale_` | `float` | DPI scaling factor |
-| `localConfigPath_` | `std::string` | Local config file path |
-| `layoutInitialized_` | `bool` | ImGui layout initialized flag |
-
-### 1.5 Methods to Add
-| Method | Description |
-|--------|-------------|
-| `volumeCount() const` | Return number of loaded volumes |
-| `hasOverlay() const` | Return true if multiple volumes loaded |
-| `getVolume(int index)` | Get volume reference |
-| `getViewState(int index)` | Get view state reference |
-| `loadVolume(const std::string& path)` | Load a volume |
-| `loadTagsForVolume(int index)` | Load .tag file for volume |
-| `applyConfig(const AppConfig& cfg)` | Apply config to volumes |
-
-### 1.6 Constants to Move
-| Constant | Value | Description |
-|----------|-------|-------------|
-| `kClampCurrent` | -2 | Use volume's colour map endpoint |
-| `kClampTransparent` | -1 | Transparent |
-
----
-
-## Phase 2: Create ViewManager (Logic Layer)
-
-### 2.1 New Files
-- `new_register/include/ViewManager.h`
-- `new_register/src/ViewManager.cpp`
-
-### 2.2 Responsibilities
-- Generate and update slice textures
-- Handle overlay compositing
-- Coordinate cursor synchronization
-- Reset views
-
-### 2.3 Methods to Move/Implement
-| Method | Description |
-|--------|-------------|
-| `updateSliceTexture(int volumeIndex, int viewIndex)` | Generate pixel data for slice |
-| `updateOverlayTexture(int viewIndex)` | Composite overlay for view |
-| `updateAllOverlayTextures()` | Update all 3 overlay views |
-| `syncCursors()` | Sync cursor positions across volumes |
-| `resetViews()` | Reset all view states to defaults |
-| `sliceIndicesToWorld(const Volume&, const int[3], double[3])` | Convert voxel to world |
-| `worldToSliceIndices(const Volume&, const double[3], int[3])` | Convert world to voxel |
-
-### 2.4 Dependencies
-- `AppState` (reference)
-- `VulkanHelpers` (texture creation)
-- `ColourMap` (colour lookup)
-
----
-
-## Phase 3: Create Interface (Presentation Layer)
-
-### 3.1 New Files
-- `new_register/include/Interface.h`
-- `new_register/src/Interface.cpp`
-
-### 3.2 Responsibilities
-- Render all ImGui windows and panels
-- Handle mouse/keyboard interaction
-- Manage layout
-
-### 3.3 Methods to Move/Implement
-| Method | Description |
-|--------|-------------|
-| `render(GraphicsBackend& backend, GLFWwindow* window)` | Main render entry point |
-| `renderToolsPanel()` | Tools panel (left side) |
-| `renderVolumeColumn(int volumeIndex)` | Per-volume column window |
-| `renderOverlayPanel()` | Overlay panel (when multiple volumes) |
-| `renderSliceView(int vi, int viewIndex, const ImVec2& childSize)` | Single slice view |
-| `renderOverlayView(int viewIndex, const ImVec2& childSize)` | Overlay slice view |
-| `drawTagsOnSlice(...)` | Draw tag points on a slice |
-| `resolveClampColour(...)` | Resolve under/over colour |
-| `clampColourLabel(int mode)` | Get label for clamp mode |
-
-### 3.4 Input Handling
-- Mouse drag (pan, zoom, slice scroll)
-- Mouse wheel zoom
-- Keyboard shortcuts (R, C, P, Q)
-- Slice slider interaction
-
----
-
-## Phase 4: Refactor main.cpp
-
-### 4.1 Simplified main.cpp
-- Initialize `AppState`
-- Initialize `GraphicsBackend`
-- Parse CLI arguments
-- Load configuration
-- Load volumes into `AppState`
-- Enter main loop:
-  - Poll events
-  - Begin frame
-  - Call `Interface::render()`
-  - End frame
-- Cleanup
-
-### 4.2 Removed Code (moved to components)
-- All global variables
-- `VolumeViewState` and `OverlayState` structs
-- `UpdateSliceTexture` and related functions
-- `RenderSliceView`, `RenderOverlayView`
-- UI rendering code
-- Input handling code
-
----
-
-## Phase 5: Testing
-
-### 5.1 Build Verification
-```bash
-cd new_register/build
-cmake .. && make
+double vx = (wx - vol.start.x) / vol.step.x;
+double vy = (wy - vol.start.y) / vol.step.y;
+double vz = (wz - vol.start.z) / vol.step.z;
 ```
 
-### 5.2 Run Tests
-```bash
-ctest --output-on-failure
-```
+**Replace with**:
+```cpp
+glm::dvec3 worldPos;
+ref.transformVoxelToWorld(glm::ivec3(refX, refY, refZ), worldPos);
 
-### 5.3 Manual Testing
-- Load single volume - verify display
-- Load multiple volumes - verify overlay
-- Test zoom/pan/scroll - verify interaction
-- Test keyboard shortcuts
-- Test config save/load
-- Test clean mode
-- Test cursor sync
+glm::ivec3 targetVoxel;
+vol.transformWorldToVoxel(worldPos, targetVoxel);
+```
 
 ---
 
-## Summary of File Changes
+## Phase 2: Add Interpolation Type System
 
-| File | Action | Description |
-|------|--------|-------------|
-| `new_register/include/AppState.h` | Create | State container header |
-| `new_register/src/AppState.cpp` | Create | State container implementation |
-| `new_register/include/ViewManager.h` | Create | View logic header |
-| `new_register/src/ViewManager.cpp` | Create | View logic implementation |
-| `new_register/include/Interface.h` | Create | UI rendering header |
-| `new_register/src/Interface.cpp` | Create | UI rendering implementation |
-| `new_register/src/main.cpp` | Refactor | Simplified entry point |
-| `new_register/CMakeLists.txt` | Update | Add new source files |
+**Task 2.1**: Add interpolation type enum to Volume class
+
+In `Volume.h`, add:
+```cpp
+enum class InterpolationType {
+    NearestNeighbor,
+    Linear,
+    Cubic
+};
+```
+
+**Task 2.2**: Add interpolation type member and accessors
+
+In `Volume.h`:
+```cpp
+InterpolationType interpolationType_ = InterpolationType::Linear;
+InterpolationType interpolationType() const { return interpolationType_; }
+void setInterpolationType(InterpolationType type) { interpolationType_ = type; }
+```
+
+**Task 2.3**: Auto-detect interpolation type during volume loading
+
+In `Volume.cpp::load()`, detect based on MINC data type:
+- Integer types (MINC2_BYTE, MINC2_SHORT, MINC2_INT, etc.) → NearestNeighbor
+- Float types (MINC2_FLOAT, MINC2_DOUBLE) → Linear (default)
+
+---
+
+## Phase 3: Implement Interpolation Functions
+
+**Task 3.1**: Add interpolation functions to Volume class
+
+In `Volume.h`:
+```cpp
+float sampleNearestNeighbor(double x, double y, double z) const;
+float sampleLinear(double x, double y, double z) const;
+float sampleCubic(double x, double y, double z) const;
+
+// Generic sampler that delegates to the appropriate method
+float sample(double x, double y, double z) const;
+```
+
+In `Volume.cpp`:
+
+**Nearest Neighbor** - Returns value at nearest voxel:
+```cpp
+float Volume::sampleNearestNeighbor(double x, double y, double z) const {
+    int ix = static_cast<int>(std::round(x));
+    int iy = static_cast<int>(std::round(y));
+    int iz = static_cast<int>(std::round(z));
+    if (ix < 0 || ix >= dimensions.x || iy < 0 || iy >= dimensions.y || iz < 0 || iz >= dimensions.z)
+        return 0.0f;
+    return get(ix, iy, iz);
+}
+```
+
+**Linear (Trilinear)** - Interpolates across 8 corners:
+```cpp
+float Volume::sampleLinear(double x, double y, double z) const {
+    // Clamp to valid range
+    x = std::clamp(x, 0.0, static_cast<double>(dimensions.x) - 1.001);
+    y = std::clamp(y, 0.0, static_cast<double>(dimensions.y) - 1.001);
+    z = std::clamp(z, 0.0, static_cast<double>(dimensions.z) - 1.001);
+    
+    int x0 = static_cast<int>(std::floor(x));
+    int y0 = static_cast<int>(std::floor(y));
+    int z0 = static_cast<int>(std::floor(z));
+    int x1 = std::min(x0 + 1, dimensions.x - 1);
+    int y1 = std::min(y0 + 1, dimensions.y - 1);
+    int z1 = std::min(z0 + 1, dimensions.z - 1);
+    
+    double xd = x - x0;
+    double yd = y - y0;
+    double zd = z - z0;
+    
+    // 8 corners
+    float c000 = get(x0, y0, z0);
+    float c100 = get(x1, y0, z0);
+    float c010 = get(x0, y1, z0);
+    float c110 = get(x1, y1, z0);
+    float c001 = get(x0, y0, z1);
+    float c101 = get(x1, y0, z1);
+    float c011 = get(x0, y1, z1);
+    float c111 = get(x1, y1, z1);
+    
+    // Interpolate
+    float c00 = c000 * (1 - xd) + c100 * xd;
+    float c01 = c001 * (1 - xd) + c101 * xd;
+    float c10 = c010 * (1 - xd) + c110 * xd;
+    float c11 = c011 * (1 - xd) + c111 * xd;
+    
+    float c0 = c00 * (1 - yd) + c10 * yd;
+    float c1 = c01 * (1 - yd) + c11 * yd;
+    
+    return c0 * (1 - zd) + c1 * zd;
+}
+```
+
+**Cubic (Tricubic)** - Uses 4x4x4 neighborhood with Catmull-Rom or B-spline basis:
+```cpp
+float Volume::sampleCubic(double x, double y, double z) const {
+    // Requires 4x4x4 neighborhood
+    // Use Catmull-Rom or B-spline weights
+    // Placeholder: fall back to linear for now
+    return sampleLinear(x, y, z);
+}
+```
+
+**Generic sampler**:
+```cpp
+float Volume::sample(double x, double y, double z) const {
+    switch (interpolationType_) {
+        case InterpolationType::NearestNeighbor:
+            return sampleNearestNeighbor(x, y, z);
+        case InterpolationType::Linear:
+            return sampleLinear(x, y, z);
+        case InterpolationType::Cubic:
+            return sampleCubic(x, y, z);
+        default:
+            return sampleLinear(x, y, z);
+    }
+}
+```
+
+---
+
+## Phase 4: Update Overlay Rendering
+
+**Task 4.1**: Modify `updateOverlayTexture` to use interpolation
+
+Replace the voxel lookup with:
+```cpp
+float sampleValue = vol.sample(
+    static_cast<double>(targetVoxel.x),
+    static_cast<double>(targetVoxel.y),
+    static_cast<double>(targetVoxel.z)
+);
+```
+
+---
+
+## Phase 5: UI Integration
+
+**Task 5.1**: Add interpolation type selector to UI
+
+In `Interface.cpp`, add dropdown in volume settings:
+- "Nearest Neighbor" for label data
+- "Linear" (default) for intensity
+- "Cubic" for smooth interpolation
+
+**Task 5.2**: Persist to config
+
+Add interpolation type to `AppConfig` JSON.
 
 ---
 
 ## Implementation Order
 
-1. **Phase 1** - Create `AppState` class
-2. **Phase 2** - Create `ViewManager` class
-3. **Phase 3** - Create `Interface` class
-4. **Phase 4** - Refactor `main.cpp`
-5. **Phase 5** - Build and test
+1. **Phase 1** - Fix direction cosines transformation (critical bug fix)
+2. **Phase 2** - Add interpolation type system to Volume class
+3. **Phase 3** - Implement interpolation functions (NN, Linear, Cubic stub)
+4. **Phase 4** - Update overlay rendering to use interpolation
+5. **Phase 5** - UI integration and config persistence
 
 ---
 
-# Appendix: Tag Support Refactoring (Completed)
+## Notes
 
-## Goal
-Associate tag collection with Volume class, add methods to load/save/clear tags.
-
-## Current State
-- `TagPoint` struct defined in main.cpp (line 79-83)
-- `g_TagPoints` is global `std::vector<std::vector<TagPoint>>` (line 86)
-- Tag loading code embedded in main.cpp (lines 1485-1509)
-- `TagWrapper` class exists but unused in main.cpp
-- Tags rendered in `drawTagsOnSlice()` function
+- **Nearest neighbor**: Fast, correct for discrete labels, no interpolation
+- **Linear (trilinear)**: Smooths continuous values, standard for intensity
+- **Cubic (tricubic)**: Smoother derivatives, requires 4x4x4 neighborhood, placeholder for future
+- The `transformWorldToVoxel` already handles rounding and clamping
+- No changes needed to main slice rendering (`updateSliceTexture`) - operates on integer voxels directly
 
 ---
 
-## Phase 1: Enhance TagWrapper class
+## Testing
 
-### 1.1 TagWrapper.hpp - Add save and setter functionality
-| Location | Change |
-|----------|--------|
-| Line 30 | Add `void save(const std::string& path)` method |
-| Add method | `void setPoints(const std::vector<glm::dvec3>& points)` |
-| Add method | `void setLabels(const std::vector<std::string>& labels)` |
-| Add method | `void clear()` already exists, ensure it clears points_ and labels_ |
-
-### 1.2 TagWrapper.cpp - Implement save
-| Location | Change |
-|----------|--------|
-| New method | Implement `save()` using `minc2_tags_save()` |
-| New method | Implement `setPoints()` to populate tags_ structure |
-| New method | Implement `setLabels()` to populate labels |
-
----
-
-## Phase 2: Add tag members to Volume class
-
-### 2.1 Volume.h - Add tag members and methods
-| Location | Change |
-|----------|--------|
-| Add include | `#include "TagWrapper.hpp"` |
-| Add member | `TagWrapper tags;` |
-| Add method | `void loadTags(const std::string& path)` |
-| Add method | `void saveTags(const std::string& path)` |
-| Add method | `void clearTags()` |
-| Add method | `const std::vector<glm::dvec3>& getTagPoints() const` |
-| Add method | `const std::vector<std::string>& getTagLabels() const` |
-| Add method | `int getTagCount() const` |
-| Add method | `bool hasTags() const` |
-
-### 2.2 Volume.cpp - Implement tag methods
-| Location | Change |
-|----------|--------|
-| loadTags() | Call `tags.load(path)` |
-| saveTags() | Call `tags.save(path)` |
-| clearTags() | Call `tags.clear()` |
-| getTagPoints() | Return `tags.points()` converted to glm::dvec3 |
-| getTagLabels() | Return `tags.labels()` |
-| getTagCount() | Return `tags.points().size()` |
-| hasTags() | Return `!tags.points().empty()` |
-
----
-
-## Phase 3: Refactor main.cpp to use Volume's tag methods
-
-### 3.1 Remove global tag variables
-| Location | Change |
-|----------|--------|
-| Lines 78-83 | Remove `TagPoint` struct |
-| Line 86 | Remove `g_TagPoints` global |
-| Line 87 | Keep `g_TagsVisible` (UI toggle) |
-
-### 3.2 Update drawTagsOnSlice function
-| Location | Change |
-|----------|--------|
-| Line 475-476 | Change to check `vol.hasTags()` instead of `g_TagPoints[volumeIndex]` |
-| Line 510 | Change to iterate `vol.getTagPoints()` instead of `g_TagPoints[volumeIndex]` |
-| Parameter | Remove `volumeIndex` parameter - use volume from context |
-
-### 3.3 Remove tag loading code from main()
-| Location | Change |
-|----------|--------|
-| Lines 1485-1486 | Remove `g_TagPoints.resize()` |
-| Lines 1488-1509 | Remove tag loading loop |
-
-### 3.4 Update UI checkbox
-| Location | Change |
-|----------|--------|
-| Line 2410 | Change to check `g_Volumes[vi].hasTags()` |
-
----
-
-## Phase 4: Testing
-
-### 4.1 Verify existing tests pass
-- test_tag_load.cpp should continue to work
-
-### 4.2 Manual testing
-- Load volume with .tag file - verify tags display
-- Save tags to new file - verify file is created
-- Clear tags - verify no tags displayed
-
----
-
-## Summary of Changes
-
-| File | Changes |
-|------|---------|
-| TagWrapper.hpp | Add save(), setPoints(), setLabels() |
-| TagWrapper.cpp | Implement save and setter methods |
-| Volume.h | Add tags member and tag methods |
-| Volume.cpp | Implement tag methods |
-| main.cpp | Remove global tags, use Volume's tag methods |
-
----
-
-## Implementation Order
-
-1. **Phase 1** - Enhance TagWrapper (save functionality)
-2. **Phase 2** - Add tag members to Volume
-3. **Phase 3** - Refactor main.cpp
-4. **Phase 4** - Test and verify
+1. Load two volumes with different orientations - verify overlay aligns
+2. Load label volume - verify nearest neighbor is used
+3. Load intensity volume - verify linear interpolation is smoother
+4. Test UI override - verify interpolation changes
+5. Test config persistence - verify setting survives restart
