@@ -51,6 +51,8 @@ public:
     bool tagsVisible_ = true;
     bool cleanMode_ = false;
     bool syncCursors_ = false;
+    bool syncZoom_ = false;
+    bool syncPan_ = false;
     int lastSyncSource_ = 0;
     int lastSyncView_ = 0;
     float dpiScale_ = 1.0f;

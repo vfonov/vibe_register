@@ -24,6 +24,9 @@ struct GlobalConfig
     std::string defaultColourMap = "GrayScale";  // Default colour map for new volumes
     std::optional<int> windowWidth;              // Window width (nullopt = auto-size)
     std::optional<int> windowHeight;             // Window height (nullopt = auto-size)
+    bool syncCursors = false;
+    bool syncZoom = false;
+    bool syncPan = false;
 };
 
 /// Top-level config structure.

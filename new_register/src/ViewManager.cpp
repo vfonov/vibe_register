@@ -306,6 +306,44 @@ void ViewManager::syncCursors() {
     updateAllOverlayTextures();
 }
 
+void ViewManager::syncZoom(int sourceVolume, int viewIndex) {
+    if (!state_.syncZoom_ || state_.volumes_.size() < 2)
+        return;
+
+    float sourceZoom = state_.viewStates_[sourceVolume].zoom[viewIndex];
+
+    for (int i = 0; i < state_.volumeCount(); ++i) {
+        if (i == sourceVolume)
+            continue;
+        state_.viewStates_[i].zoom[viewIndex] = sourceZoom;
+    }
+
+    for (int i = 0; i < state_.volumeCount(); ++i) {
+        updateSliceTexture(i, viewIndex);
+    }
+    updateAllOverlayTextures();
+}
+
+void ViewManager::syncPan(int sourceVolume, int viewIndex) {
+    if (!state_.syncPan_ || state_.volumes_.size() < 2)
+        return;
+
+    float sourcePanU = state_.viewStates_[sourceVolume].panU[viewIndex];
+    float sourcePanV = state_.viewStates_[sourceVolume].panV[viewIndex];
+
+    for (int i = 0; i < state_.volumeCount(); ++i) {
+        if (i == sourceVolume)
+            continue;
+        state_.viewStates_[i].panU[viewIndex] = sourcePanU;
+        state_.viewStates_[i].panV[viewIndex] = sourcePanV;
+    }
+
+    for (int i = 0; i < state_.volumeCount(); ++i) {
+        updateSliceTexture(i, viewIndex);
+    }
+    updateAllOverlayTextures();
+}
+
 void ViewManager::resetViews() {
     for (int vi = 0; vi < state_.volumeCount(); ++vi) {
         const Volume& vol = state_.volumes_[vi];

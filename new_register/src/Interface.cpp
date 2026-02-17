@@ -173,6 +173,9 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
                 glfwGetWindowSize(window, &winW, &winH);
                 cfg.global.windowWidth = winW;
                 cfg.global.windowHeight = winH;
+                cfg.global.syncCursors = state_.syncCursors_;
+                cfg.global.syncZoom = state_.syncZoom_;
+                cfg.global.syncPan = state_.syncPan_;
 
                 for (int vi = 0; vi < numVolumes; ++vi) {
                     const VolumeViewState& st = state_.viewStates_[vi];
@@ -193,7 +196,7 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
             }
         }
 
-        if (ImGui::Checkbox("Sync All", &state_.syncCursors_)) {
+        if (ImGui::Checkbox("Sync Cursor", &state_.syncCursors_)) {
             if (state_.syncCursors_ && numVolumes > 1) {
                 state_.lastSyncSource_ = 0;
                 state_.lastSyncView_ = 0;
@@ -215,6 +218,26 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
             }
         }
 
+        if (ImGui::Checkbox("Sync Zoom", &state_.syncZoom_)) {
+            if (state_.syncZoom_ && numVolumes > 1) {
+                state_.lastSyncSource_ = 0;
+                state_.lastSyncView_ = 0;
+                for (int v = 0; v < 3; ++v) {
+                    viewManager_.syncZoom(0, v);
+                }
+            }
+        }
+
+        if (ImGui::Checkbox("Sync Pan", &state_.syncPan_)) {
+            if (state_.syncPan_ && numVolumes > 1) {
+                state_.lastSyncSource_ = 0;
+                state_.lastSyncView_ = 0;
+                for (int v = 0; v < 3; ++v) {
+                    viewManager_.syncPan(0, v);
+                }
+            }
+        }
+
         if (ImGui::Button("Save Local", ImVec2(btnWidth, 0))) {
             try {
                 AppConfig cfg;
@@ -223,6 +246,9 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
                 glfwGetWindowSize(window, &winW, &winH);
                 cfg.global.windowWidth = winW;
                 cfg.global.windowHeight = winH;
+                cfg.global.syncCursors = state_.syncCursors_;
+                cfg.global.syncZoom = state_.syncZoom_;
+                cfg.global.syncPan = state_.syncPan_;
 
                 for (int vi = 0; vi < numVolumes; ++vi) {
                     const VolumeViewState& st = state_.viewStates_[vi];
@@ -757,6 +783,11 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                     float uvSpanV = uv1.y - uv0.y;
                     state.panU[viewIndex] -= delta.x / imgSize.x * uvSpanU;
                     state.panV[viewIndex] -= delta.y / imgSize.y * uvSpanV;
+                    if (state_.syncPan_) {
+                        state_.lastSyncSource_ = vi;
+                        state_.lastSyncView_ = viewIndex;
+                        viewManager_.syncPan(vi, viewIndex);
+                    }
                 } else if (imageHovered && !shiftHeld &&
                            ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
                     ImVec2 mouse = ImGui::GetMousePos();
@@ -806,6 +837,11 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                         double factor = 1.0 - dragY * 0.005;
                         state.zoom[viewIndex] = std::clamp(
                             state.zoom[viewIndex] * factor, 0.1, 50.0);
+                        if (state_.syncZoom_) {
+                            state_.lastSyncSource_ = vi;
+                            state_.lastSyncView_ = viewIndex;
+                            viewManager_.syncZoom(vi, viewIndex);
+                        }
                     }
                 } else if (imageHovered && !shiftHeld &&
                            ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f)) {
@@ -862,6 +898,15 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                         state.panV[viewIndex] = cursorV +
                             (state.panV[viewIndex] - cursorV) * (zOld / newZoom);
                         state.zoom[viewIndex] = newZoom;
+
+                        if (state_.syncZoom_ || state_.syncPan_) {
+                            state_.lastSyncSource_ = vi;
+                            state_.lastSyncView_ = viewIndex;
+                            if (state_.syncZoom_)
+                                viewManager_.syncZoom(vi, viewIndex);
+                            if (state_.syncPan_)
+                                viewManager_.syncPan(vi, viewIndex);
+                        }
                     }
                 }
             }

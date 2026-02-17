@@ -60,6 +60,10 @@ void AppState::initializeViewStates() {
 }
 
 void AppState::applyConfig(const AppConfig& cfg, int defaultWindowWidth, int defaultWindowHeight) {
+    syncCursors_ = cfg.global.syncCursors;
+    syncZoom_ = cfg.global.syncZoom;
+    syncPan_ = cfg.global.syncPan;
+
     for (int vi = 0; vi < static_cast<int>(volumes_.size()); ++vi) {
         VolumeViewState& state = viewStates_[vi];
         const Volume& vol = volumes_[vi];

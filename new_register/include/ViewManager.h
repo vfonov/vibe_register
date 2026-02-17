@@ -14,6 +14,8 @@ public:
     void updateOverlayTexture(int viewIndex);
     void updateAllOverlayTextures();
     void syncCursors();
+    void syncZoom(int sourceVolume, int viewIndex);
+    void syncPan(int sourceVolume, int viewIndex);
     void resetViews();
 
     static void sliceIndicesToWorld(const Volume& vol, const int indices[3], double world[3]);
