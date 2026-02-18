@@ -63,6 +63,7 @@ void AppState::applyConfig(const AppConfig& cfg, int defaultWindowWidth, int def
     syncCursors_ = cfg.global.syncCursors;
     syncZoom_ = cfg.global.syncZoom;
     syncPan_ = cfg.global.syncPan;
+    tagListWindowVisible_ = cfg.global.tagListVisible;
 
     for (int vi = 0; vi < static_cast<int>(volumes_.size()); ++vi) {
         VolumeViewState& state = viewStates_[vi];

@@ -96,6 +96,11 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
         if (ImGui::IsKeyPressed(ImGuiKey_P)) {
             saveScreenshot(backend);
         }
+        if (ImGui::IsKeyPressed(ImGuiKey_T)) {
+            if (state_.volumeCount() > 0) {
+                state_.tagListWindowVisible_ = !state_.tagListWindowVisible_;
+            }
+        }
     }
 
     for (int vi = 0; vi < numVolumes; ++vi) {
@@ -180,6 +185,7 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
                 cfg.global.syncCursors = state_.syncCursors_;
                 cfg.global.syncZoom = state_.syncZoom_;
                 cfg.global.syncPan = state_.syncPan_;
+                cfg.global.tagListVisible = state_.tagListWindowVisible_;
 
                 for (int vi = 0; vi < numVolumes; ++vi) {
                     const VolumeViewState& st = state_.viewStates_[vi];
@@ -241,6 +247,11 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
                 }
             }
         }
+
+        if (ImGui::Checkbox("Tag List##taglist_tl", &state_.tagListWindowVisible_)) {
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(T)");
 
         if (ImGui::Button("Save Local", ImVec2(btnWidth, 0))) {
             try {
@@ -646,8 +657,6 @@ void Interface::renderOverlayPanel() {
                 }
                 if (anyVolumeHasTags && ImGui::Checkbox("Show Tags", &state_.tagsVisible_)) {
                 }
-                if (state_.anyVolumeHasTags() && ImGui::Checkbox("Tag List", &state_.tagListWindowVisible_)) {
-                }
 
                 if (ImGui::Button("Reset View")) {
                     for (int v = 0; v < 3; ++v) {
@@ -718,31 +727,13 @@ void Interface::renderTagListWindow() {
                     ImGui::Text("%d", ti);
 
                     ImGui::TableSetColumnIndex(1);
-                    std::string label;
-                    for (int vi = 0; vi < numVolumes; ++vi) {
+                    std::string labelText;
+                    for (int vi = 0; vi < numVolumes && labelText.empty(); ++vi) {
                         if (ti < static_cast<int>(state_.volumes_[vi].getTagLabels().size())) {
-                            label = state_.volumes_[vi].getTagLabels()[ti];
-                            break;
+                            labelText = state_.volumes_[vi].getTagLabels()[ti];
                         }
                     }
-                    char labelBuf[64];
-                    std::snprintf(labelBuf, sizeof(labelBuf), "##label_%d", ti);
-                    ImGui::SetNextItemWidth(90.0f);
-                    if (ImGui::InputText(labelBuf, labelBuf, sizeof(labelBuf))) {
-                        for (int vi = 0; vi < numVolumes; ++vi) {
-                            if (ti < static_cast<int>(state_.volumes_[vi].getTagCount())) {
-                                state_.volumes_[vi].tags.updateTag(ti, 
-                                    state_.volumes_[vi].getTagPoints()[ti], labelBuf);
-                                std::filesystem::path tagPath(state_.volumePaths_[vi]);
-                                tagPath.replace_extension(".tag");
-                                try {
-                                    state_.volumes_[vi].saveTags(tagPath.string());
-                                } catch (const std::exception& e) {
-                                    std::cerr << "Failed to save tags: " << e.what() << "\n";
-                                }
-                            }
-                        }
-                    }
+                    ImGui::Text("%s", labelText.empty() ? "-" : labelText.c_str());
 
                     for (int vi = 0; vi < numVolumes; ++vi) {
                         ImGui::TableSetColumnIndex(2 + vi);
@@ -756,7 +747,9 @@ void Interface::renderTagListWindow() {
 
                     ImGui::TableSetColumnIndex(0);
                     ImGuiSelectableFlags selectableFlags = ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap;
-                    if (ImGui::Selectable("##select_tag", state_.selectedTagIndex_ == ti, selectableFlags)) {
+                    char selectableId[64];
+                    std::snprintf(selectableId, sizeof(selectableId), "##select_tag_%d", ti);
+                    if (ImGui::Selectable(selectableId, state_.selectedTagIndex_ == ti, selectableFlags)) {
                         state_.setSelectedTag(ti);
                         for (int v = 0; v < numVolumes; ++v) {
                             for (int vv = 0; vv < 3; ++vv) {
@@ -1019,54 +1012,26 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                     }
 
                     if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-                        ImVec2 mouse = ImGui::GetMousePos();
-                        float normU = uv0.x + (mouse.x - imgPos.x) / imgSize.x * (uv1.x - uv0.x);
-                        float normV = uv0.y + (mouse.y - imgPos.y) / imgSize.y * (uv1.y - uv0.y);
-                        normU = std::clamp(normU, 0.0f, 1.0f);
-                        normV = std::clamp(normV, 0.0f, 1.0f);
-                        normV = 1.0f - normV;
-
-                        glm::ivec3 clickVoxel = state.sliceIndices;
-
-                        if (viewIndex == 0) {
-                            int voxX = static_cast<int>(normU * (vol.dimensions.x - 1) + 0.5f);
-                            int voxY = static_cast<int>(normV * (vol.dimensions.y - 1) + 0.5f);
-                            clickVoxel.x = std::clamp(voxX, 0, vol.dimensions.x - 1);
-                            clickVoxel.y = std::clamp(voxY, 0, vol.dimensions.y - 1);
-                        } else if (viewIndex == 1) {
-                            int voxY = static_cast<int>(normU * (vol.dimensions.y - 1) + 0.5f);
-                            int voxZ = static_cast<int>(normV * (vol.dimensions.z - 1) + 0.5f);
-                            clickVoxel.y = std::clamp(voxY, 0, vol.dimensions.y - 1);
-                            clickVoxel.z = std::clamp(voxZ, 0, vol.dimensions.z - 1);
-                        } else {
-                            int voxX = static_cast<int>(normU * (vol.dimensions.x - 1) + 0.5f);
-                            int voxZ = static_cast<int>(normV * (vol.dimensions.z - 1) + 0.5f);
-                            clickVoxel.x = std::clamp(voxX, 0, vol.dimensions.x - 1);
-                            clickVoxel.z = std::clamp(voxZ, 0, vol.dimensions.z - 1);
-                        }
-
-                        glm::dvec3 worldPos;
-                        vol.transformVoxelToWorld(clickVoxel, worldPos);
-
                         int tagCount = state_.volumes_[0].getTagCount();
                         std::string newLabel = std::format("Point{}", tagCount + 1);
 
                         for (int v = 0; v < state_.volumeCount(); ++v) {
-                            Volume& vol = state_.volumes_[v];
+                            Volume& curVol = state_.volumes_[v];
+                            glm::ivec3 volCursorPos = state_.viewStates_[v].sliceIndices;
                             glm::dvec3 volWorldPos;
-                            vol.transformVoxelToWorld(clickVoxel, volWorldPos);
+                            curVol.transformVoxelToWorld(volCursorPos, volWorldPos);
 
-                            std::vector<glm::dvec3> newPoints = vol.getTagPoints();
-                            std::vector<std::string> newLabels = vol.getTagLabels();
+                            std::vector<glm::dvec3> newPoints = curVol.getTagPoints();
+                            std::vector<std::string> newLabels = curVol.getTagLabels();
                             newPoints.push_back(volWorldPos);
                             newLabels.push_back(newLabel);
-                            vol.tags.setPoints(newPoints);
-                            vol.tags.setLabels(newLabels);
+                            curVol.tags.setPoints(newPoints);
+                            curVol.tags.setLabels(newLabels);
 
                             std::filesystem::path tagPath(state_.volumePaths_[v]);
                             tagPath.replace_extension(".tag");
                             try {
-                                vol.saveTags(tagPath.string());
+                                curVol.saveTags(tagPath.string());
                             } catch (const std::exception& e) {
                                 std::cerr << "Failed to save tags: " << e.what() << "\n";
                             }

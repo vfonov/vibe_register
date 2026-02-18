@@ -63,6 +63,7 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] Two-tier config: global (`~/.config/new_register/config.json`) and local (`./config.json`)
 - [x] Per-volume paths, colour maps, value ranges, slice indices, zoom, pan
 - [x] Tools panel with Save Global, Save Local, Reset All Views, Quit buttons
+- [x] Tag list visibility saved/loaded in config
 
 ### Command Line Options
 - [x] `-c`, `--config <path>` — load config from a specific path
@@ -87,6 +88,7 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] `Q` — Quit
 - [x] `C` — Toggle clean mode (hides Tools panel, volume controls, overlay controls; keeps only slice views with crosshairs and window titles)
 - [x] `P` — Screenshot (save window as PNG to current directory)
+- [x] `T` — Toggle tag list window
 
 ### Clean Mode
 - [x] Toggle via `C` key or "Clean Mode" button in Tools panel
@@ -129,9 +131,12 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] Load `.tag` files via TagWrapper class
 - [x] Tag list window with table showing tag index, label, and coordinates per volume
 - [x] Tag selection updates cursor position in all volumes
-- [x] Right-click on slice to create new tag at cursor position (all volumes)
+- [x] Right-click on slice to create new tag at each volume's current crosshair cursor position
 - [x] Delete selected tag button
-- [x] Edit tag labels in table
+- [x] Tag list toggle via `T` keyboard shortcut
+- [x] Tag list checkbox in Tools panel with `(T)` hint (state saved in config)
+- [x] Fixed ImGui ID conflict in tag table selectable rows
+- [ ] Edit tag labels in table
 - [ ] Tag markers displayed on slices (inside/outside colours, active/inactive colours)
 - [ ] Up/Down arrow keys to navigate between tags
 - [ ] Per-tag RMS error display
@@ -212,6 +217,7 @@ new_register/
 │   ├── ColourMap.h
 │   ├── GraphicsBackend.h
 │   ├── Interface.h
+│   ├── TagWrapper.hpp
 │   ├── Volume.h
 │   ├── ViewManager.h
 │   ├── VulkanBackend.h
@@ -225,6 +231,7 @@ new_register/
 │   ├── ColourMap.cpp
 │   ├── VulkanHelpers.cpp
 │   ├── Volume.cpp
+│   ├── TagWrapper.cpp
 │   └── AppConfig.cpp
 └── tests/
     ├── test_real_data.cpp

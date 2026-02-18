@@ -27,6 +27,7 @@ struct GlobalConfig
     bool syncCursors = false;
     bool syncZoom = false;
     bool syncPan = false;
+    bool tagListVisible = false;
 };
 
 /// Top-level config structure.
