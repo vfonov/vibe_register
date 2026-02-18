@@ -31,9 +31,9 @@ struct glz::meta<QCColumnConfig>
 {
     using T = QCColumnConfig;
     static constexpr auto value = object(
-        "colourMap", &T::colourMap,
-        "valueMin",  &T::valueMin,
-        "valueMax",  &T::valueMax
+        "colour_map", &T::colourMap,
+        "value_min",  &T::valueMin,
+        "value_max",  &T::valueMax
     );
 };
 
@@ -45,6 +45,10 @@ struct glz::meta<GlobalConfig>
         "default_colour_map", &T::defaultColourMap,
         "window_width",       &T::windowWidth,
         "window_height",      &T::windowHeight,
+        "sync_cursors",       &T::syncCursors,
+        "sync_zoom",          &T::syncZoom,
+        "sync_pan",           &T::syncPan,
+        "tag_list_visible",   &T::tagListVisible,
         "show_overlay",       &T::showOverlay
     );
 };
@@ -139,6 +143,16 @@ AppConfig mergeConfigs(const AppConfig& global, const AppConfig& local)
         merged.global.windowWidth = local.global.windowWidth;
     if (local.global.windowHeight.has_value())
         merged.global.windowHeight = local.global.windowHeight;
+    if (local.global.syncCursors != defaultGlobal.syncCursors)
+        merged.global.syncCursors = local.global.syncCursors;
+    if (local.global.syncZoom != defaultGlobal.syncZoom)
+        merged.global.syncZoom = local.global.syncZoom;
+    if (local.global.syncPan != defaultGlobal.syncPan)
+        merged.global.syncPan = local.global.syncPan;
+    if (local.global.tagListVisible != defaultGlobal.tagListVisible)
+        merged.global.tagListVisible = local.global.tagListVisible;
+    if (local.global.showOverlay != defaultGlobal.showOverlay)
+        merged.global.showOverlay = local.global.showOverlay;
 
     // Merge volumes: local volumes override global ones matched by path,
     // unmatched local volumes are appended.
@@ -156,6 +170,18 @@ AppConfig mergeConfigs(const AppConfig& global, const AppConfig& local)
         }
         if (!found)
             merged.volumes.push_back(lv);
+    }
+
+    // Merge QC column configs: local overrides global
+    if (local.qcColumns.has_value())
+    {
+        if (!merged.qcColumns.has_value())
+            merged.qcColumns = local.qcColumns;
+        else
+        {
+            for (const auto& [name, cfg] : *local.qcColumns)
+                (*merged.qcColumns)[name] = cfg;
+        }
     }
 
     return merged;
