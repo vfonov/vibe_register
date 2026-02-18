@@ -1,0 +1,4 @@
+ID,T1w,mask
+icbm152,test_data/mni_icbm152_t1_tal_nlin_sym_09c.mnc,test_data/mni_icbm152_t1_tal_nlin_sym_09c_mask.mnc
+icbm152_r,test_data/mni_icbm152_t1_tal_nlin_sym_09c_r.mnc,test_data/mni_icbm152_t1_tal_nlin_sym_09c_mask.mnc
+icbm152_thick,test_data/mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc,test_data/mni_icbm152_t1_tal_nlin_sym_09c_mask.mnc
