@@ -19,6 +19,8 @@ public:
     /// VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL).
     bool uploaded = false;
 
+    ~VulkanTexture();
+
     void cleanup(VkDevice device);
 };
 

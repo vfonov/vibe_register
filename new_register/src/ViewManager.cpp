@@ -395,6 +395,29 @@ void ViewManager::resetViews() {
     }
 }
 
+void ViewManager::initializeAllTextures() {
+    for (int vi = 0; vi < state_.volumeCount(); ++vi) {
+        if (state_.volumes_[vi].data.empty())
+            continue;
+        updateSliceTexture(vi, 0);
+        updateSliceTexture(vi, 1);
+        updateSliceTexture(vi, 2);
+    }
+
+    if (state_.hasOverlay())
+        updateAllOverlayTextures();
+}
+
+void ViewManager::destroyAllTextures() {
+    for (auto& vs : state_.viewStates_) {
+        for (int i = 0; i < 3; ++i)
+            vs.sliceTextures[i].reset();
+    }
+
+    for (int i = 0; i < 3; ++i)
+        state_.overlay_.textures[i].reset();
+}
+
 void ViewManager::sliceIndicesToWorld(const Volume& vol, const int indices[3], double world[3]) {
     glm::dvec4 voxel(indices[0], indices[1], indices[2], 1.0);
     glm::dvec4 worldH = vol.voxelToWorld * voxel;

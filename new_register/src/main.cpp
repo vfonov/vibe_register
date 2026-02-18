@@ -263,16 +263,7 @@ int main(int argc, char** argv)
         {
             state.initializeViewStates();
             state.applyConfig(mergedCfg, initW, initH);
-
-            for (int vi = 0; vi < state.volumeCount(); ++vi)
-            {
-                viewManager.updateSliceTexture(vi, 0);
-                viewManager.updateSliceTexture(vi, 1);
-                viewManager.updateSliceTexture(vi, 2);
-            }
-
-            if (state.hasOverlay())
-                viewManager.updateAllOverlayTextures();
+            viewManager.initializeAllTextures();
         }
 
         while (!glfwWindowShouldClose(window))
@@ -299,19 +290,7 @@ int main(int argc, char** argv)
         }
 
         backend->waitIdle();
-
-        for (int i = 0; i < 3; ++i)
-        {
-            state.overlay_.textures[i].reset();
-        }
-
-        for (auto& st : state.viewStates_)
-        {
-            for (int i = 0; i < 3; ++i)
-            {
-                st.sliceTextures[i].reset();
-            }
-        }
+        viewManager.destroyAllTextures();
 
         backend->shutdownImGui();
         backend->shutdown();

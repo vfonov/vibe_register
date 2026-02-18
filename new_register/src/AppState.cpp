@@ -144,3 +144,53 @@ void AppState::setSelectedTag(int index) {
         }
     }
 }
+
+void AppState::clearAllVolumes() {
+    // Reset overlay textures (destructor handles Vulkan cleanup)
+    for (int i = 0; i < 3; ++i)
+        overlay_.textures[i].reset();
+
+    // Reset per-volume slice textures
+    for (auto& vs : viewStates_)
+    {
+        for (int i = 0; i < 3; ++i)
+            vs.sliceTextures[i].reset();
+    }
+
+    volumes_.clear();
+    volumePaths_.clear();
+    volumeNames_.clear();
+    viewStates_.clear();
+    selectedTagIndex_ = -1;
+}
+
+void AppState::loadVolumeSet(const std::vector<std::string>& paths) {
+    clearAllVolumes();
+
+    for (const auto& path : paths)
+    {
+        if (path.empty())
+        {
+            // Placeholder for missing/empty path
+            volumes_.emplace_back();
+            volumePaths_.push_back("");
+            volumeNames_.push_back("(missing)");
+            continue;
+        }
+
+        try
+        {
+            loadVolume(path);
+        }
+        catch (const std::exception& e)
+        {
+            std::cerr << "Failed to load volume: " << e.what() << "\n";
+            // Push placeholder on failure
+            volumes_.emplace_back();
+            volumePaths_.push_back(path);
+            volumeNames_.push_back("(error)");
+        }
+    }
+
+    initializeViewStates();
+}

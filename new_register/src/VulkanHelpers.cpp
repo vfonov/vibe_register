@@ -319,3 +319,11 @@ void VulkanTexture::cleanup(VkDevice device) {
     if (image)      { vkDestroyImage(device, image, nullptr); image = VK_NULL_HANDLE; }
     if (image_memory) { vkFreeMemory(device, image_memory, nullptr); image_memory = VK_NULL_HANDLE; }
 }
+
+VulkanTexture::~VulkanTexture()
+{
+    if (image != VK_NULL_HANDLE || descriptor_set != VK_NULL_HANDLE)
+    {
+        cleanup(g_Device);
+    }
+}

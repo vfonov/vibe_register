@@ -77,4 +77,14 @@ public:
     void loadTagsForVolume(int index);
     void initializeViewStates();
     void applyConfig(const AppConfig& cfg, int defaultWindowWidth, int defaultWindowHeight);
+
+    /// Clear all volumes, view states, and overlay textures.
+    /// Vulkan resources are released via ~VulkanTexture().
+    void clearAllVolumes();
+
+    /// Replace all volumes with those loaded from the given file paths.
+    /// Empty paths produce placeholder volumes with name "(missing)".
+    /// Failed loads produce placeholder volumes with name "(error)".
+    /// Caller must call ViewManager::initializeAllTextures() afterward.
+    void loadVolumeSet(const std::vector<std::string>& paths);
 };
