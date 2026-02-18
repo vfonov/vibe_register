@@ -197,3 +197,9 @@ add_executable(test_matrix_debug tests/test_matrix_debug.cpp src/Volume.cpp src/
 target_include_directories(test_matrix_debug PRIVATE include ${glm_SOURCE_DIR} ${minc2-simple_SOURCE_DIR}/src)
 target_link_libraries(test_matrix_debug PRIVATE minc2-simple-static minc2 glm)
 add_test(NAME MatrixDebugTest COMMAND test_matrix_debug)
+
+# QC CSV round-trip test (lightweight: no Vulkan, no MINC, no ImGui)
+add_executable(test_qc_csv tests/test_qc_csv.cpp src/QCState.cpp src/AppConfig.cpp)
+target_include_directories(test_qc_csv PRIVATE include)
+target_link_libraries(test_qc_csv PRIVATE glaze::glaze)
+add_test(NAME QCCsvTest COMMAND test_qc_csv)

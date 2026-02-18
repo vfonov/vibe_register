@@ -1,9 +1,18 @@
 #pragma once
 
 #include <array>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
+
+/// Per-column display config for QC mode (from JSON config, keyed by column name).
+struct QCColumnConfig
+{
+    std::string colourMap = "GrayScale";
+    std::optional<double> valueMin;
+    std::optional<double> valueMax;
+};
 
 /// Per-volume view state that gets persisted.
 struct VolumeConfig
@@ -28,6 +37,7 @@ struct GlobalConfig
     bool syncZoom = false;
     bool syncPan = false;
     bool tagListVisible = false;
+    bool showOverlay = true;
 };
 
 /// Top-level config structure.
@@ -35,6 +45,7 @@ struct AppConfig
 {
     GlobalConfig global;
     std::vector<VolumeConfig> volumes;
+    std::optional<std::map<std::string, QCColumnConfig>> qcColumns;
 };
 
 /// Return the global config file path: $HOME/.config/new_register/config.json

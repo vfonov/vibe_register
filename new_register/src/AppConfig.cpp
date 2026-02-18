@@ -27,13 +27,25 @@ struct glz::meta<VolumeConfig>
 };
 
 template <>
+struct glz::meta<QCColumnConfig>
+{
+    using T = QCColumnConfig;
+    static constexpr auto value = object(
+        "colourMap", &T::colourMap,
+        "valueMin",  &T::valueMin,
+        "valueMax",  &T::valueMax
+    );
+};
+
+template <>
 struct glz::meta<GlobalConfig>
 {
     using T = GlobalConfig;
     static constexpr auto value = object(
         "default_colour_map", &T::defaultColourMap,
         "window_width",       &T::windowWidth,
-        "window_height",      &T::windowHeight
+        "window_height",      &T::windowHeight,
+        "show_overlay",       &T::showOverlay
     );
 };
 
@@ -42,8 +54,9 @@ struct glz::meta<AppConfig>
 {
     using T = AppConfig;
     static constexpr auto value = object(
-        "global",  &T::global,
-        "volumes", &T::volumes
+        "global",     &T::global,
+        "volumes",    &T::volumes,
+        "qc_columns", &T::qcColumns
     );
 };
 
