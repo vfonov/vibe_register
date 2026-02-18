@@ -35,6 +35,8 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] `SyncCursors()` uses simple voxel→world→voxel pipeline (no centers/steps heuristics)
 - [x] World (0,0,0) maps to correct voxel for both test volumes
 - [x] Fixed X↔Y swap bug in crosshairs, mouse clicks, sync, overlay, and info display
+- [x] **Separate sync controls**: Sync Cursor, Sync Zoom, Sync Pan checkboxes
+- [x] **Symmetric sync**: zoom/pan sync now works both ways (volume→overlay and overlay→volume)
 
 ### Colour Maps
 - [x] 21 colour map types (Gray, HotMetal, Spectral, Red, Green, Blue, negative variants, Contour, etc.)
@@ -91,6 +93,11 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] Hides: Tools panel, per-volume controls (dimensions, colour maps, range inputs), overlay blend controls, slice navigation sliders (+/- buttons and slider bars)
 - [x] Keeps: Volume window title bars (filenames), 3-plane slice views, crosshairs, overlay views
 
+### Compact UI
+- [x] Removed volume dimensions and voxel size display
+- [x] Combined cursor position into single line: `V: i,j,k  W: x,y,z  I: value`
+- [x] Removed "Slice" label from slice sliders
+
 ### Screenshot
 - [x] Capture entire window to PNG via `P` key or "Screenshot" button in Tools panel
 - [x] Auto-incrementing filenames (`screenshot000001.png`, `screenshot000002.png`, ...) — never overwrites
@@ -119,21 +126,20 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 ## Not Yet Implemented
 
 ### Tag Points System
-- [ ] Create, delete, navigate tag points
-- [ ] Per-tag: position per volume (world coords), name, activity (On/Ignore)
+- [x] Load `.tag` files via TagWrapper class
+- [x] Tag list window with table showing tag index, label, and coordinates per volume
+- [x] Tag selection updates cursor position in all volumes
+- [x] Right-click on slice to create new tag at cursor position (all volumes)
+- [x] Delete selected tag button
+- [x] Edit tag labels in table
 - [ ] Tag markers displayed on slices (inside/outside colours, active/inactive colours)
-- [ ] Tag visibility toggle
-- [ ] Scrollable tag list with First/Prev/Next/Last navigation
-- [ ] Right-click to add tag at cursor position
 - [ ] Up/Down arrow keys to navigate between tags
-- [ ] Tag positions editable via text fields
-- [ ] Click tag to jump cursor to that position
 - [ ] Per-tag RMS error display
 - [ ] Average RMS error display
 
 ### Tag File I/O
 - [x] Load `.tag` files (implemented via TagWrapper class with exception handling)
-- [ ] Save `.tag` files
+- [x] Save `.tag` files
 - [ ] Load tags from command line
 
 ### Transform Computation

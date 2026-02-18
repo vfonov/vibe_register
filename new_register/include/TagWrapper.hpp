@@ -59,6 +59,18 @@ public:
      */
     void setLabels(const std::vector<std::string>& labels);
 
+    /** Remove a tag at given index.
+     * @param index Index of tag to remove.
+     */
+    void removeTag(int index);
+
+    /** Update tag position and label.
+     * @param index Index of tag to update.
+     * @param newPos New world coordinates.
+     * @param label New label (empty string to keep existing).
+     */
+    void updateTag(int index, const glm::dvec3& newPos, const std::string& label);
+
     /** Check if any tags are loaded.
      * @return true if tags are not empty.
      */

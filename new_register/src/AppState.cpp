@@ -109,3 +109,37 @@ void AppState::applyConfig(const AppConfig& cfg, int defaultWindowWidth, int def
         }
     }
 }
+
+int AppState::getMaxTagCount() const {
+    int maxCount = 0;
+    for (const auto& vol : volumes_) {
+        if (vol.getTagCount() > maxCount)
+            maxCount = vol.getTagCount();
+    }
+    return maxCount;
+}
+
+bool AppState::anyVolumeHasTags() const {
+    for (const auto& vol : volumes_) {
+        if (vol.hasTags())
+            return true;
+    }
+    return false;
+}
+
+void AppState::setSelectedTag(int index) {
+    selectedTagIndex_ = index;
+    if (index < 0)
+        return;
+
+    for (int vi = 0; vi < static_cast<int>(volumes_.size()); ++vi) {
+        if (index < volumes_[vi].getTagCount()) {
+            glm::dvec3 worldPos = volumes_[vi].getTagPoints()[index];
+            glm::ivec3 voxel;
+            volumes_[vi].transformWorldToVoxel(worldPos, voxel);
+            viewStates_[vi].sliceIndices.x = std::clamp(voxel.x, 0, volumes_[vi].dimensions.x - 1);
+            viewStates_[vi].sliceIndices.y = std::clamp(voxel.y, 0, volumes_[vi].dimensions.y - 1);
+            viewStates_[vi].sliceIndices.z = std::clamp(voxel.z, 0, volumes_[vi].dimensions.z - 1);
+        }
+    }
+}

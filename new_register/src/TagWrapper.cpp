@@ -146,3 +146,19 @@ void TagWrapper::setPoints(const std::vector<glm::dvec3>& points) {
 void TagWrapper::setLabels(const std::vector<std::string>& labels) {
     labels_ = labels;
 }
+
+void TagWrapper::removeTag(int index) {
+    if (index < 0 || index >= static_cast<int>(points_.size()))
+        return;
+    points_.erase(points_.begin() + index);
+    if (index < static_cast<int>(labels_.size()))
+        labels_.erase(labels_.begin() + index);
+}
+
+void TagWrapper::updateTag(int index, const glm::dvec3& newPos, const std::string& label) {
+    if (index < 0 || index >= static_cast<int>(points_.size()))
+        return;
+    points_[index] = newPos;
+    if (!label.empty() && index < static_cast<int>(labels_.size()))
+        labels_[index] = label;
+}

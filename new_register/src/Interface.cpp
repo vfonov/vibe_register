@@ -106,6 +106,10 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
         renderOverlayPanel();
     }
 
+    if (state_.tagListWindowVisible_ && state_.volumeCount() > 0) {
+        renderTagListWindow();
+    }
+
     if (state_.syncCursors_)
         viewManager_.syncCursors();
 }
@@ -642,6 +646,8 @@ void Interface::renderOverlayPanel() {
                 }
                 if (anyVolumeHasTags && ImGui::Checkbox("Show Tags", &state_.tagsVisible_)) {
                 }
+                if (state_.anyVolumeHasTags() && ImGui::Checkbox("Tag List", &state_.tagListWindowVisible_)) {
+                }
 
                 if (ImGui::Button("Reset View")) {
                     for (int v = 0; v < 3; ++v) {
@@ -652,6 +658,118 @@ void Interface::renderOverlayPanel() {
                 }
             }
             ImGui::EndChild();
+        }
+    }
+    ImGui::End();
+}
+
+void Interface::renderTagListWindow() {
+    ImGui::Begin("Tags", &state_.tagListWindowVisible_);
+    {
+        int numVolumes = state_.volumeCount();
+        if (numVolumes == 0 || static_cast<int>(state_.volumeNames_.size()) < numVolumes) {
+            ImGui::Text("No volumes loaded");
+            ImGui::End();
+            return;
+        }
+
+        int maxTags = state_.getMaxTagCount();
+
+        if (maxTags == 0) {
+            ImGui::Text("No tags loaded");
+        } else {
+            float btnWidth = 120.0f * state_.dpiScale_;
+            if (ImGui::Button("Delete Selected", ImVec2(btnWidth, 0))) {
+                if (state_.selectedTagIndex_ >= 0 && state_.selectedTagIndex_ < maxTags) {
+                    for (int vi = 0; vi < numVolumes; ++vi) {
+                        if (state_.selectedTagIndex_ < state_.volumes_[vi].getTagCount()) {
+                            state_.volumes_[vi].tags.removeTag(state_.selectedTagIndex_);
+                            std::filesystem::path tagPath(state_.volumePaths_[vi]);
+                            tagPath.replace_extension(".tag");
+                            try {
+                                state_.volumes_[vi].saveTags(tagPath.string());
+                            } catch (const std::exception& e) {
+                                std::cerr << "Failed to save tags: " << e.what() << "\n";
+                            }
+                        }
+                    }
+                    state_.selectedTagIndex_ = -1;
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Close", ImVec2(btnWidth, 0))) {
+                state_.tagListWindowVisible_ = false;
+            }
+
+            ImGui::Separator();
+
+            int tableFlags = ImGuiTableFlags_RowBg | ImGuiTableFlags_Sortable | ImGuiTableFlags_SizingFixedFit;
+            if (ImGui::BeginTable("##tags_table", 2 + numVolumes, tableFlags)) {
+                ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 30.0f);
+                ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                for (int vi = 0; vi < numVolumes; ++vi) {
+                    ImGui::TableSetupColumn(state_.volumeNames_[vi].c_str(), ImGuiTableColumnFlags_WidthFixed, 120.0f);
+                }
+                ImGui::TableHeadersRow();
+
+                for (int ti = 0; ti < maxTags; ++ti) {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::Text("%d", ti);
+
+                    ImGui::TableSetColumnIndex(1);
+                    std::string label;
+                    for (int vi = 0; vi < numVolumes; ++vi) {
+                        if (ti < static_cast<int>(state_.volumes_[vi].getTagLabels().size())) {
+                            label = state_.volumes_[vi].getTagLabels()[ti];
+                            break;
+                        }
+                    }
+                    char labelBuf[64];
+                    std::snprintf(labelBuf, sizeof(labelBuf), "##label_%d", ti);
+                    ImGui::SetNextItemWidth(90.0f);
+                    if (ImGui::InputText(labelBuf, labelBuf, sizeof(labelBuf))) {
+                        for (int vi = 0; vi < numVolumes; ++vi) {
+                            if (ti < static_cast<int>(state_.volumes_[vi].getTagCount())) {
+                                state_.volumes_[vi].tags.updateTag(ti, 
+                                    state_.volumes_[vi].getTagPoints()[ti], labelBuf);
+                                std::filesystem::path tagPath(state_.volumePaths_[vi]);
+                                tagPath.replace_extension(".tag");
+                                try {
+                                    state_.volumes_[vi].saveTags(tagPath.string());
+                                } catch (const std::exception& e) {
+                                    std::cerr << "Failed to save tags: " << e.what() << "\n";
+                                }
+                            }
+                        }
+                    }
+
+                    for (int vi = 0; vi < numVolumes; ++vi) {
+                        ImGui::TableSetColumnIndex(2 + vi);
+                        if (ti < state_.volumes_[vi].getTagCount()) {
+                            glm::dvec3 worldPos = state_.volumes_[vi].getTagPoints()[ti];
+                            ImGui::Text("%.1f,%.1f,%.1f", worldPos.x, worldPos.y, worldPos.z);
+                        } else {
+                            ImGui::Text("-");
+                        }
+                    }
+
+                    ImGui::TableSetColumnIndex(0);
+                    ImGuiSelectableFlags selectableFlags = ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap;
+                    if (ImGui::Selectable("##select_tag", state_.selectedTagIndex_ == ti, selectableFlags)) {
+                        state_.setSelectedTag(ti);
+                        for (int v = 0; v < numVolumes; ++v) {
+                            for (int vv = 0; vv < 3; ++vv) {
+                                viewManager_.updateSliceTexture(v, vv);
+                            }
+                        }
+                        if (state_.hasOverlay()) {
+                            viewManager_.updateAllOverlayTextures();
+                        }
+                    }
+                }
+                ImGui::EndTable();
+            }
         }
     }
     ImGui::End();
@@ -897,6 +1015,71 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                                 viewManager_.syncZoom(vi, viewIndex);
                             if (state_.syncPan_)
                                 viewManager_.syncPan(vi, viewIndex);
+                        }
+                    }
+
+                    if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+                        ImVec2 mouse = ImGui::GetMousePos();
+                        float normU = uv0.x + (mouse.x - imgPos.x) / imgSize.x * (uv1.x - uv0.x);
+                        float normV = uv0.y + (mouse.y - imgPos.y) / imgSize.y * (uv1.y - uv0.y);
+                        normU = std::clamp(normU, 0.0f, 1.0f);
+                        normV = std::clamp(normV, 0.0f, 1.0f);
+                        normV = 1.0f - normV;
+
+                        glm::ivec3 clickVoxel = state.sliceIndices;
+
+                        if (viewIndex == 0) {
+                            int voxX = static_cast<int>(normU * (vol.dimensions.x - 1) + 0.5f);
+                            int voxY = static_cast<int>(normV * (vol.dimensions.y - 1) + 0.5f);
+                            clickVoxel.x = std::clamp(voxX, 0, vol.dimensions.x - 1);
+                            clickVoxel.y = std::clamp(voxY, 0, vol.dimensions.y - 1);
+                        } else if (viewIndex == 1) {
+                            int voxY = static_cast<int>(normU * (vol.dimensions.y - 1) + 0.5f);
+                            int voxZ = static_cast<int>(normV * (vol.dimensions.z - 1) + 0.5f);
+                            clickVoxel.y = std::clamp(voxY, 0, vol.dimensions.y - 1);
+                            clickVoxel.z = std::clamp(voxZ, 0, vol.dimensions.z - 1);
+                        } else {
+                            int voxX = static_cast<int>(normU * (vol.dimensions.x - 1) + 0.5f);
+                            int voxZ = static_cast<int>(normV * (vol.dimensions.z - 1) + 0.5f);
+                            clickVoxel.x = std::clamp(voxX, 0, vol.dimensions.x - 1);
+                            clickVoxel.z = std::clamp(voxZ, 0, vol.dimensions.z - 1);
+                        }
+
+                        glm::dvec3 worldPos;
+                        vol.transformVoxelToWorld(clickVoxel, worldPos);
+
+                        int tagCount = state_.volumes_[0].getTagCount();
+                        std::string newLabel = std::format("Point{}", tagCount + 1);
+
+                        for (int v = 0; v < state_.volumeCount(); ++v) {
+                            Volume& vol = state_.volumes_[v];
+                            glm::dvec3 volWorldPos;
+                            vol.transformVoxelToWorld(clickVoxel, volWorldPos);
+
+                            std::vector<glm::dvec3> newPoints = vol.getTagPoints();
+                            std::vector<std::string> newLabels = vol.getTagLabels();
+                            newPoints.push_back(volWorldPos);
+                            newLabels.push_back(newLabel);
+                            vol.tags.setPoints(newPoints);
+                            vol.tags.setLabels(newLabels);
+
+                            std::filesystem::path tagPath(state_.volumePaths_[v]);
+                            tagPath.replace_extension(".tag");
+                            try {
+                                vol.saveTags(tagPath.string());
+                            } catch (const std::exception& e) {
+                                std::cerr << "Failed to save tags: " << e.what() << "\n";
+                            }
+                        }
+
+                        state_.selectedTagIndex_ = tagCount;
+                        for (int v = 0; v < state_.volumeCount(); ++v) {
+                            for (int vv = 0; vv < 3; ++vv) {
+                                viewManager_.updateSliceTexture(v, vv);
+                            }
+                        }
+                        if (state_.hasOverlay()) {
+                            viewManager_.updateAllOverlayTextures();
                         }
                     }
                 }

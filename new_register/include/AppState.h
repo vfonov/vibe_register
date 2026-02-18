@@ -59,8 +59,14 @@ public:
     std::string localConfigPath_;
     bool layoutInitialized_ = false;
 
+    int selectedTagIndex_ = -1;
+    bool tagListWindowVisible_ = false;
+
     int volumeCount() const { return static_cast<int>(volumes_.size()); }
     bool hasOverlay() const { return volumes_.size() > 1; }
+    int getMaxTagCount() const;
+    bool anyVolumeHasTags() const;
+    void setSelectedTag(int index);
 
     Volume& getVolume(int index) { return volumes_[index]; }
     const Volume& getVolume(int index) const { return volumes_[index]; }
