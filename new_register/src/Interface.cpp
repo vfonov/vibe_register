@@ -17,10 +17,11 @@
 
 #include "AppConfig.h"
 #include "ColourMap.h"
+#include "QCState.h"
 #include "ViewManager.h"
 
-Interface::Interface(AppState& state, ViewManager& viewManager)
-    : state_(state), viewManager_(viewManager) {}
+Interface::Interface(AppState& state, ViewManager& viewManager, QCState& qcState)
+    : state_(state), viewManager_(viewManager), qcState_(qcState) {}
 
 void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
     int numVolumes = state_.volumeCount();
@@ -28,8 +29,12 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
 
     if (columnNames_.empty() || static_cast<int>(columnNames_.size()) != numVolumes) {
         columnNames_.clear();
-        for (int vi = 0; vi < numVolumes; ++vi) {
-            columnNames_.push_back(state_.volumeNames_[vi]);
+        if (qcState_.active) {
+            for (int ci = 0; ci < qcState_.columnCount(); ++ci)
+                columnNames_.push_back(qcState_.columnNames[ci]);
+        } else {
+            for (int vi = 0; vi < numVolumes; ++vi)
+                columnNames_.push_back(state_.volumeNames_[vi]);
         }
     }
 
@@ -48,10 +53,27 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
         ImGui::DockBuilderSetNodeSize(dockspaceId, vpSize);
 
         ImGuiID toolsId, contentId;
-        ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, 0.08f, &toolsId, &contentId);
-        ImGui::DockBuilderDockWindow("Tools", toolsId);
 
-        int totalColumns = numVolumes + (hasOverlay ? 1 : 0);
+        if (qcState_.active) {
+            // QC mode: QC List on the far left, then Tools, then volume columns
+            ImGuiID qcListId, remainder;
+            ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, 0.12f,
+                &qcListId, &remainder);
+            ImGui::DockBuilderDockWindow("QC List", qcListId);
+
+            ImGui::DockBuilderSplitNode(remainder, ImGuiDir_Left, 0.06f,
+                &toolsId, &contentId);
+            ImGui::DockBuilderDockWindow("Tools", toolsId);
+        } else {
+            ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, 0.08f, &toolsId, &contentId);
+            ImGui::DockBuilderDockWindow("Tools", toolsId);
+        }
+
+        bool showOverlayPanel = hasOverlay;
+        if (qcState_.active)
+            showOverlayPanel = showOverlayPanel && qcState_.showOverlay;
+
+        int totalColumns = numVolumes + (showOverlayPanel ? 1 : 0);
         std::vector<ImGuiID> columnIds(totalColumns);
         if (totalColumns == 1) {
             columnIds[0] = contentId;
@@ -70,7 +92,7 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
         for (int vi = 0; vi < numVolumes; ++vi) {
             ImGui::DockBuilderDockWindow(columnNames_[vi].c_str(), columnIds[vi]);
         }
-        if (hasOverlay) {
+        if (showOverlayPanel) {
             ImGui::DockBuilderDockWindow("Overlay", columnIds[totalColumns - 1]);
         }
 
@@ -96,10 +118,16 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
         if (ImGui::IsKeyPressed(ImGuiKey_P)) {
             saveScreenshot(backend);
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_T)) {
+        if (!qcState_.active && ImGui::IsKeyPressed(ImGuiKey_T)) {
             if (state_.volumeCount() > 0) {
                 state_.tagListWindowVisible_ = !state_.tagListWindowVisible_;
             }
+        }
+        if (qcState_.active) {
+            if (ImGui::IsKeyPressed(ImGuiKey_RightBracket))
+                switchQCRow(qcState_.currentRowIndex + 1);
+            if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket))
+                switchQCRow(qcState_.currentRowIndex - 1);
         }
     }
 
@@ -108,11 +136,19 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
     }
 
     if (hasOverlay) {
-        renderOverlayPanel();
+        bool showOverlayPanel = true;
+        if (qcState_.active)
+            showOverlayPanel = qcState_.showOverlay;
+        if (showOverlayPanel)
+            renderOverlayPanel();
     }
 
-    if (state_.tagListWindowVisible_ && state_.volumeCount() > 0) {
+    if (!qcState_.active && state_.tagListWindowVisible_ && state_.volumeCount() > 0) {
         renderTagListWindow();
+    }
+
+    if (qcState_.active) {
+        renderQCListWindow();
     }
 
     if (state_.syncCursors_)
@@ -174,35 +210,45 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
         int numVolumes = state_.volumeCount();
         bool hasOverlay = state_.hasOverlay();
 
-        if (ImGui::Button("Save Global", ImVec2(btnWidth, 0))) {
-            try {
-                AppConfig cfg;
-                cfg.global.defaultColourMap = "GrayScale";
-                int winW, winH;
-                glfwGetWindowSize(window, &winW, &winH);
-                cfg.global.windowWidth = winW;
-                cfg.global.windowHeight = winH;
-                cfg.global.syncCursors = state_.syncCursors_;
-                cfg.global.syncZoom = state_.syncZoom_;
-                cfg.global.syncPan = state_.syncPan_;
-                cfg.global.tagListVisible = state_.tagListWindowVisible_;
+        if (qcState_.active) {
+            ImGui::Text("QC Mode");
+            ImGui::Text("%d / %d rated", qcState_.ratedCount(), qcState_.rowCount());
+            if (qcState_.currentRowIndex >= 0)
+                ImGui::Text("ID: %s", qcState_.rowIds[qcState_.currentRowIndex].c_str());
+            ImGui::Separator();
+        }
 
-                for (int vi = 0; vi < numVolumes; ++vi) {
-                    const VolumeViewState& st = state_.viewStates_[vi];
-                    VolumeConfig vc;
-                    vc.path = state_.volumePaths_[vi];
-                    vc.colourMap = std::string(colourMapName(st.colourMap));
-                    vc.valueMin = st.valueRange[0];
-                    vc.valueMax = st.valueRange[1];
-                    vc.sliceIndices = {st.sliceIndices.x, st.sliceIndices.y, st.sliceIndices.z};
-                    vc.zoom = {st.zoom[0], st.zoom[1], st.zoom[2]};
-                    vc.panU = {st.panU[0], st.panU[1], st.panU[2]};
-                    vc.panV = {st.panV[0], st.panV[1], st.panV[2]};
-                    cfg.volumes.push_back(std::move(vc));
+        if (!qcState_.active) {
+            if (ImGui::Button("Save Global", ImVec2(btnWidth, 0))) {
+                try {
+                    AppConfig cfg;
+                    cfg.global.defaultColourMap = "GrayScale";
+                    int winW, winH;
+                    glfwGetWindowSize(window, &winW, &winH);
+                    cfg.global.windowWidth = winW;
+                    cfg.global.windowHeight = winH;
+                    cfg.global.syncCursors = state_.syncCursors_;
+                    cfg.global.syncZoom = state_.syncZoom_;
+                    cfg.global.syncPan = state_.syncPan_;
+                    cfg.global.tagListVisible = state_.tagListWindowVisible_;
+
+                    for (int vi = 0; vi < numVolumes; ++vi) {
+                        const VolumeViewState& st = state_.viewStates_[vi];
+                        VolumeConfig vc;
+                        vc.path = state_.volumePaths_[vi];
+                        vc.colourMap = std::string(colourMapName(st.colourMap));
+                        vc.valueMin = st.valueRange[0];
+                        vc.valueMax = st.valueRange[1];
+                        vc.sliceIndices = {st.sliceIndices.x, st.sliceIndices.y, st.sliceIndices.z};
+                        vc.zoom = {st.zoom[0], st.zoom[1], st.zoom[2]};
+                        vc.panU = {st.panU[0], st.panU[1], st.panU[2]};
+                        vc.panV = {st.panV[0], st.panV[1], st.panV[2]};
+                        cfg.volumes.push_back(std::move(vc));
+                    }
+                    saveConfig(cfg, globalConfigPath());
+                } catch (const std::exception& e) {
+                    std::cerr << "Failed to save global config: " << e.what() << "\n";
                 }
-                saveConfig(cfg, globalConfigPath());
-            } catch (const std::exception& e) {
-                std::cerr << "Failed to save global config: " << e.what() << "\n";
             }
         }
 
@@ -248,44 +294,48 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
             }
         }
 
-        if (ImGui::Checkbox("Tag List##taglist_tl", &state_.tagListWindowVisible_)) {
-        }
-        ImGui::SameLine();
-        ImGui::TextDisabled("(T)");
-
-        if (ImGui::Button("Save Local", ImVec2(btnWidth, 0))) {
-            try {
-                AppConfig cfg;
-                cfg.global.defaultColourMap = "GrayScale";
-                int winW, winH;
-                glfwGetWindowSize(window, &winW, &winH);
-                cfg.global.windowWidth = winW;
-                cfg.global.windowHeight = winH;
-                cfg.global.syncCursors = state_.syncCursors_;
-                cfg.global.syncZoom = state_.syncZoom_;
-                cfg.global.syncPan = state_.syncPan_;
-
-                for (int vi = 0; vi < numVolumes; ++vi) {
-                    const VolumeViewState& st = state_.viewStates_[vi];
-                    VolumeConfig vc;
-                    vc.path = state_.volumePaths_[vi];
-                    vc.colourMap = std::string(colourMapName(st.colourMap));
-                    vc.valueMin = st.valueRange[0];
-                    vc.valueMax = st.valueRange[1];
-                    vc.sliceIndices = {st.sliceIndices.x, st.sliceIndices.y, st.sliceIndices.z};
-                    vc.zoom = {st.zoom[0], st.zoom[1], st.zoom[2]};
-                    vc.panU = {st.panU[0], st.panU[1], st.panU[2]};
-                    vc.panV = {st.panV[0], st.panV[1], st.panV[2]};
-                    cfg.volumes.push_back(std::move(vc));
-                }
-
-                std::string savePath = state_.localConfigPath_.empty()
-                    ? "config.json" : state_.localConfigPath_;
-                saveConfig(cfg, savePath);
-            } catch (const std::exception& e) {
-                std::cerr << "Failed to save local config: " << e.what() << "\n";
+        if (!qcState_.active) {
+            if (ImGui::Checkbox("Tag List##taglist_tl", &state_.tagListWindowVisible_)) {
             }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(T)");
         }
+
+        if (!qcState_.active) {
+            if (ImGui::Button("Save Local", ImVec2(btnWidth, 0))) {
+                try {
+                    AppConfig cfg;
+                    cfg.global.defaultColourMap = "GrayScale";
+                    int winW, winH;
+                    glfwGetWindowSize(window, &winW, &winH);
+                    cfg.global.windowWidth = winW;
+                    cfg.global.windowHeight = winH;
+                    cfg.global.syncCursors = state_.syncCursors_;
+                    cfg.global.syncZoom = state_.syncZoom_;
+                    cfg.global.syncPan = state_.syncPan_;
+
+                    for (int vi = 0; vi < numVolumes; ++vi) {
+                        const VolumeViewState& st = state_.viewStates_[vi];
+                        VolumeConfig vc;
+                        vc.path = state_.volumePaths_[vi];
+                        vc.colourMap = std::string(colourMapName(st.colourMap));
+                        vc.valueMin = st.valueRange[0];
+                        vc.valueMax = st.valueRange[1];
+                        vc.sliceIndices = {st.sliceIndices.x, st.sliceIndices.y, st.sliceIndices.z};
+                        vc.zoom = {st.zoom[0], st.zoom[1], st.zoom[2]};
+                        vc.panU = {st.panU[0], st.panU[1], st.panU[2]};
+                        vc.panV = {st.panV[0], st.panV[1], st.panV[2]};
+                        cfg.volumes.push_back(std::move(vc));
+                    }
+
+                    std::string savePath = state_.localConfigPath_.empty()
+                        ? "config.json" : state_.localConfigPath_;
+                    saveConfig(cfg, savePath);
+                } catch (const std::exception& e) {
+                    std::cerr << "Failed to save local config: " << e.what() << "\n";
+                }
+            }
+        } // end !qcState_.active (Save Local)
 
         ImGui::Separator();
 
@@ -320,11 +370,27 @@ void Interface::renderVolumeColumn(int vi) {
 
     ImGui::Begin(columnNames_[vi].c_str());
     {
+        // Handle missing/failed volumes (placeholders have empty data)
+        if (vol.data.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Volume not loaded");
+            if (!state_.volumePaths_[vi].empty())
+                ImGui::TextWrapped("File: %s", state_.volumePaths_[vi].c_str());
+            float viewWidth = ImGui::GetContentRegionAvail().x;
+            if (qcState_.active) {
+                ImGui::BeginChild("##qc_verdict", ImVec2(viewWidth, 0), ImGuiChildFlags_Borders);
+                renderQCVerdictPanel(vi);
+                ImGui::EndChild();
+            }
+            ImGui::End();
+            return;
+        }
+
         ImVec2 avail = ImGui::GetContentRegionAvail();
 
         const float controlsHeightBase = 160.0f * state_.dpiScale_;
         const float controlsHeight = state_.cleanMode_ ? 0.0f : controlsHeightBase;
-        float viewAreaHeight = avail.y - controlsHeight;
+        const float verdictHeight = qcState_.active ? 60.0f * state_.dpiScale_ : 0.0f;
+        float viewAreaHeight = avail.y - controlsHeight - verdictHeight;
         float viewRowHeight = viewAreaHeight / 3.0f;
         float viewWidth = avail.x;
 
@@ -578,6 +644,12 @@ void Interface::renderVolumeColumn(int vi) {
                     }
                 }
             }
+            ImGui::EndChild();
+        }
+
+        if (qcState_.active) {
+            ImGui::BeginChild("##qc_verdict", ImVec2(viewWidth, 0), ImGuiChildFlags_Borders);
+            renderQCVerdictPanel(vi);
             ImGui::EndChild();
         }
     }
@@ -1011,7 +1083,7 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                         }
                     }
 
-                    if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+                    if (!qcState_.active && imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
                         int tagCount = state_.volumes_[0].getTagCount();
                         std::string newLabel = std::format("Point{}", tagCount + 1);
 
@@ -1503,4 +1575,179 @@ bool Interface::drawTagsOnSlice(int viewIndex, const ImVec2& imgPos,
     }
 
     return drawn;
+}
+
+void Interface::switchQCRow(int newRow) {
+    if (newRow < 0 || newRow >= qcState_.rowCount())
+        return;
+    if (newRow == qcState_.currentRowIndex)
+        return;
+
+    qcState_.currentRowIndex = newRow;
+
+    const auto& paths = qcState_.pathsForRow(newRow);
+    state_.loadVolumeSet(paths);
+
+    // Re-apply per-column configs (colour map, value range)
+    for (int ci = 0; ci < qcState_.columnCount() && ci < state_.volumeCount(); ++ci)
+    {
+        auto it = qcState_.columnConfigs.find(qcState_.columnNames[ci]);
+        if (it != qcState_.columnConfigs.end())
+        {
+            VolumeViewState& vs = state_.viewStates_[ci];
+            auto cmOpt = colourMapByName(it->second.colourMap);
+            if (cmOpt) vs.colourMap = *cmOpt;
+            if (it->second.valueMin) vs.valueRange[0] = *it->second.valueMin;
+            if (it->second.valueMax) vs.valueRange[1] = *it->second.valueMax;
+        }
+    }
+
+    viewManager_.initializeAllTextures();
+
+    // Rebuild column display names from QC headers
+    columnNames_.clear();
+    for (int ci = 0; ci < qcState_.columnCount(); ++ci)
+        columnNames_.push_back(qcState_.columnNames[ci]);
+
+    state_.layoutInitialized_ = false;
+    scrollToCurrentRow_ = true;
+}
+
+void Interface::renderQCListWindow() {
+    ImGui::Begin("QC List");
+    {
+        ImGui::Text("Rated: %d / %d", qcState_.ratedCount(), qcState_.rowCount());
+        ImGui::Separator();
+
+        int tableFlags = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY
+                       | ImGuiTableFlags_SizingFixedFit;
+        if (ImGui::BeginTable("##qc_list", 3, tableFlags))
+        {
+            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 30.0f);
+            ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableHeadersRow();
+
+            for (int ri = 0; ri < qcState_.rowCount(); ++ri)
+            {
+                ImGui::TableNextRow();
+
+                // Compute row status
+                const auto& result = qcState_.results[ri];
+                bool anyFail = false;
+                bool allPass = true;
+                bool anyRated = false;
+                for (int ci = 0; ci < qcState_.columnCount(); ++ci)
+                {
+                    QCVerdict v = result.verdicts[ci];
+                    if (v == QCVerdict::FAIL) anyFail = true;
+                    if (v != QCVerdict::PASS) allPass = false;
+                    if (v != QCVerdict::UNRATED) anyRated = true;
+                }
+                if (qcState_.columnCount() == 0) allPass = false;
+
+                // Color row background
+                if (anyFail)
+                    ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
+                        IM_COL32(180, 40, 40, 60));
+                else if (allPass)
+                    ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
+                        IM_COL32(40, 180, 40, 60));
+
+                ImGui::TableSetColumnIndex(0);
+
+                // Selectable spanning all columns
+                bool isCurrent = (ri == qcState_.currentRowIndex);
+                char selectId[64];
+                std::snprintf(selectId, sizeof(selectId), "##qc_%d", ri);
+                ImGuiSelectableFlags selFlags = ImGuiSelectableFlags_SpanAllColumns
+                                              | ImGuiSelectableFlags_AllowOverlap;
+                if (ImGui::Selectable(selectId, isCurrent, selFlags))
+                    switchQCRow(ri);
+
+                // Auto-scroll to current row
+                if (isCurrent && scrollToCurrentRow_)
+                {
+                    ImGui::SetScrollHereY();
+                    scrollToCurrentRow_ = false;
+                }
+
+                ImGui::SameLine();
+                ImGui::Text("%d", ri);
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Text("%s", qcState_.rowIds[ri].c_str());
+
+                ImGui::TableSetColumnIndex(2);
+                if (anyFail)
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "FAIL");
+                }
+                else if (allPass)
+                {
+                    ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "PASS");
+                }
+                else if (anyRated)
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.3f, 1.0f), "...");
+                }
+                else
+                {
+                    ImGui::TextDisabled("---");
+                }
+            }
+            ImGui::EndTable();
+        }
+    }
+    ImGui::End();
+}
+
+void Interface::renderQCVerdictPanel(int volumeIndex) {
+    if (qcState_.currentRowIndex < 0
+        || qcState_.currentRowIndex >= qcState_.rowCount()
+        || volumeIndex >= qcState_.columnCount())
+        return;
+
+    auto& result = qcState_.results[qcState_.currentRowIndex];
+    auto& verdict = result.verdicts[volumeIndex];
+    auto& comment = result.comments[volumeIndex];
+
+    ImGui::PushID(volumeIndex + 5000);
+
+    bool changed = false;
+
+    int vInt = static_cast<int>(verdict);
+    if (ImGui::RadioButton("PASS", &vInt, static_cast<int>(QCVerdict::PASS)))
+    {
+        verdict = QCVerdict::PASS;
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("FAIL", &vInt, static_cast<int>(QCVerdict::FAIL)))
+    {
+        verdict = QCVerdict::FAIL;
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("---", &vInt, static_cast<int>(QCVerdict::UNRATED)))
+    {
+        verdict = QCVerdict::UNRATED;
+        changed = true;
+    }
+
+    // Comment input
+    char buf[256];
+    std::snprintf(buf, sizeof(buf), "%s", comment.c_str());
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+    if (ImGui::InputText("##comment", buf, sizeof(buf)))
+    {
+        comment = buf;
+        changed = true;
+    }
+
+    if (changed)
+        qcState_.saveOutputCsv();
+
+    ImGui::PopID();
 }

@@ -22,6 +22,7 @@
 #include "ColourMap.h"
 #include "GraphicsBackend.h"
 #include "Interface.h"
+#include "QCState.h"
 #include "Volume.h"
 #include "VulkanHelpers.h"
 #include "ViewManager.h"
@@ -40,6 +41,8 @@ int main(int argc, char** argv)
         std::vector<std::string> volumeFiles;
         std::vector<std::optional<std::string>> cliLutPerVolume;
         std::optional<std::string> pendingLut;
+        std::string qcInputPath;
+        std::string qcOutputPath;
 
         static const std::array<std::pair<std::string_view, std::string_view>, 12> lutFlags = {{
             {"--gray",     "GrayScale"},
@@ -79,6 +82,8 @@ int main(int argc, char** argv)
                           << "  -G, --gray            Set GrayScale colour map for the next volume\n"
                           << "  -H, --hot             Set HotMetal colour map for the next volume\n"
                           << "  -S, --spectral        Set Spectral colour map for the next volume\n"
+                          << "      --qc <input.csv>  Enable QC mode with input CSV\n"
+                          << "      --qc-output <out> Output CSV for QC verdicts (required with --qc)\n"
                           << "\nLUT flags apply to the next volume file on the command line.\n"
                           << "Example: new_register --gray vol1.mnc -r vol2.mnc\n";
                 return 0;
@@ -97,6 +102,18 @@ int main(int argc, char** argv)
                     return 1;
                 }
                 pendingLut = std::move(lutName);
+                continue;
+            }
+
+            if (arg == "--qc" && i + 1 < argc)
+            {
+                qcInputPath = argv[++i];
+                continue;
+            }
+
+            if (arg == "--qc-output" && i + 1 < argc)
+            {
+                qcOutputPath = argv[++i];
                 continue;
             }
 
@@ -120,6 +137,12 @@ int main(int argc, char** argv)
         if (pendingLut.has_value())
         {
             std::cerr << "Warning: LUT flag at end of arguments has no volume to apply to\n";
+        }
+
+        if (!qcInputPath.empty() && qcOutputPath.empty())
+        {
+            std::cerr << "Error: --qc requires --qc-output <path>\n";
+            return 1;
         }
 
         AppConfig globalCfg;
@@ -151,7 +174,32 @@ int main(int argc, char** argv)
 
         AppConfig mergedCfg = mergeConfigs(globalCfg, localCfg);
 
-        if (volumeFiles.empty() && !mergedCfg.volumes.empty())
+        // --- QC mode initialization ---
+        QCState qcState;
+        if (!qcInputPath.empty())
+        {
+            qcState.active = true;
+            qcState.inputCsvPath = qcInputPath;
+            qcState.outputCsvPath = qcOutputPath;
+            qcState.loadInputCsv(qcInputPath);
+            if (std::filesystem::exists(qcOutputPath))
+                qcState.loadOutputCsv(qcOutputPath);
+            if (mergedCfg.qcColumns)
+                qcState.columnConfigs = *mergedCfg.qcColumns;
+            qcState.showOverlay = mergedCfg.global.showOverlay;
+        }
+
+        AppState state;
+
+        if (qcState.active)
+        {
+            // In QC mode, volumes are loaded after backend init (below).
+            // Just determine the starting row.
+            int startRow = qcState.firstUnratedRow();
+            if (startRow < 0) startRow = 0;
+            qcState.currentRowIndex = startRow;
+        }
+        else if (volumeFiles.empty() && !mergedCfg.volumes.empty())
         {
             for (const auto& vc : mergedCfg.volumes)
             {
@@ -160,9 +208,7 @@ int main(int argc, char** argv)
             }
         }
 
-        AppState state;
-
-        if (!volumeFiles.empty())
+        if (!qcState.active && !volumeFiles.empty())
         {
             for (const auto& path : volumeFiles)
             {
@@ -180,7 +226,7 @@ int main(int argc, char** argv)
                 state.loadTagsForVolume(static_cast<int>(volIdx));
             }
         }
-        else
+        else if (!qcState.active)
         {
             Volume vol;
             vol.generate_test_data();
@@ -189,7 +235,7 @@ int main(int argc, char** argv)
             state.volumeNames_.push_back("Test Data");
         }
 
-        if (state.volumes_.empty())
+        if (!qcState.active && state.volumes_.empty())
         {
             std::cerr << "No volumes loaded.\n";
         }
@@ -218,7 +264,7 @@ int main(int argc, char** argv)
             if (initScale < 1.0f) initScale = 1.0f;
         }
 
-        int numVols = state.volumeCount();
+        int numVols = qcState.active ? qcState.columnCount() : state.volumeCount();
         if (numVols < 1) numVols = 1;
 
         constexpr int colWidth  = 200;
@@ -257,9 +303,28 @@ int main(int argc, char** argv)
         state.localConfigPath_ = localConfigPath;
 
         ViewManager viewManager(state);
-        Interface interface(state, viewManager);
+        Interface interface(state, viewManager, qcState);
 
-        if (!state.volumes_.empty())
+        if (qcState.active && qcState.rowCount() > 0)
+        {
+            const auto& paths = qcState.pathsForRow(qcState.currentRowIndex);
+            state.loadVolumeSet(paths);
+            // Apply per-column configs (colour map, value range)
+            for (int ci = 0; ci < qcState.columnCount() && ci < state.volumeCount(); ++ci)
+            {
+                auto it = qcState.columnConfigs.find(qcState.columnNames[ci]);
+                if (it != qcState.columnConfigs.end())
+                {
+                    VolumeViewState& vs = state.viewStates_[ci];
+                    auto cmOpt = colourMapByName(it->second.colourMap);
+                    if (cmOpt) vs.colourMap = *cmOpt;
+                    if (it->second.valueMin) vs.valueRange[0] = *it->second.valueMin;
+                    if (it->second.valueMax) vs.valueRange[1] = *it->second.valueMax;
+                }
+            }
+            viewManager.initializeAllTextures();
+        }
+        else if (!state.volumes_.empty())
         {
             state.initializeViewStates();
             state.applyConfig(mergedCfg, initW, initH);
@@ -290,6 +355,10 @@ int main(int argc, char** argv)
         }
 
         backend->waitIdle();
+
+        if (qcState.active)
+            qcState.saveOutputCsv();
+
         viewManager.destroyAllTextures();
 
         backend->shutdownImGui();

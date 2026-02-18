@@ -9,10 +9,11 @@
 #include "GraphicsBackend.h"
 
 class ViewManager;
+class QCState;
 
 class Interface {
 public:
-    Interface(AppState& state, ViewManager& viewManager);
+    Interface(AppState& state, ViewManager& viewManager, QCState& qcState);
 
     void render(GraphicsBackend& backend, GLFWwindow* window);
     void saveScreenshot(GraphicsBackend& backend);
@@ -23,14 +24,19 @@ public:
 private:
     AppState& state_;
     ViewManager& viewManager_;
+    QCState& qcState_;
 
     std::vector<std::string> columnNames_;
+    bool scrollToCurrentRow_ = true;
 
     void setupLayout(int numVolumes);
     void renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window);
     void renderVolumeColumn(int vi);
     void renderOverlayPanel();
     void renderTagListWindow();
+    void renderQCListWindow();
+    void renderQCVerdictPanel(int volumeIndex);
+    void switchQCRow(int newRow);
     int renderSliceView(int vi, int viewIndex, const ImVec2& childSize);
     int renderOverlayView(int viewIndex, const ImVec2& childSize);
     bool drawTagsOnSlice(int viewIndex, const ImVec2& imgPos,
