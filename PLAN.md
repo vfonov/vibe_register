@@ -205,6 +205,165 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 
 ---
 
+## QC (Quality Control) Mode
+
+A special mode of operation for batch quality control of medical imaging datasets.
+Tags are completely disabled. The UI is streamlined. Most configuration is via CLI
+and a JSON config file. The user reviews datasets from a CSV file, rating each
+volume column PASS/FAIL with optional comments.
+
+### Example Usage
+```bash
+new_register --qc subjects.csv --qc-output results.csv --config qc_config.json
+```
+
+### Input CSV Format (fixed columns)
+```csv
+ID,T1,T2
+sub01,/data/sub01_t1.mnc,/data/sub01_t2.mnc
+sub02,/data/sub02_t1.mnc,/data/sub02_t2.mnc
+sub03,/data/sub03_t1.mnc,/data/sub03_t2.mnc
+```
+- First column must be `ID`.
+- Remaining columns are volume file paths; column names match config keys.
+- All rows have the same columns. Missing files show an empty panel with error message.
+
+### Output CSV Format (auto-saved on every verdict/comment change)
+```csv
+ID,T1_verdict,T1_comment,T2_verdict,T2_comment
+sub01,PASS,,FAIL,motion artifact
+sub02,,,,
+sub03,PASS,,PASS,
+```
+- Generated columns: `ID`, then `{col}_verdict` and `{col}_comment` for each input column.
+- If the output file already exists, it is read on startup to pre-populate verdicts/comments (matched by ID).
+
+### Config JSON (`qc_config.json`)
+```json
+{
+  "global": {
+    "syncCursors": true,
+    "showOverlay": true
+  },
+  "qc_columns": {
+    "T1": { "colourMap": "GrayScale", "valueMin": 0, "valueMax": 100 },
+    "T2": { "colourMap": "HotMetal", "valueMin": 0, "valueMax": 200 }
+  }
+}
+```
+- Uses existing `--config` flag and Glaze JSON config system.
+- `qc_columns` maps CSV column names to per-column display settings.
+- `showOverlay` controls whether the blended overlay panel appears (default: true).
+- Colour map and value range are applied as initial defaults but remain adjustable at runtime.
+
+### Keyboard Shortcuts (QC Mode)
+| Key | Action |
+|---|---|
+| `]` | Next dataset |
+| `[` | Previous dataset |
+| `Up/Down` | Navigate QC list (when list is focused) |
+| `Q` | Quit |
+| `R` | Reset views |
+| `C` | Clean mode |
+| `P` | Screenshot |
+
+### Implementation Plan
+
+#### Phase 1: Core Data Structures and CSV I/O
+- [ ] **1.1** Create `QCState.h` — QC data structures
+  - `QCVerdict` enum: `UNRATED`, `PASS`, `FAIL`
+  - `QCColumnConfig` struct: `colourMap`, `valueMin`, `valueMax`
+  - `QCRowResult` struct: `id`, `std::vector<QCVerdict> verdicts`, `std::vector<std::string> comments`
+  - `QCState` class: all QC runtime state
+    - `inputCsvPath`, `outputCsvPath`
+    - `columnNames` (header columns excluding "ID")
+    - `rowIds`, `rowPaths` (per-row file paths)
+    - `results` (verdicts/comments, parallel with rows)
+    - `columnConfigs` (from config JSON, keyed by column name)
+    - `currentRowIndex`
+    - `active` flag
+- [ ] **1.2** Create `QCState.cpp` — CSV parsing and saving
+  - `loadInputCsv(path)`: parse header + rows, populate columnNames/rowIds/rowPaths
+  - `loadOutputCsv(path)`: parse existing results, match by ID, pre-populate verdicts/comments
+  - `saveOutputCsv()`: write results CSV with `std::ofstream` + `std::format`, auto-called on every change
+  - Handle edge cases: missing files, empty cells, quoted strings with commas
+- [ ] **1.3** Extend `AppConfig.h` / `AppConfig.cpp` — add QC column config
+  - Add `std::optional<std::map<std::string, QCColumnConfig>> qcColumns` to `AppConfig`
+  - Add `showOverlay` to `GlobalConfig`
+  - Add `glz::meta` specialization for `QCColumnConfig`
+- [ ] **1.4** Add `QCState.cpp` to `CMakeLists.txt`
+- [ ] **1.5** Write unit test for CSV round-trip (`test_qc_csv.cpp`)
+
+#### Phase 2: Volume Lifecycle Management
+- [ ] **2.1** Fix `VulkanTexture` destructor — call `cleanup(g_Device)` in destructor so `unique_ptr::reset()` properly releases Vulkan resources (image, memory, sampler, image view, descriptor set)
+- [ ] **2.2** Add volume unload/reload to `AppState`
+  - `clearAllVolumes()`: destroy all textures, clear volumes/paths/names/viewStates/overlay
+  - `loadVolumeSet(paths, qcColumnConfigs)`: clear, load new volumes, init view states, apply per-column colour maps and ranges
+- [ ] **2.3** Add texture lifecycle methods to `ViewManager`
+  - `initializeAllTextures()`: create slice textures for all volumes + overlay (refactored from main.cpp inline code)
+  - `destroyAllTextures()`: destroy all slice + overlay textures
+
+#### Phase 3: CLI and Mode Activation
+- [ ] **3.1** Add QC CLI arguments to `main.cpp`
+  - `--qc <input.csv>` — activate QC mode, specify input CSV path
+  - `--qc-output <output.csv>` — specify output results CSV path (required with `--qc`)
+  - Parse in existing argument loop; set `qcState.active = true`
+- [ ] **3.2** Integrate QC startup into `main.cpp`
+  - When QC mode active: skip normal volume loading from CLI positional args
+  - Load input CSV, load output CSV if exists, load config for column configs
+  - Auto-select first unrated row (or row 0), load its volumes via `loadVolumeSet()`
+  - Pass `QCState` reference to `Interface`
+
+#### Phase 4: QC User Interface
+- [ ] **4.1** QC Dataset List Window (`Interface::renderQCListWindow()`)
+  - Scrollable table: row index, ID, overall status indicator
+  - Color coding: green = all PASS, red = any FAIL, white/gray = unrated
+  - Click row to switch dataset (triggers volume unload + reload)
+  - Progress display in header: "QC: 12/50 rated"
+- [ ] **4.2** Global `[`/`]` keyboard shortcuts for prev/next dataset
+  - Triggers `clearAllVolumes()` + `loadVolumeSet()` + `initializeAllTextures()`
+  - Arrow keys navigate QC list when focused
+- [ ] **4.3** Per-column verdict panel (below each volume's slice views)
+  - Radio buttons: PASS / FAIL (UNRATED as default cleared state)
+  - Text input field for comment
+  - On any change: update `QCState::results`, call `saveOutputCsv()`
+- [ ] **4.4** QC mode UI restrictions
+  - Hide: tag list window, tag checkbox, right-click tag creation, tag visibility toggle
+  - Hide: "Save Local" / "Save Global" config buttons (config is read-only in QC)
+  - Hide: volume path/load controls
+  - Show: QC progress info, sync checkboxes, Reset View, colour map (adjustable), Quit
+- [ ] **4.5** Layout adjustments
+  - QC list window docked on the left (alongside or replacing Tools panel)
+  - Volume panels one column per CSV column, verdict panels below each
+  - Overlay panel shown/hidden based on `showOverlay` config
+
+#### Phase 5: Polish and Edge Cases
+- [ ] **5.1** Missing file handling — empty/placeholder panel with error message, log to stderr
+- [ ] **5.2** First-unrated-row jump — on startup, auto-scroll to first unrated row
+- [ ] **5.3** Clean mode interaction — `C` key hides everything except slices + verdict panels
+- [ ] **5.4** Proper flush on quit — verify output CSV is written before exit
+
+### QC Mode File Changes Summary
+| File | Action | Description |
+|---|---|---|
+| `include/QCState.h` | **New** | QC data structures, enums, state class |
+| `src/QCState.cpp` | **New** | CSV parsing, saving, row management |
+| `tests/test_qc_csv.cpp` | **New** | Unit test for CSV round-trip |
+| `include/AppConfig.h` | Edit | Add `qcColumns`, `showOverlay` |
+| `src/AppConfig.cpp` | Edit | Glaze meta for QCColumnConfig |
+| `include/VulkanHelpers.h` | Edit | Fix VulkanTexture destructor |
+| `src/VulkanHelpers.cpp` | Edit | Implement cleanup in destructor |
+| `include/AppState.h` | Edit | Add `clearAllVolumes()`, `loadVolumeSet()`, QCState ref |
+| `src/AppState.cpp` | Edit | Implement volume lifecycle methods |
+| `include/ViewManager.h` | Edit | Declare `initializeAllTextures()`, `destroyAllTextures()` |
+| `src/ViewManager.cpp` | Edit | Implement texture lifecycle methods |
+| `include/Interface.h` | Edit | Add QC rendering methods |
+| `src/Interface.cpp` | Edit | QC list window, verdict panels, mode restrictions |
+| `src/main.cpp` | Edit | QC CLI args, startup integration |
+| `CMakeLists.txt` | Edit | Add QCState.cpp and test to build |
+
+---
+
 ## Architecture Notes
 
 ### Current File Structure
@@ -217,6 +376,7 @@ new_register/
 │   ├── ColourMap.h
 │   ├── GraphicsBackend.h
 │   ├── Interface.h
+│   ├── QCState.h
 │   ├── TagWrapper.hpp
 │   ├── Volume.h
 │   ├── ViewManager.h
@@ -232,6 +392,7 @@ new_register/
 │   ├── VulkanHelpers.cpp
 │   ├── Volume.cpp
 │   ├── TagWrapper.cpp
+│   ├── QCState.cpp
 │   └── AppConfig.cpp
 └── tests/
     ├── test_real_data.cpp
@@ -243,7 +404,8 @@ new_register/
     ├── test_volume_info.cpp
     ├── test_tag_load.cpp
     ├── test_thick_slices_com.cpp
-    └── test_center_of_mass.cpp
+    ├── test_center_of_mass.cpp
+    └── test_qc_csv.cpp
 ```
 
 ### Code Quality Improvements
