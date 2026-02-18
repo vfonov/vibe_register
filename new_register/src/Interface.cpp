@@ -125,9 +125,9 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
         }
         if (qcState_.active) {
             if (ImGui::IsKeyPressed(ImGuiKey_RightBracket))
-                switchQCRow(qcState_.currentRowIndex + 1);
+                switchQCRow(qcState_.currentRowIndex + 1, backend);
             if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket))
-                switchQCRow(qcState_.currentRowIndex - 1);
+                switchQCRow(qcState_.currentRowIndex - 1, backend);
         }
     }
 
@@ -148,7 +148,7 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
     }
 
     if (qcState_.active) {
-        renderQCListWindow();
+        renderQCListWindow(backend);
     }
 
     if (state_.syncCursors_)
@@ -1577,13 +1577,17 @@ bool Interface::drawTagsOnSlice(int viewIndex, const ImVec2& imgPos,
     return drawn;
 }
 
-void Interface::switchQCRow(int newRow) {
+void Interface::switchQCRow(int newRow, GraphicsBackend& backend) {
     if (newRow < 0 || newRow >= qcState_.rowCount())
         return;
     if (newRow == qcState_.currentRowIndex)
         return;
 
     qcState_.currentRowIndex = newRow;
+
+    // Wait for the GPU to finish before destroying old textures
+    backend.waitIdle();
+    viewManager_.destroyAllTextures();
 
     const auto& paths = qcState_.pathsForRow(newRow);
     state_.loadVolumeSet(paths);
@@ -1613,7 +1617,7 @@ void Interface::switchQCRow(int newRow) {
     scrollToCurrentRow_ = true;
 }
 
-void Interface::renderQCListWindow() {
+void Interface::renderQCListWindow(GraphicsBackend& backend) {
     ImGui::Begin("QC List");
     {
         ImGui::Text("Rated: %d / %d", qcState_.ratedCount(), qcState_.rowCount());
@@ -1664,7 +1668,7 @@ void Interface::renderQCListWindow() {
                 ImGuiSelectableFlags selFlags = ImGuiSelectableFlags_SpanAllColumns
                                               | ImGuiSelectableFlags_AllowOverlap;
                 if (ImGui::Selectable(selectId, isCurrent, selFlags))
-                    switchQCRow(ri);
+                    switchQCRow(ri, backend);
 
                 // Auto-scroll to current row
                 if (isCurrent && scrollToCurrentRow_)

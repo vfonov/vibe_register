@@ -34,9 +34,9 @@ private:
     void renderVolumeColumn(int vi);
     void renderOverlayPanel();
     void renderTagListWindow();
-    void renderQCListWindow();
+    void renderQCListWindow(GraphicsBackend& backend);
     void renderQCVerdictPanel(int volumeIndex);
-    void switchQCRow(int newRow);
+    void switchQCRow(int newRow, GraphicsBackend& backend);
     int renderSliceView(int vi, int viewIndex, const ImVec2& childSize);
     int renderOverlayView(int viewIndex, const ImVec2& childSize);
     bool drawTagsOnSlice(int viewIndex, const ImVec2& imgPos,
