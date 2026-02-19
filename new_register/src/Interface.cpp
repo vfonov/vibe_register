@@ -55,13 +55,8 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
         ImGuiID toolsId, contentId;
 
         if (qcState_.active) {
-            // QC mode: QC List on the far left, then Tools, then volume columns
-            ImGuiID qcListId, remainder;
-            ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, 0.12f,
-                &qcListId, &remainder);
-            ImGui::DockBuilderDockWindow("QC List", qcListId);
-
-            ImGui::DockBuilderSplitNode(remainder, ImGuiDir_Left, 0.06f,
+            // QC mode: Tools panel (with embedded QC list) on the left, then volume columns
+            ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, 0.14f,
                 &toolsId, &contentId);
             ImGui::DockBuilderDockWindow("Tools", toolsId);
         } else {
@@ -147,10 +142,6 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
         renderTagListWindow();
     }
 
-    if (qcState_.active) {
-        renderQCListWindow(backend);
-    }
-
     if (state_.syncCursors_)
         viewManager_.syncCursors();
 }
@@ -215,6 +206,10 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
             ImGui::Text("%d / %d rated", qcState_.ratedCount(), qcState_.rowCount());
             if (qcState_.currentRowIndex >= 0)
                 ImGui::Text("ID: %s", qcState_.rowIds[qcState_.currentRowIndex].c_str());
+            if (hasOverlay) {
+                if (ImGui::Checkbox("Overlay", &qcState_.showOverlay))
+                    state_.layoutInitialized_ = false;
+            }
             ImGui::Separator();
         }
 
@@ -360,6 +355,92 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
         if (ImGui::Button("[Q] Quit", ImVec2(btnWidth, 0))) {
             glfwSetWindowShouldClose(window, true);
         }
+
+        // Embed QC list directly in the Tools panel
+        if (qcState_.active)
+        {
+            ImGui::Separator();
+            ImGui::Text("[/] Prev / Next");
+
+            // Fill remaining vertical space with a scrollable child
+            ImVec2 remaining = ImGui::GetContentRegionAvail();
+            ImGui::BeginChild("##qc_list_embed", remaining, ImGuiChildFlags_Borders);
+            {
+                int numCols = qcState_.columnCount();
+                int totalTableCols = 2 + numCols; // # + ID + one per volume column
+                int tableFlags = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY
+                               | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollX;
+                if (ImGui::BeginTable("##qc_list", totalTableCols, tableFlags))
+                {
+                    ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 30.0f);
+                    ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                    for (int ci = 0; ci < numCols; ++ci)
+                        ImGui::TableSetupColumn(qcState_.columnNames[ci].c_str(),
+                            ImGuiTableColumnFlags_WidthFixed, 30.0f);
+                    ImGui::TableSetupScrollFreeze(0, 1);
+                    ImGui::TableHeadersRow();
+
+                    for (int ri = 0; ri < qcState_.rowCount(); ++ri)
+                    {
+                        ImGui::TableNextRow();
+
+                        const auto& result = qcState_.results[ri];
+                        bool anyFail = false;
+                        bool allPass = true;
+                        for (int ci = 0; ci < numCols; ++ci)
+                        {
+                            QCVerdict v = result.verdicts[ci];
+                            if (v == QCVerdict::FAIL) anyFail = true;
+                            if (v != QCVerdict::PASS) allPass = false;
+                        }
+                        if (numCols == 0) allPass = false;
+
+                        if (anyFail)
+                            ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
+                                IM_COL32(180, 40, 40, 60));
+                        else if (allPass)
+                            ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
+                                IM_COL32(40, 180, 40, 60));
+
+                        ImGui::TableSetColumnIndex(0);
+
+                        bool isCurrent = (ri == qcState_.currentRowIndex);
+                        char selectId[64];
+                        std::snprintf(selectId, sizeof(selectId), "##qc_%d", ri);
+                        ImGuiSelectableFlags selFlags = ImGuiSelectableFlags_SpanAllColumns
+                                                      | ImGuiSelectableFlags_AllowOverlap;
+                        if (ImGui::Selectable(selectId, isCurrent, selFlags))
+                            switchQCRow(ri, backend);
+
+                        if (isCurrent && scrollToCurrentRow_)
+                        {
+                            ImGui::SetScrollHereY();
+                            scrollToCurrentRow_ = false;
+                        }
+
+                        ImGui::SameLine();
+                        ImGui::Text("%d", ri);
+
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::Text("%s", qcState_.rowIds[ri].c_str());
+
+                        for (int ci = 0; ci < numCols; ++ci)
+                        {
+                            ImGui::TableSetColumnIndex(2 + ci);
+                            QCVerdict v = result.verdicts[ci];
+                            if (v == QCVerdict::PASS)
+                                ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.2f, 1.0f), "P");
+                            else if (v == QCVerdict::FAIL)
+                                ImGui::TextColored(ImVec4(0.9f, 0.2f, 0.2f, 1.0f), "F");
+                            else
+                                ImGui::TextDisabled("-");
+                        }
+                    }
+                    ImGui::EndTable();
+                }
+            }
+            ImGui::EndChild();
+        }
     }
     ImGui::End();
 }
@@ -385,14 +466,23 @@ void Interface::renderVolumeColumn(int vi) {
             return;
         }
 
+        float viewWidth = ImGui::GetContentRegionAvail().x;
+
+        // Render verdict panel at the TOP of each column so it's always visible
+        if (qcState_.active)
+        {
+            ImGui::BeginChild("##qc_verdict_top", ImVec2(viewWidth, 60.0f * state_.dpiScale_),
+                              ImGuiChildFlags_Borders);
+            renderQCVerdictPanel(vi);
+            ImGui::EndChild();
+        }
+
         ImVec2 avail = ImGui::GetContentRegionAvail();
 
         const float controlsHeightBase = 160.0f * state_.dpiScale_;
         const float controlsHeight = state_.cleanMode_ ? 0.0f : controlsHeightBase;
-        const float verdictHeight = qcState_.active ? 60.0f * state_.dpiScale_ : 0.0f;
-        float viewAreaHeight = avail.y - controlsHeight - verdictHeight;
+        float viewAreaHeight = avail.y - controlsHeight;
         float viewRowHeight = viewAreaHeight / 3.0f;
-        float viewWidth = avail.x;
 
         if (viewRowHeight < 40.0f * state_.dpiScale_)
             viewRowHeight = 40.0f * state_.dpiScale_;
@@ -647,11 +737,6 @@ void Interface::renderVolumeColumn(int vi) {
             ImGui::EndChild();
         }
 
-        if (qcState_.active) {
-            ImGui::BeginChild("##qc_verdict", ImVec2(viewWidth, 0), ImGuiChildFlags_Borders);
-            renderQCVerdictPanel(vi);
-            ImGui::EndChild();
-        }
     }
     ImGui::End();
 }
@@ -659,6 +744,16 @@ void Interface::renderVolumeColumn(int vi) {
 void Interface::renderOverlayPanel() {
     ImGui::Begin("Overlay");
     {
+        // In QC mode, add a placeholder to align with verdict panels in volume columns
+        if (qcState_.active)
+        {
+            float placeholderHeight = 60.0f * state_.dpiScale_;
+            float viewWidth = ImGui::GetContentRegionAvail().x;
+            ImGui::BeginChild("##overlay_placeholder", ImVec2(viewWidth, placeholderHeight),
+                              ImGuiChildFlags_Borders);
+            ImGui::EndChild();
+        }
+
         ImVec2 avail = ImGui::GetContentRegionAvail();
         const float controlsHeightBase = 160.0f * state_.dpiScale_;
         const float controlsHeight = state_.cleanMode_ ? 0.0f : controlsHeightBase;
@@ -1583,6 +1678,25 @@ void Interface::switchQCRow(int newRow, GraphicsBackend& backend) {
     if (newRow == qcState_.currentRowIndex)
         return;
 
+    // Capture per-column display settings before destroying the old volumes
+    struct ColumnDisplay {
+        ColourMapType colourMap = ColourMapType::GrayScale;
+        std::array<double, 2> valueRange = {0.0, 1.0};
+        glm::dvec3 zoom{1.0, 1.0, 1.0};
+        glm::dvec3 panU{0.5, 0.5, 0.5};
+        glm::dvec3 panV{0.5, 0.5, 0.5};
+        int underColourMode = kClampCurrent;
+        int overColourMode = kClampCurrent;
+        float overlayAlpha = 1.0f;
+    };
+    std::vector<ColumnDisplay> saved;
+    for (int ci = 0; ci < state_.volumeCount(); ++ci)
+    {
+        const auto& vs = state_.viewStates_[ci];
+        saved.push_back({vs.colourMap, vs.valueRange, vs.zoom, vs.panU, vs.panV,
+                         vs.underColourMode, vs.overColourMode, vs.overlayAlpha});
+    }
+
     qcState_.currentRowIndex = newRow;
 
     // Wait for the GPU to finish before destroying old textures
@@ -1592,18 +1706,20 @@ void Interface::switchQCRow(int newRow, GraphicsBackend& backend) {
     const auto& paths = qcState_.pathsForRow(newRow);
     state_.loadVolumeSet(paths);
 
-    // Re-apply per-column configs (colour map, value range)
-    for (int ci = 0; ci < qcState_.columnCount() && ci < state_.volumeCount(); ++ci)
+    // Restore per-column display settings from previous row
+    for (int ci = 0; ci < state_.volumeCount() && ci < static_cast<int>(saved.size()); ++ci)
     {
-        auto it = qcState_.columnConfigs.find(qcState_.columnNames[ci]);
-        if (it != qcState_.columnConfigs.end())
-        {
-            VolumeViewState& vs = state_.viewStates_[ci];
-            auto cmOpt = colourMapByName(it->second.colourMap);
-            if (cmOpt) vs.colourMap = *cmOpt;
-            if (it->second.valueMin) vs.valueRange[0] = *it->second.valueMin;
-            if (it->second.valueMax) vs.valueRange[1] = *it->second.valueMax;
-        }
+        if (state_.volumes_[ci].data.empty())
+            continue;
+        VolumeViewState& vs = state_.viewStates_[ci];
+        vs.colourMap = saved[ci].colourMap;
+        vs.valueRange = saved[ci].valueRange;
+        vs.zoom = saved[ci].zoom;
+        vs.panU = saved[ci].panU;
+        vs.panV = saved[ci].panV;
+        vs.underColourMode = saved[ci].underColourMode;
+        vs.overColourMode = saved[ci].overColourMode;
+        vs.overlayAlpha = saved[ci].overlayAlpha;
     }
 
     viewManager_.initializeAllTextures();
@@ -1615,96 +1731,6 @@ void Interface::switchQCRow(int newRow, GraphicsBackend& backend) {
 
     state_.layoutInitialized_ = false;
     scrollToCurrentRow_ = true;
-}
-
-void Interface::renderQCListWindow(GraphicsBackend& backend) {
-    ImGui::Begin("QC List");
-    {
-        ImGui::Text("Rated: %d / %d", qcState_.ratedCount(), qcState_.rowCount());
-        ImGui::Separator();
-
-        int tableFlags = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY
-                       | ImGuiTableFlags_SizingFixedFit;
-        if (ImGui::BeginTable("##qc_list", 3, tableFlags))
-        {
-            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 30.0f);
-            ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthFixed, 50.0f);
-            ImGui::TableSetupScrollFreeze(0, 1);
-            ImGui::TableHeadersRow();
-
-            for (int ri = 0; ri < qcState_.rowCount(); ++ri)
-            {
-                ImGui::TableNextRow();
-
-                // Compute row status
-                const auto& result = qcState_.results[ri];
-                bool anyFail = false;
-                bool allPass = true;
-                bool anyRated = false;
-                for (int ci = 0; ci < qcState_.columnCount(); ++ci)
-                {
-                    QCVerdict v = result.verdicts[ci];
-                    if (v == QCVerdict::FAIL) anyFail = true;
-                    if (v != QCVerdict::PASS) allPass = false;
-                    if (v != QCVerdict::UNRATED) anyRated = true;
-                }
-                if (qcState_.columnCount() == 0) allPass = false;
-
-                // Color row background
-                if (anyFail)
-                    ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
-                        IM_COL32(180, 40, 40, 60));
-                else if (allPass)
-                    ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
-                        IM_COL32(40, 180, 40, 60));
-
-                ImGui::TableSetColumnIndex(0);
-
-                // Selectable spanning all columns
-                bool isCurrent = (ri == qcState_.currentRowIndex);
-                char selectId[64];
-                std::snprintf(selectId, sizeof(selectId), "##qc_%d", ri);
-                ImGuiSelectableFlags selFlags = ImGuiSelectableFlags_SpanAllColumns
-                                              | ImGuiSelectableFlags_AllowOverlap;
-                if (ImGui::Selectable(selectId, isCurrent, selFlags))
-                    switchQCRow(ri, backend);
-
-                // Auto-scroll to current row
-                if (isCurrent && scrollToCurrentRow_)
-                {
-                    ImGui::SetScrollHereY();
-                    scrollToCurrentRow_ = false;
-                }
-
-                ImGui::SameLine();
-                ImGui::Text("%d", ri);
-
-                ImGui::TableSetColumnIndex(1);
-                ImGui::Text("%s", qcState_.rowIds[ri].c_str());
-
-                ImGui::TableSetColumnIndex(2);
-                if (anyFail)
-                {
-                    ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "FAIL");
-                }
-                else if (allPass)
-                {
-                    ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "PASS");
-                }
-                else if (anyRated)
-                {
-                    ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.3f, 1.0f), "...");
-                }
-                else
-                {
-                    ImGui::TextDisabled("---");
-                }
-            }
-            ImGui::EndTable();
-        }
-    }
-    ImGui::End();
 }
 
 void Interface::renderQCVerdictPanel(int volumeIndex) {

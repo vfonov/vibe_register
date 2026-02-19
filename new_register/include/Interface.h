@@ -34,7 +34,6 @@ private:
     void renderVolumeColumn(int vi);
     void renderOverlayPanel();
     void renderTagListWindow();
-    void renderQCListWindow(GraphicsBackend& backend);
     void renderQCVerdictPanel(int volumeIndex);
     void switchQCRow(int newRow, GraphicsBackend& backend);
     int renderSliceView(int vi, int viewIndex, const ImVec2& childSize);

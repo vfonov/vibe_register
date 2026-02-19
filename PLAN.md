@@ -344,6 +344,16 @@ sub03,PASS,,PASS,
 - [x] **5.3** Clean mode interaction — `C` key hides everything except slices + verdict panels
 - [x] **5.4** Proper flush on quit — verify output CSV is written before exit
 
+#### Phase 6: UI Streamlining
+- [x] **6.1** Merge QC list into Tools panel — removed separate docked QC List window; QC list table now embedded directly in the Tools panel after the Quit button, filling remaining vertical space with scrollable child
+- [x] **6.2** Move verdict panels to top of volume columns — PASS/FAIL radios + comment field now render at the top of each volume column (fixed 60px height) instead of the bottom, so they're always visible regardless of scroll position
+- [x] **6.3** Overlay panel alignment — added empty placeholder (same height as verdict panel) at top of overlay panel in QC mode so slice views align horizontally with volume columns
+- [x] **6.4** Overlay toggle — added "Overlay" checkbox in Tools panel (QC mode only) to show/hide the overlay panel at runtime; triggers layout rebuild
+- [x] **6.5** Preserve display settings across row switches — colour map, value range, zoom, pan, under/over clamp modes, and overlay alpha are now saved before switching QC rows and restored after loading new volumes (initial defaults from config only applied on first load)
+- [x] **6.6** Per-column status in QC list — replaced single "Status" column with one column per volume (using CSV column names as headers); shows green "P" for PASS, red "F" for FAIL, gray "-" for unrated
+- [x] **6.7** Resizable QC list columns — table columns are resizable (drag borders) with horizontal scroll support
+- [x] **6.8** Removed standalone `renderQCListWindow()` function and declaration from Interface.h/cpp
+
 ### QC Mode File Changes Summary
 | File | Action | Description |
 |---|---|---|
