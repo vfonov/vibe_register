@@ -430,7 +430,7 @@ All other dependencies were already C++17-compatible:
 
 ## SSH / Remote Display Compatibility
 
-Removed multi-viewport support (`ImGuiConfigFlags_ViewportsEnable`) which caused segfaults over SSH/X11 forwarding due to failed Vulkan surface creation for secondary OS windows.
+Removed multi-viewport support (`ImGuiConfigFlags_ViewportsEnable`) which caused segfaults over SSH/X11 forwarding due to failed Vulkan surface creation for secondary OS windows. Added hardening for buggy software Vulkan drivers (lavapipe/llvmpipe).
 
 ### Changes
 - [x] **Remove `ViewportsEnable`** — Removed the flag from `initImGui()` in `VulkanBackend.cpp`
@@ -438,6 +438,11 @@ Removed multi-viewport support (`ImGuiConfigFlags_ViewportsEnable`) which caused
 - [x] **Add `drawData` null-check** — Guard against null `ImGui::GetDrawData()` in `endFrame()`
 - [x] **Framebuffer size fallback** — If `glfwGetFramebufferSize()` returns 0x0 (common over SSH), fall back to `glfwGetWindowSize()`, then to 800x600
 - [x] **`glfwGetRequiredInstanceExtensions()` null guard** — Throw descriptive error if GLFW reports no Vulkan surface extensions (e.g., headless remote display)
+- [x] **GPU priority sorting** — Physical devices sorted by type preference (discrete > integrated > virtual > CPU) to prefer hardware GPUs over software renderers
+- [x] **Two-pass GPU selection** — Pass 1 tries non-CPU devices with normal `vkGetPhysicalDeviceSurfaceSupportKHR`; Pass 2 falls back to CPU devices, skipping the surface support query (which segfaults in lavapipe) and assuming present support for any graphics-capable queue family
+- [x] **Surface query error checking** — `vkGetPhysicalDeviceSurfaceSupportKHR` return value is now checked; on failure the queue family is skipped with a diagnostic log message
+- [x] **Framebuffer size clamping** — Both `initialize()` and `rebuildSwapchain()` clamp width/height to `VkSurfaceCapabilitiesKHR::maxImageExtent` to handle garbage values from GLFW over SSH/X11
+- [x] **SIGSEGV guard for swapchain creation** — `sigsetjmp`/`siglongjmp` handler catches driver-level crashes (lavapipe LLVM 12.0.0 segfaults inside `vkCreateSwapchainKHR` on X11-forwarded surfaces). Wraps both initial `createSwapchainWindow()` in `initialize()` and `ImGui_ImplVulkanH_CreateOrResizeWindow()` in `rebuildSwapchain()`. On crash, throws `std::runtime_error` with a descriptive message suggesting hardware GPU or Mesa/LLVM update.
 
 ### No-Input Behaviour
 - [x] **`--test` flag** — Running with no arguments now prints help and exits with code 1. Use `--test` to launch with a generated test volume.

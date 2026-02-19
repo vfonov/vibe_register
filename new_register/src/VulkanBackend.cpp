@@ -13,6 +13,25 @@
 #include <stdexcept>
 #include <string>
 
+#include <csignal>
+#include <csetjmp>
+
+// ---------------------------------------------------------------------------
+// SIGSEGV guard — catches driver-level crashes (e.g. lavapipe over SSH)
+// ---------------------------------------------------------------------------
+
+static sigjmp_buf s_segvJmpBuf;
+static volatile sig_atomic_t s_segvGuardActive = 0;
+
+static void segvHandler(int /*sig*/)
+{
+    if (s_segvGuardActive)
+        siglongjmp(s_segvJmpBuf, 1);
+    // If the guard is not active, re-raise with default handler
+    std::signal(SIGSEGV, SIG_DFL);
+    std::raise(SIGSEGV);
+}
+
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
@@ -352,7 +371,35 @@ void VulkanBackend::initialize(GLFWwindow* window)
             if (h > 4320) h = 4320;
         }
     }
-    createSwapchainWindow(w, h);
+    // Guard swapchain creation against driver-level SIGSEGV.
+    // Lavapipe (llvmpipe) on older LLVM versions crashes inside
+    // vkCreateSwapchainKHR when using X11-forwarded surfaces.
+    {
+        struct sigaction oldAction = {};
+        struct sigaction newAction = {};
+        newAction.sa_handler = segvHandler;
+        sigemptyset(&newAction.sa_mask);
+        newAction.sa_flags = 0;
+        sigaction(SIGSEGV, &newAction, &oldAction);
+        s_segvGuardActive = 1;
+
+        if (sigsetjmp(s_segvJmpBuf, 1) == 0)
+        {
+            createSwapchainWindow(w, h);
+        }
+        else
+        {
+            // Caught SIGSEGV from buggy driver
+            s_segvGuardActive = 0;
+            sigaction(SIGSEGV, &oldAction, nullptr);
+            throw std::runtime_error(
+                "Vulkan swapchain creation crashed (likely a buggy lavapipe/llvmpipe "
+                "driver over SSH/X11 forwarding). Try running on a machine with a "
+                "hardware GPU, or update Mesa/LLVM to a newer version.");
+        }
+        s_segvGuardActive = 0;
+        sigaction(SIGSEGV, &oldAction, nullptr);
+    }
 
     // Initialize VulkanHelpers for texture management
     VulkanHelpers::Init(device_, physicalDevice_, queueFamily_, queue_,
@@ -425,10 +472,37 @@ void VulkanBackend::rebuildSwapchain(int width, int height)
     }
 
     ImGui_ImplVulkan_SetMinImageCount(minImageCount_);
-    ImGui_ImplVulkanH_CreateOrResizeWindow(
-        instance_, physicalDevice_, device_, &windowData_,
-        queueFamily_, allocator_, width, height,
-        minImageCount_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
+
+    // Guard against driver-level SIGSEGV (lavapipe over SSH)
+    {
+        struct sigaction oldAction = {};
+        struct sigaction newAction = {};
+        newAction.sa_handler = segvHandler;
+        sigemptyset(&newAction.sa_mask);
+        newAction.sa_flags = 0;
+        sigaction(SIGSEGV, &newAction, &oldAction);
+        s_segvGuardActive = 1;
+
+        if (sigsetjmp(s_segvJmpBuf, 1) == 0)
+        {
+            ImGui_ImplVulkanH_CreateOrResizeWindow(
+                instance_, physicalDevice_, device_, &windowData_,
+                queueFamily_, allocator_, width, height,
+                minImageCount_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
+        }
+        else
+        {
+            s_segvGuardActive = 0;
+            sigaction(SIGSEGV, &oldAction, nullptr);
+            throw std::runtime_error(
+                "Vulkan swapchain rebuild crashed (likely a buggy lavapipe/llvmpipe "
+                "driver over SSH/X11 forwarding). Try running on a machine with a "
+                "hardware GPU, or update Mesa/LLVM to a newer version.");
+        }
+        s_segvGuardActive = 0;
+        sigaction(SIGSEGV, &oldAction, nullptr);
+    }
+
     windowData_.FrameIndex = 0;
     swapChainRebuild_ = false;
 }
