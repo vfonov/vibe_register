@@ -16,6 +16,11 @@
 #include <csignal>
 #include <csetjmp>
 
+// Destructor must be defined here (not defaulted in header) because
+// the header only forward-declares VulkanTexture. The unique_ptr
+// destructor in vulkanTextures_ needs VulkanTexture to be complete.
+VulkanBackend::~VulkanBackend() = default;
+
 // ---------------------------------------------------------------------------
 // SIGSEGV guard — catches driver-level crashes (e.g. lavapipe over SSH)
 // ---------------------------------------------------------------------------
@@ -30,15 +35,6 @@ static void segvHandler(int /*sig*/)
     // If the guard is not active, re-raise with default handler
     std::signal(SIGSEGV, SIG_DFL);
     std::raise(SIGSEGV);
-}
-
-// ---------------------------------------------------------------------------
-// Factory
-// ---------------------------------------------------------------------------
-
-std::unique_ptr<GraphicsBackend> GraphicsBackend::createDefault()
-{
-    return std::make_unique<VulkanBackend>();
 }
 
 // ---------------------------------------------------------------------------

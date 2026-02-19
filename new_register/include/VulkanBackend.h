@@ -1,6 +1,7 @@
 #pragma once
 
 #include "GraphicsBackend.h"
+#include "VulkanHelpers.h"
 
 #define GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_VULKAN
@@ -10,8 +11,6 @@
 
 #include <map>
 
-class VulkanTexture;
-
 /// Vulkan implementation of the GraphicsBackend interface.
 /// Owns all Vulkan handles (instance, device, pools, swapchain window data)
 /// and manages their full lifecycle.
@@ -19,7 +18,7 @@ class VulkanBackend : public GraphicsBackend
 {
 public:
     VulkanBackend() = default;
-    ~VulkanBackend() override = default;
+    ~VulkanBackend() override;
 
     // --- GraphicsBackend interface ---
     void setWindowHints() override;

@@ -35,6 +35,7 @@ int main(int argc, char** argv)
     try
     {
         std::string cliConfigPath;
+        std::string cliBackendName;
         std::vector<std::string> volumeFiles;
         std::vector<std::optional<std::string>> cliLutPerVolume;
         std::optional<std::string> pendingLut;
@@ -72,6 +73,7 @@ int main(int argc, char** argv)
                 std::cerr << "Usage: new_register [options] [volume1.mnc ...]\n"
                           << "\nOptions:\n"
                           << "  -c, --config <path>   Load config from <path>\n"
+                          << "  -B, --backend <name>  Graphics backend: auto, vulkan, opengl2 (default: auto)\n"
                           << "  -h, --help            Show this help message\n"
                           << "      --test            Launch with a generated test volume\n"
                           << "      --lut <name>      Set colour map for the next volume\n"
@@ -83,6 +85,10 @@ int main(int argc, char** argv)
                           << "  -S, --spectral        Set Spectral colour map for the next volume\n"
                           << "      --qc <input.csv>  Enable QC mode with input CSV\n"
                           << "      --qc-output <out> Output CSV for QC verdicts (required with --qc)\n"
+                          << "\nBackends:\n"
+                          << "  vulkan   Vulkan (default where available, best performance)\n"
+                          << "  opengl2  OpenGL 2.1 (legacy, works over SSH/X11)\n"
+                          << "  auto     Auto-detect best available (default)\n"
                           << "\nLUT flags apply to the next volume file on the command line.\n"
                           << "Example: new_register --gray vol1.mnc -r vol2.mnc\n";
                 return 0;
@@ -91,6 +97,12 @@ int main(int argc, char** argv)
             if (arg == "--test")
             {
                 useTestData = true;
+                continue;
+            }
+
+            if ((arg == "--backend" || arg == "-B") && i + 1 < argc)
+            {
+                cliBackendName = argv[++i];
                 continue;
             }
 
@@ -149,6 +161,40 @@ int main(int argc, char** argv)
             std::cerr << "Error: --qc requires --qc-output <path>\n";
             return 1;
         }
+
+        // --- Backend selection ---
+        BackendType backendType;
+        if (!cliBackendName.empty())
+        {
+            if (cliBackendName == "auto")
+            {
+                backendType = GraphicsBackend::detectBest();
+            }
+            else
+            {
+                auto parsed = GraphicsBackend::parseBackendName(cliBackendName);
+                if (!parsed)
+                {
+                    std::cerr << "Unknown backend: " << cliBackendName << "\n";
+                    std::cerr << "Available:";
+                    for (auto b : GraphicsBackend::availableBackends())
+                        std::cerr << " " << GraphicsBackend::backendName(b);
+                    std::cerr << "\n";
+                    return 1;
+                }
+                backendType = *parsed;
+            }
+        }
+        else
+        {
+            backendType = GraphicsBackend::detectBest();
+        }
+
+        std::cerr << "[backend] Using: " << GraphicsBackend::backendName(backendType) << "\n";
+        std::cerr << "[backend] Available:";
+        for (auto b : GraphicsBackend::availableBackends())
+            std::cerr << " " << GraphicsBackend::backendName(b);
+        std::cerr << "\n";
 
         std::string localConfigPath;
         if (!cliConfigPath.empty())
@@ -248,7 +294,7 @@ int main(int argc, char** argv)
         glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
 
         // Create backend before window so it can set appropriate GLFW hints
-        auto backend = GraphicsBackend::createDefault();
+        auto backend = GraphicsBackend::create(backendType);
         backend->setWindowHints();
 
         float initScale = 1.0f;
@@ -286,8 +332,10 @@ int main(int argc, char** argv)
         if (initW > maxW) initW = maxW;
         if (initH > maxH) initH = maxH;
 
+        std::string windowTitle = std::string("New Register (") +
+            GraphicsBackend::backendName(backendType) + ")";
         GLFWwindow* window = glfwCreateWindow(initW, initH,
-                                              "New Register",
+                                              windowTitle.c_str(),
                                               nullptr, nullptr);
         if (!window)
         {
@@ -296,7 +344,57 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        backend->initialize(window);
+        try
+        {
+            backend->initialize(window);
+        }
+        catch (const std::exception& e)
+        {
+            std::cerr << "[backend] " << GraphicsBackend::backendName(backendType)
+                      << " failed: " << e.what() << "\n";
+
+            // Try fallback backends
+            bool initialized = false;
+            for (auto fallback : GraphicsBackend::availableBackends())
+            {
+                if (fallback == backendType)
+                    continue;
+                std::cerr << "[backend] Trying fallback: "
+                          << GraphicsBackend::backendName(fallback) << "\n";
+                try
+                {
+                    glfwDestroyWindow(window);
+                    backend = GraphicsBackend::create(fallback);
+                    backend->setWindowHints();
+                    glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
+                    windowTitle = std::string("New Register (") +
+                        GraphicsBackend::backendName(fallback) + ")";
+                    window = glfwCreateWindow(initW, initH,
+                        windowTitle.c_str(), nullptr, nullptr);
+                    if (!window)
+                        continue;
+                    backend->initialize(window);
+                    backendType = fallback;
+                    initialized = true;
+                    break;
+                }
+                catch (const std::exception& e2)
+                {
+                    std::cerr << "[backend] " << GraphicsBackend::backendName(fallback)
+                              << " also failed: " << e2.what() << "\n";
+                }
+            }
+            if (!initialized)
+            {
+                std::cerr << "Error: No usable graphics backend found.\n";
+                glfwTerminate();
+                return 1;
+            }
+        }
+
+        // Update window title after potential fallback
+        glfwSetWindowTitle(window, (std::string("New Register (") +
+            GraphicsBackend::backendName(backendType) + ")").c_str());
 
         backend->initImGui(window);
 

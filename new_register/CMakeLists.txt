@@ -4,13 +4,25 @@ project(NewRegister VERSION 0.1.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# --- Backend options ---
+option(ENABLE_VULKAN  "Build Vulkan backend"  ON)
+option(ENABLE_OPENGL2 "Build OpenGL2 backend" ON)
+option(ENABLE_METAL   "Build Metal backend"   OFF)
+
 # --- Dependencies ---
 
 # 1. GLFW
 find_package(glfw3 REQUIRED)
 
-# 2. Vulkan
-find_package(Vulkan REQUIRED)
+# 2. Vulkan (conditional)
+if(ENABLE_VULKAN)
+    find_package(Vulkan REQUIRED)
+endif()
+
+# 2.1 OpenGL (conditional)
+if(ENABLE_OPENGL2)
+    find_package(OpenGL REQUIRED)
+endif()
 
 # 2.5 HDF5 (Required by minc2 headers)
 find_package(HDF5 REQUIRED COMPONENTS C)
@@ -98,19 +110,41 @@ set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 add_subdirectory(${minc2-simple-static_SOURCE_DIR} ${minc2-simple-static_BINARY_DIR})
 set(BUILD_TESTING ${_SAVE_BUILD_TESTING} CACHE BOOL "" FORCE)
 
-# --- Sources ---
-file(GLOB_RECURSE SOURCES 
-    "src/*.cpp" 
-    "include/*.h"
+# --- Sources (explicit list instead of GLOB_RECURSE) ---
+set(SOURCES
+    src/main.cpp
+    src/AppState.cpp
+    src/AppConfig.cpp
+    src/ColourMap.cpp
+    src/Interface.cpp
+    src/QCState.cpp
+    src/TagWrapper.cpp
+    src/ViewManager.cpp
+    src/Volume.cpp
+    src/BackendFactory.cpp
 )
 
+# Backend-specific sources
+if(ENABLE_VULKAN)
+    list(APPEND SOURCES src/VulkanBackend.cpp src/VulkanHelpers.cpp)
+endif()
+if(ENABLE_OPENGL2)
+    list(APPEND SOURCES src/OpenGL2Backend.cpp)
+endif()
 
-# ImGui Backends (Vulkan + GLFW)
+# ImGui platform backend (always needed)
 set(IMGUI_DIR ${imgui_SOURCE_DIR})
 list(APPEND SOURCES
     ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp
 )
+
+# Backend-specific ImGui renderer sources
+if(ENABLE_VULKAN)
+    list(APPEND SOURCES ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp)
+endif()
+if(ENABLE_OPENGL2)
+    list(APPEND SOURCES ${IMGUI_DIR}/backends/imgui_impl_opengl2.cpp)
+endif()
 
 # --- Executable ---
 add_executable(new_register ${SOURCES})
@@ -124,28 +158,42 @@ target_include_directories(new_register PRIVATE
     ${minc2-simple_SOURCE_DIR}/src  # minc2-simple headers
 )
 
+# --- Compile Definitions ---
+target_compile_definitions(new_register PRIVATE
+    # IMGUI_IMPL_VULKAN_NO_PROTOTYPES # We link against standard loader
+)
+if(ENABLE_VULKAN)
+    target_compile_definitions(new_register PRIVATE HAS_VULKAN=1)
+endif()
+if(ENABLE_OPENGL2)
+    target_compile_definitions(new_register PRIVATE HAS_OPENGL2=1)
+endif()
+if(ENABLE_METAL)
+    target_compile_definitions(new_register PRIVATE HAS_METAL=1)
+endif()
+
 # --- Linking ---
 set(MINC2_LIB "${CMAKE_BINARY_DIR}/_deps/libminc-build/libminc2.a")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L${CMAKE_BINARY_DIR}/_deps/libminc-build")
 target_link_libraries(new_register PRIVATE
     glfw
-    Vulkan::Vulkan
     imgui
     minc2-simple-static
     ${MINC2_LIB}
     nlohmann_json::nlohmann_json
     glm
 )
+if(ENABLE_VULKAN)
+    target_link_libraries(new_register PRIVATE Vulkan::Vulkan)
+endif()
+if(ENABLE_OPENGL2)
+    target_link_libraries(new_register PRIVATE OpenGL::GL)
+endif()
 
 # std::filesystem requires separate library on GCC 9
 if(CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "10.0")
     target_link_libraries(new_register PRIVATE stdc++fs)
 endif()
-
-# Definitions
-target_compile_definitions(new_register PRIVATE 
-    # IMGUI_IMPL_VULKAN_NO_PROTOTYPES # We link against standard loader
-)
 
 # --- Testing ---
 enable_testing()

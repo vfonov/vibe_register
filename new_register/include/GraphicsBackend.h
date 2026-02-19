@@ -3,10 +3,22 @@
 #include <memory>
 #include <cstdint>
 #include <vector>
+#include <string>
+#include <optional>
 
 #include <imgui.h>  // for ImTextureID
 
 struct GLFWwindow;
+
+/// Available graphics backend types.
+/// Not all types are available on all platforms — availability depends on
+/// compile-time CMake options (ENABLE_VULKAN, ENABLE_OPENGL2, ENABLE_METAL).
+enum class BackendType
+{
+    Vulkan,
+    OpenGL2,
+    Metal
+};
 
 /// Backend-agnostic texture handle.
 /// The `id` field is an opaque handle whose meaning depends on the backend:
@@ -125,7 +137,21 @@ public:
 
     // --- Factory ---
 
-    /// Create the default backend for the current platform.
-    /// Currently always returns a VulkanBackend.
-    static std::unique_ptr<GraphicsBackend> createDefault();
+    /// Create a backend of the specified type.
+    /// @throws std::runtime_error if the type was not compiled in.
+    static std::unique_ptr<GraphicsBackend> create(BackendType type);
+
+    /// Auto-detect the best available backend for the current platform.
+    /// Preference order: Vulkan > OpenGL2 > Metal.
+    static BackendType detectBest();
+
+    /// Return the list of backends that were compiled into this binary.
+    static std::vector<BackendType> availableBackends();
+
+    /// Convert a BackendType to a human-readable string.
+    static const char* backendName(BackendType type);
+
+    /// Parse a backend name string (case-insensitive).
+    /// Returns nullopt if the string is not recognized.
+    static std::optional<BackendType> parseBackendName(const std::string& name);
 };
