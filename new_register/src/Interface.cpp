@@ -59,8 +59,12 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
                 &toolsId, &contentId);
             ImGui::DockBuilderDockWindow("Tools", toolsId);
         } else {
-            ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, 0.08f, &toolsId, &contentId);
-            ImGui::DockBuilderDockWindow("Tools", toolsId);
+            ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, 0.12f, &toolsId, &contentId);
+            // Split the tools column: Tools on top, Tags on bottom
+            ImGuiID toolsTopId, tagsId;
+            ImGui::DockBuilderSplitNode(toolsId, ImGuiDir_Up, 0.55f, &toolsTopId, &tagsId);
+            ImGui::DockBuilderDockWindow("Tools", toolsTopId);
+            ImGui::DockBuilderDockWindow("Tags", tagsId);
         }
 
         bool showOverlayPanel = hasOverlay;

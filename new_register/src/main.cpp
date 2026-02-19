@@ -42,6 +42,7 @@ int main(int argc, char** argv)
         std::optional<std::string> pendingLut;
         std::string qcInputPath;
         std::string qcOutputPath;
+        bool useTestData = false;
 
         static const std::array<std::pair<std::string_view, std::string_view>, 12> lutFlags = {{
             {"--gray",     "GrayScale"},
@@ -74,6 +75,7 @@ int main(int argc, char** argv)
                           << "\nOptions:\n"
                           << "  -c, --config <path>   Load config from <path>\n"
                           << "  -h, --help            Show this help message\n"
+                          << "      --test            Launch with a generated test volume\n"
                           << "      --lut <name>      Set colour map for the next volume\n"
                           << "  -r, --red             Set Red colour map for the next volume\n"
                           << "  -g, --green           Set Green colour map for the next volume\n"
@@ -86,6 +88,12 @@ int main(int argc, char** argv)
                           << "\nLUT flags apply to the next volume file on the command line.\n"
                           << "Example: new_register --gray vol1.mnc -r vol2.mnc\n";
                 return 0;
+            }
+
+            if (arg == "--test")
+            {
+                useTestData = true;
+                continue;
             }
 
             if (arg == "--lut" && i + 1 < argc)
@@ -216,7 +224,7 @@ int main(int argc, char** argv)
                 state.loadTagsForVolume(static_cast<int>(volIdx));
             }
         }
-        else if (!qcState.active)
+        else if (!qcState.active && useTestData)
         {
             Volume vol;
             vol.generate_test_data();
@@ -224,10 +232,13 @@ int main(int argc, char** argv)
             state.volumePaths_.push_back("");
             state.volumeNames_.push_back("Test Data");
         }
-
-        if (!qcState.active && state.volumes_.empty())
+        else if (!qcState.active)
         {
-            std::cerr << "No volumes loaded.\n";
+            std::cerr << "Error: no volume files specified.\n\n"
+                      << "Usage: new_register [options] [volume1.mnc ...]\n"
+                      << "\nRun 'new_register --help' for full option list.\n"
+                      << "Run 'new_register --test' to launch with a generated test volume.\n";
+            return 1;
         }
 
         if (!glfwInit())

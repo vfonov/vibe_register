@@ -63,9 +63,6 @@ public:
     /// Assumes ImGui::Render() has already been called.
     virtual void imguiRenderDrawData() = 0;
 
-    /// Update platform windows for multi-viewport support.
-    virtual void imguiUpdatePlatformWindows() = 0;
-
     // --- DPI / HiDPI ---
 
     /// Return the content scale factor for the window (1.0 on standard

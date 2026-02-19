@@ -69,6 +69,7 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan, ImGui (D
 ### Command Line Options
 - [x] `-c`, `--config <path>` — load config from a specific path
 - [x] `-h`, `--help`
+- [x] `--test` — launch with a generated test volume (no-input prints help and exits with code 1)
 - [x] Positional volume file arguments
 - [x] `-r`/`--red`, `-g`/`--green`, `-b`/`--blue` — set colour map for next volume
 - [x] `-G`/`--gray`, `-H`/`--hot`, `-S`/`--spectral` — set colour map for next volume
@@ -79,9 +80,9 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan, ImGui (D
 
 ### Graphics / Rendering
 - [x] Vulkan backend with full lifecycle management
-- [x] ImGui docking + viewports
+- [x] ImGui docking (multi-viewport removed for SSH/X11 compatibility)
 - [x] HiDPI support (GLFW content scale query, ImGui style/font scaling)
-- [x] Auto-layout: Tools panel on the left, one column per volume + overlay column
+- [x] Auto-layout: Tools panel on the left (top), Tags panel docked below Tools, one column per volume + overlay column
 - [x] GPU texture creation, upload, and destruction helpers
 - [x] Swapchain resize handling (`VK_ERROR_OUT_OF_DATE_KHR`, `VK_SUBOPTIMAL_KHR`)
 
@@ -424,6 +425,33 @@ Downgraded from C++23 to C++17 for broader compiler support (GCC 9+).
 ### Dependency Compatibility
 All other dependencies were already C++17-compatible:
 - ImGui (C++11), GLM (C++98+), minc2-simple (pure C), libminc (pure C), GLFW (C), Vulkan (C)
+
+---
+
+## SSH / Remote Display Compatibility
+
+Removed multi-viewport support (`ImGuiConfigFlags_ViewportsEnable`) which caused segfaults over SSH/X11 forwarding due to failed Vulkan surface creation for secondary OS windows.
+
+### Changes
+- [x] **Remove `ViewportsEnable`** — Removed the flag from `initImGui()` in `VulkanBackend.cpp`
+- [x] **Remove `imguiUpdatePlatformWindows()`** — Deleted method from `VulkanBackend.cpp`, `VulkanBackend.h`, and `GraphicsBackend.h` (abstract interface)
+- [x] **Add `drawData` null-check** — Guard against null `ImGui::GetDrawData()` in `endFrame()`
+- [x] **Framebuffer size fallback** — If `glfwGetFramebufferSize()` returns 0x0 (common over SSH), fall back to `glfwGetWindowSize()`, then to 800x600
+- [x] **`glfwGetRequiredInstanceExtensions()` null guard** — Throw descriptive error if GLFW reports no Vulkan surface extensions (e.g., headless remote display)
+
+### No-Input Behaviour
+- [x] **`--test` flag** — Running with no arguments now prints help and exits with code 1. Use `--test` to launch with a generated test volume.
+
+---
+
+## Tags Window Docking
+
+The Tags window was a free-floating ImGui window that got clipped by the main window boundary after multi-viewport removal.
+
+### Changes
+- [x] **Dock Tags below Tools** — In non-QC mode, the left panel is split vertically: 55% top for Tools, 45% bottom for Tags via `DockBuilderSplitNode()`
+- [x] **Wider left panel** — Increased from 8% to 12% of viewport width to accommodate both panels stacked vertically
+- [x] **QC mode unaffected** — Tags are disabled in QC mode; the QC layout branch is unchanged
 
 ---
 

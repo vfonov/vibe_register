@@ -32,7 +32,6 @@ public:
     void shutdownImGui() override;
     void imguiNewFrame() override;
     void imguiRenderDrawData() override;
-    void imguiUpdatePlatformWindows() override;
 
     float contentScale() const override;
 

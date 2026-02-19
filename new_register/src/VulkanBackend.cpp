@@ -234,6 +234,12 @@ void VulkanBackend::initialize(GLFWwindow* window)
     // Get required instance extensions from GLFW
     uint32_t extensionCount = 0;
     const char** extensions = glfwGetRequiredInstanceExtensions(&extensionCount);
+    if (!extensions)
+    {
+        throw std::runtime_error(
+            "GLFW: no Vulkan surface extensions available "
+            "(remote display without GPU access?)");
+    }
 
     // Create Vulkan instance
     createInstance(extensions, extensionCount);
@@ -248,6 +254,13 @@ void VulkanBackend::initialize(GLFWwindow* window)
     // Create swapchain / framebuffers
     int w, h;
     glfwGetFramebufferSize(window, &w, &h);
+    if (w <= 0 || h <= 0)
+        glfwGetWindowSize(window, &w, &h);
+    if (w <= 0 || h <= 0)
+    {
+        w = 800;
+        h = 600;
+    }
     createSwapchainWindow(w, h);
 
     // Initialize VulkanHelpers for texture management
@@ -328,13 +341,12 @@ void VulkanBackend::beginFrame()
 void VulkanBackend::endFrame()
 {
     ImDrawData* drawData = ImGui::GetDrawData();
+    if (!drawData) return;
+
     const bool isMinimized = (drawData->DisplaySize.x <= 0.0f ||
                               drawData->DisplaySize.y <= 0.0f);
     if (!isMinimized)
         frameRender(drawData);
-
-    // Update and render additional platform windows (multi-viewport)
-    imguiUpdatePlatformWindows();
 
     // Present main window
     if (!isMinimized)
@@ -453,7 +465,6 @@ void VulkanBackend::initImGui(GLFWwindow* window)
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 
     ImGui::StyleColorsDark();
 
@@ -521,18 +532,6 @@ void VulkanBackend::imguiRenderDrawData()
     // windows + present in the correct order. This method exists to satisfy
     // the GraphicsBackend interface for backends that separate these steps.
     endFrame();
-}
-
-void VulkanBackend::imguiUpdatePlatformWindows()
-{
-    ImGuiIO& io = ImGui::GetIO();
-    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
-    {
-        GLFWwindow* backupContext = glfwGetCurrentContext();
-        ImGui::UpdatePlatformWindows();
-        ImGui::RenderPlatformWindowsDefault();
-        glfwMakeContextCurrent(backupContext);
-    }
 }
 
 float VulkanBackend::contentScale() const
