@@ -1,704 +1,1245 @@
-# sub_plan.md — QC Mode: Detailed Implementation Plan
+# sub_plan.md — Multi-Backend Support: Detailed Implementation Plan
 
 This document specifies exact code changes, insertion points, and new file contents
-for implementing QC (Quality Control) mode in `new_register`.
+for adding multiple graphics backend support (Vulkan + OpenGL 2) to `new_register`,
+with the architecture designed to accommodate Metal in the future.
+
+## Design Decisions
+
+- **Texture abstraction**: Opaque handle — `Texture` struct with `ImTextureID` + dimensions.
+  All GPU-specific details stay inside the backend implementation.
+- **Backend selection**: Hybrid — CMake options control which backends are compiled;
+  runtime auto-detection picks the best available, with CLI override.
+- **OpenGL scope**: OpenGL 2 only (fixed-function pipeline, widest legacy/SSH support).
+- **Metal**: Deferred — architecture supports it, not implemented yet.
+
+## Current Vulkan Leakage (to be fixed)
+
+These are the exact locations where Vulkan-specific types have leaked outside the
+backend files (`VulkanBackend.cpp`, `VulkanHelpers.cpp`):
+
+| File | Line(s) | Leak |
+|---|---|---|
+| `AppState.h` | 11, 19, 36 | `#include "VulkanHelpers.h"`, `unique_ptr<VulkanTexture>` in `VolumeViewState` and `OverlayState` |
+| `ViewManager.cpp` | 8, 108-116, 259-267 | `#include "VulkanHelpers.h"`, direct calls to `VulkanHelpers::CreateTexture/UpdateTexture/DestroyTexture` |
+| `Interface.cpp` | 975, 1022, 1341, 1388 | `VulkanTexture*` dereference, `reinterpret_cast<ImTextureID>(tex->descriptor_set)` |
+| `main.cpp` | 16, 26, 376 | `#define GLFW_INCLUDE_VULKAN`, `#include "VulkanHelpers.h"`, `VulkanHelpers::Shutdown()` |
 
 ---
 
-## Phase 1: Core Data Structures and CSV I/O
+## Phase 1: Abstract the Texture System
 
-### 1.1 Create `include/QCState.h`
+The critical prerequisite. Replace all `VulkanTexture` references outside backend files
+with a backend-agnostic `Texture` type. After this phase, the only files that know about
+Vulkan are `VulkanBackend.cpp`, `VulkanBackend.h`, `VulkanHelpers.cpp`, `VulkanHelpers.h`.
 
-New file. Defines all QC-specific types and state.
+### 1.1 Add `Texture` struct to `GraphicsBackend.h`
+
+**File: `include/GraphicsBackend.h`** — Add before the `GraphicsBackend` class (after
+the includes, around line 7):
 
 ```cpp
-#pragma once
-#include <string>
-#include <vector>
+#include <imgui.h>  // for ImTextureID
+
+/// Backend-agnostic texture handle.
+/// The `id` field is an opaque handle whose meaning depends on the backend:
+///   - Vulkan: VkDescriptorSet cast to ImTextureID
+///   - OpenGL: GLuint texture name cast to ImTextureID
+///   - Metal:  MTLTexture* cast to ImTextureID
+/// Application code should never interpret `id` — only pass it to ImGui::Image().
+struct Texture
+{
+    ImTextureID id = nullptr;
+    int width  = 0;
+    int height = 0;
+};
+```
+
+### 1.2 Add texture lifecycle methods to `GraphicsBackend` interface
+
+**File: `include/GraphicsBackend.h`** — Add after the `captureScreenshot` method
+(before the Factory section, around line 80):
+
+```cpp
+    // --- Texture management ---
+
+    /// Create a GPU texture from RGBA8 pixel data.
+    /// @param w     Texture width in pixels.
+    /// @param h     Texture height in pixels.
+    /// @param data  Pointer to w*h*4 bytes of RGBA8 pixel data.
+    /// @return Opaque texture handle. Caller owns the returned pointer.
+    virtual std::unique_ptr<Texture> createTexture(int w, int h, const void* data) = 0;
+
+    /// Update an existing texture with new RGBA8 pixel data (same dimensions).
+    /// @param tex   Texture to update (must not be null).
+    /// @param data  Pointer to tex->width * tex->height * 4 bytes.
+    virtual void updateTexture(Texture* tex, const void* data) = 0;
+
+    /// Destroy GPU resources associated with a texture.
+    /// After this call, tex->id is invalid. The Texture object itself is
+    /// still owned by the caller (typically via unique_ptr).
+    virtual void destroyTexture(Texture* tex) = 0;
+
+    /// Shut down the texture management subsystem.
+    /// Called once at application exit, before shutdownImGui()/shutdown().
+    virtual void shutdownTextureSystem() = 0;
+```
+
+### 1.3 Replace `VulkanTexture` with `Texture` in `AppState.h`
+
+**File: `include/AppState.h`**
+
+Remove:
+```cpp
+#include "VulkanHelpers.h"
+```
+
+Add (after the existing `#include "Volume.h"`):
+```cpp
+#include "GraphicsBackend.h"  // for Texture
+```
+
+Change `VolumeViewState` (line 19):
+```cpp
+// Before:
+std::unique_ptr<VulkanTexture> sliceTextures[3];
+// After:
+std::unique_ptr<Texture> sliceTextures[3];
+```
+
+Change `OverlayState` (line 36):
+```cpp
+// Before:
+std::unique_ptr<VulkanTexture> textures[3];
+// After:
+std::unique_ptr<Texture> textures[3];
+```
+
+Update the doc comment on `clearAllVolumes()` (line 83-84):
+```cpp
+/// Clear all volumes, view states, and overlay textures.
+/// GPU resources are released via Texture destructor.
+```
+
+### 1.4 Thread `GraphicsBackend&` into `ViewManager`
+
+`ViewManager` needs to call `createTexture`/`updateTexture`/`destroyTexture` on the
+backend instead of calling `VulkanHelpers` directly.
+
+**File: `include/ViewManager.h`**
+
+Add forward declaration (after `#include "AppState.h"`, before the class):
+```cpp
+class GraphicsBackend;
+```
+
+Change constructor:
+```cpp
+// Before:
+explicit ViewManager(AppState& state);
+// After:
+ViewManager(AppState& state, GraphicsBackend& backend);
+```
+
+Add private member:
+```cpp
+GraphicsBackend& backend_;
+```
+
+**File: `src/ViewManager.cpp`**
+
+Remove:
+```cpp
+#include "VulkanHelpers.h"
+```
+
+Add:
+```cpp
+#include "GraphicsBackend.h"
+```
+
+Change constructor:
+```cpp
+// Before:
+ViewManager::ViewManager(AppState& state) : state_(state) {}
+// After:
+ViewManager::ViewManager(AppState& state, GraphicsBackend& backend)
+    : state_(state), backend_(backend) {}
+```
+
+Replace all `VulkanHelpers` calls in `updateSliceTexture()` (lines 108-116):
+```cpp
+// Before:
+std::unique_ptr<VulkanTexture>& tex = state.sliceTextures[viewIndex];
+if (!tex)
+    tex = VulkanHelpers::CreateTexture(w, h, pixels.data());
+else if (tex->width != w || tex->height != h)
+{
+    VulkanHelpers::DestroyTexture(tex.get());
+    tex = VulkanHelpers::CreateTexture(w, h, pixels.data());
+}
+else
+    VulkanHelpers::UpdateTexture(tex.get(), pixels.data());
+
+// After:
+std::unique_ptr<Texture>& tex = state.sliceTextures[viewIndex];
+if (!tex)
+    tex = backend_.createTexture(w, h, pixels.data());
+else if (tex->width != w || tex->height != h)
+{
+    backend_.destroyTexture(tex.get());
+    tex = backend_.createTexture(w, h, pixels.data());
+}
+else
+    backend_.updateTexture(tex.get(), pixels.data());
+```
+
+Same replacement in `updateOverlayTexture()` (lines 259-267):
+```cpp
+// Before:
+std::unique_ptr<VulkanTexture>& tex = state_.overlay_.textures[viewIndex];
+// ... same pattern with VulkanHelpers::CreateTexture/DestroyTexture/UpdateTexture ...
+
+// After:
+std::unique_ptr<Texture>& tex = state_.overlay_.textures[viewIndex];
+// ... same pattern with backend_.createTexture/destroyTexture/updateTexture ...
+```
+
+### 1.5 Fix `Interface.cpp` texture ID access
+
+**File: `src/Interface.cpp`**
+
+At line 975 and 1022 (in `renderSliceView`):
+```cpp
+// Before:
+VulkanTexture* tex = state.sliceTextures[viewIndex].get();
+// ...
+reinterpret_cast<ImTextureID>(tex->descriptor_set),
+
+// After:
+Texture* tex = state.sliceTextures[viewIndex].get();
+// ...
+tex->id,
+```
+
+At line 1341 and 1388 (in `renderOverlayView`):
+```cpp
+// Before:
+VulkanTexture* tex = state_.overlay_.textures[viewIndex].get();
+// ...
+reinterpret_cast<ImTextureID>(tex->descriptor_set),
+
+// After:
+Texture* tex = state_.overlay_.textures[viewIndex].get();
+// ...
+tex->id,
+```
+
+### 1.6 Implement texture methods in `VulkanBackend`
+
+**File: `include/VulkanBackend.h`** — Add method declarations (after `captureScreenshot`):
+```cpp
+    std::unique_ptr<Texture> createTexture(int w, int h, const void* data) override;
+    void updateTexture(Texture* tex, const void* data) override;
+    void destroyTexture(Texture* tex) override;
+    void shutdownTextureSystem() override;
+```
+
+**File: `src/VulkanBackend.cpp`** — Add implementations:
+
+```cpp
+std::unique_ptr<Texture> VulkanBackend::createTexture(int w, int h, const void* data)
+{
+    auto vkTex = VulkanHelpers::CreateTexture(w, h, data);
+    if (!vkTex)
+        return nullptr;
+
+    auto tex = std::make_unique<Texture>();
+    tex->id     = reinterpret_cast<ImTextureID>(vkTex->descriptor_set);
+    tex->width  = vkTex->width;
+    tex->height = vkTex->height;
+
+    // Store the VulkanTexture pointer in a map keyed by ImTextureID
+    // so we can look it up later for update/destroy.
+    vulkanTextures_[tex->id] = std::move(vkTex);
+
+    return tex;
+}
+
+void VulkanBackend::updateTexture(Texture* tex, const void* data)
+{
+    if (!tex) return;
+    auto it = vulkanTextures_.find(tex->id);
+    if (it != vulkanTextures_.end())
+        VulkanHelpers::UpdateTexture(it->second.get(), data);
+}
+
+void VulkanBackend::destroyTexture(Texture* tex)
+{
+    if (!tex) return;
+    auto it = vulkanTextures_.find(tex->id);
+    if (it != vulkanTextures_.end())
+    {
+        VulkanHelpers::DestroyTexture(it->second.get());
+        vulkanTextures_.erase(it);
+    }
+    tex->id = nullptr;
+}
+
+void VulkanBackend::shutdownTextureSystem()
+{
+    vulkanTextures_.clear();  // ~VulkanTexture() cleans up GPU resources
+    VulkanHelpers::Shutdown();
+}
+```
+
+**File: `include/VulkanBackend.h`** — Add private member:
+```cpp
 #include <map>
-#include <optional>
-#include "ColourMap.h"
-
-enum class QCVerdict { UNRATED, PASS, FAIL };
-
-struct QCColumnConfig
-{
-    std::string colourMap = "GrayScale";
-    std::optional<double> valueMin;
-    std::optional<double> valueMax;
-};
-
-struct QCRowResult
-{
-    std::string id;
-    std::vector<QCVerdict> verdicts;   // parallel with columnNames
-    std::vector<std::string> comments; // parallel with columnNames
-};
-
-class QCState
-{
-public:
-    bool active = false;
-
-    std::string inputCsvPath;
-    std::string outputCsvPath;
-
-    // Parsed from input CSV header (excluding "ID")
-    std::vector<std::string> columnNames;
-
-    // Per-row data from input CSV
-    std::vector<std::string> rowIds;
-    std::vector<std::vector<std::string>> rowPaths; // rowPaths[row][col]
-
-    // Per-row results (parallel with rowIds)
-    std::vector<QCRowResult> results;
-
-    // Per-column display config (from JSON config, keyed by column name)
-    std::map<std::string, QCColumnConfig> columnConfigs;
-
-    // Runtime
-    int currentRowIndex = -1;
-    bool showOverlay = true;
-
-    // Methods
-    void loadInputCsv(const std::string& path);
-    void loadOutputCsv(const std::string& path);
-    void saveOutputCsv() const;
-
-    int columnCount() const;
-    int rowCount() const;
-    int ratedCount() const;           // rows with at least one non-UNRATED verdict
-    int firstUnratedRow() const;      // -1 if all rated
-
-    // Get paths for a specific row
-    const std::vector<std::string>& pathsForRow(int row) const;
-};
+// ...
+std::map<ImTextureID, std::unique_ptr<VulkanTexture>> vulkanTextures_;
 ```
 
-### 1.2 Create `src/QCState.cpp`
+Note: An `unordered_map` would be marginally faster but ImTextureID is a `void*`
+which would need a custom hash. `std::map` works fine for the small number of
+textures we have (typically < 30).
 
-New file. Implements CSV parsing and saving.
+### 1.7 Clean up `main.cpp`
 
-**`loadInputCsv(path)`:**
-- Open file with `std::ifstream`.
-- Read first line as header. Split on `,`. First token must be `"ID"` (case-insensitive).
-  Remaining tokens populate `columnNames`.
-- For each subsequent line: split on `,`. First token -> `rowIds`. Remaining tokens ->
-  `rowPaths[row]`. If fewer tokens than columns, pad with empty strings.
-- Initialize `results` vector: one `QCRowResult` per row, with `verdicts` and `comments`
-  vectors sized to `columnNames.size()`, all `UNRATED` / empty.
-- Handle quoted CSV fields: if a field starts with `"`, read until closing `"` (handling
-  `""` escape for embedded quotes).
-- Throw `std::runtime_error` on missing ID column or empty file.
+**File: `src/main.cpp`**
 
-**`loadOutputCsv(path)`:**
-- If file doesn't exist, return silently (results stay at UNRATED defaults).
-- Parse header. Expected columns: `ID`, then pairs `{col}_verdict`, `{col}_comment` for
-  each column name.
-- Build a map from column name -> (verdict_col_index, comment_col_index) in the output CSV.
-- For each data row: match `ID` against `rowIds`. If found, populate the corresponding
-  `results[row].verdicts[col]` and `results[row].comments[col]`.
-- Verdict string mapping: `"PASS"` -> `QCVerdict::PASS`, `"FAIL"` -> `QCVerdict::FAIL`,
-  anything else -> `QCVerdict::UNRATED`.
-- Unknown IDs in the output file are silently ignored (they may be from a previous
-  version of the input CSV).
-
-**`saveOutputCsv()`:**
-- Open `outputCsvPath` with `std::ofstream` (truncate mode).
-- Write header: `ID`, then for each column: `{col}_verdict,{col}_comment`.
-- Write one row per entry in `results`:
-  - ID from `rowIds[i]`.
-  - For each column: verdict string (`"PASS"`, `"FAIL"`, or empty), then comment.
-  - If comment contains `,`, `"`, or newline, quote it with `"` and escape embedded
-    `"` as `""`.
-- Flush and close. Use `std::format` for formatting.
-
-**Helper CSV parsing (private):**
-- `splitCsvLine(const std::string& line) -> std::vector<std::string>`: split a CSV line
-  respecting quoted fields.
-- `quoteCsvField(const std::string& field) -> std::string`: quote if needed.
-
-**Accessors:**
-- `columnCount()`: return `columnNames.size()`.
-- `rowCount()`: return `rowIds.size()`.
-- `ratedCount()`: count rows where any verdict != UNRATED.
-- `firstUnratedRow()`: return index of first row where all verdicts == UNRATED, or -1.
-- `pathsForRow(row)`: return `rowPaths[row]`.
-
-### 1.3 Extend `include/AppConfig.h`
-
-**Move `QCColumnConfig` here** (before `GlobalConfig`, around line 8). This avoids
-circular includes since `QCState.h` will include `AppConfig.h` for this struct.
-
-**Add to `GlobalConfig` struct** (after `tagListVisible` at line 30):
+Remove:
 ```cpp
-bool showOverlay = true;
+#define GLFW_INCLUDE_VULKAN    // line 16
+#include "VulkanHelpers.h"     // line 26
 ```
 
-**Add to `AppConfig` struct** (after `volumes` at line 37):
+Ensure this remains (already present at line 15):
 ```cpp
-std::optional<std::map<std::string, QCColumnConfig>> qcColumns;
+#define GLFW_INCLUDE_NONE
 ```
 
-**Add includes:** `#include <map>` (already has `<optional>`).
-
-### 1.4 Extend `src/AppConfig.cpp`
-
-**Add Glaze meta for `QCColumnConfig`** (after `VolumeConfig` meta, before line 29):
+Change ViewManager construction (line 306):
 ```cpp
-template <>
-struct glz::meta<QCColumnConfig>
-{
-    using T = QCColumnConfig;
-    static constexpr auto value = object(
-        "colourMap", &T::colourMap,
-        "valueMin",  &T::valueMin,
-        "valueMax",  &T::valueMax
-    );
-};
+// Before:
+ViewManager viewManager(state);
+// After:
+ViewManager viewManager(state, *backend);
 ```
 
-**Update `GlobalConfig` meta** (lines 33-37) to include `showOverlay`:
+Change shutdown (line 376):
 ```cpp
-static constexpr auto value = object(
-    "default_colour_map", &T::defaultColourMap,
-    "window_width",       &T::windowWidth,
-    "window_height",      &T::windowHeight,
-    "show_overlay",       &T::showOverlay
-);
+// Before:
+VulkanHelpers::Shutdown();
+// After:
+backend->shutdownTextureSystem();
 ```
-
-**Update `AppConfig` meta** (lines 44-47) to include `qcColumns`:
-```cpp
-static constexpr auto value = object(
-    "global",     &T::global,
-    "volumes",    &T::volumes,
-    "qc_columns", &T::qcColumns
-);
-```
-
-### 1.5 Update `CMakeLists.txt`
-
-Sources are auto-globbed (`file(GLOB_RECURSE SOURCES "src/*.cpp" "include/*.h")` at
-line 93), so adding `src/QCState.cpp` and `include/QCState.h` requires no change to
-the main executable target.
-
-**Add test target** (after line 199):
-```cmake
-add_executable(test_qc_csv tests/test_qc_csv.cpp src/QCState.cpp src/AppConfig.cpp)
-target_include_directories(test_qc_csv PRIVATE include)
-target_link_libraries(test_qc_csv PRIVATE glaze::glaze)
-add_test(NAME QCCsvTest COMMAND test_qc_csv)
-```
-
-Note: `test_qc_csv` only depends on `QCState.cpp`, `AppConfig.cpp`, and standard
-library — no Vulkan, no MINC, no ImGui. This keeps the test lightweight.
-
-### 1.6 Create `tests/test_qc_csv.cpp`
-
-Test cases:
-1. **Write + read round-trip**: Create a `QCState`, populate with synthetic data,
-   call `saveOutputCsv()`, then create a second `QCState` and `loadOutputCsv()`.
-   Verify verdicts and comments match.
-2. **Parse input CSV**: Write a temporary input CSV with known content, call
-   `loadInputCsv()`, verify `columnNames`, `rowIds`, `rowPaths`.
-3. **Quoted fields**: Input CSV with commas and quotes in fields. Verify correct parsing.
-4. **Missing output file**: `loadOutputCsv()` on non-existent path should not throw.
-5. **Partial output**: Output CSV with fewer rows than input. Verify matched rows are
-   populated, others remain UNRATED.
-6. **ratedCount / firstUnratedRow**: Verify helper functions.
 
 ### Phase 1 Checkpoint
 - `cmake .. && make` succeeds.
-- `ctest -R QCCsv` passes all 6 test cases.
-- App still runs normally in non-QC mode.
+- `ctest --output-on-failure` — 11/11 tests pass.
+- App runs identically to before (Vulkan only, but no Vulkan types outside backend).
+- `grep -r "VulkanTexture\|VulkanHelpers" include/ src/` only matches
+  `VulkanBackend.h`, `VulkanBackend.cpp`, `VulkanHelpers.h`, `VulkanHelpers.cpp`.
+- **Commit**: "Abstract texture system behind GraphicsBackend interface"
 
 ---
 
-## Phase 2: Volume Lifecycle Management
+## Phase 2: Decouple GLFW Window Hints from Backend
 
-### 2.1 Fix `VulkanTexture` destructor
+Currently `main.cpp` hardcodes `GLFW_CLIENT_API = GLFW_NO_API` which is Vulkan-specific.
+OpenGL needs the default `GLFW_OPENGL_API`. The backend must control this.
 
-Currently `VulkanTexture` has no destructor. When `unique_ptr<VulkanTexture>` is reset,
-C++ memory is freed but Vulkan resources (VkImage, VkDeviceMemory, VkImageView,
-VkSampler, VkDescriptorSet) are leaked. This must be fixed before we can swap volumes.
+### 2.1 Add `setWindowHints()` to `GraphicsBackend` interface
 
-**File: `include/VulkanHelpers.h`** — Add to `VulkanTexture` class (after line 22):
+**File: `include/GraphicsBackend.h`** — Add before `initialize()` (around line 24):
+
 ```cpp
-~VulkanTexture();
+    /// Set GLFW window hints appropriate for this backend.
+    /// Must be called BEFORE glfwCreateWindow().
+    /// - Vulkan/Metal: GLFW_CLIENT_API = GLFW_NO_API
+    /// - OpenGL: GLFW_CLIENT_API = GLFW_OPENGL_API (default)
+    virtual void setWindowHints() = 0;
 ```
 
-**File: `src/VulkanHelpers.cpp`** — Add after `cleanup()` at line 321:
+### 2.2 Implement in `VulkanBackend`
+
+**File: `include/VulkanBackend.h`** — Add declaration:
 ```cpp
-VulkanTexture::~VulkanTexture()
+void setWindowHints() override;
+```
+
+**File: `src/VulkanBackend.cpp`** — Add implementation:
+```cpp
+void VulkanBackend::setWindowHints()
 {
-    if (image != VK_NULL_HANDLE || descriptor_set != VK_NULL_HANDLE)
-    {
-        cleanup(g_Device);
-    }
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 }
 ```
 
-The guard ensures already-cleaned textures don't double-free, and default-constructed
-textures (all `VK_NULL_HANDLE`) are safe. The destructor is defined in the .cpp file
-where `g_Device` (module-global, line 9) is accessible.
+### 2.3 Update `main.cpp`
 
-**Impact on existing code:** The explicit `DestroyTexture()` calls in `ViewManager.cpp`
-remain correct — `cleanup()` sets handles to `VK_NULL_HANDLE`, so the destructor is a
-no-op afterward. Shutdown code in `main.cpp` (lines 303-314) now properly cleans up.
+Move the `glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API)` call (line 250) to be called
+via the backend:
 
-### 2.2 Add volume unload/reload to `AppState`
-
-**File: `include/AppState.h`** — Add declarations after `applyConfig()` at line 79:
 ```cpp
-void clearAllVolumes();
-void loadVolumeSet(const std::vector<std::string>& paths);
+// Before (line 250):
+glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
+
+// After:
+backend->setWindowHints();
+glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
 ```
 
-**File: `src/AppState.cpp`** — Implement:
+This means the backend must be created *before* the GLFW window. Currently (line 298)
+the backend is created after the window. We need to reorder:
 
-**`clearAllVolumes()`:**
-- Reset all `sliceTextures[3]` in each `viewStates_` entry (destructor handles Vulkan cleanup).
-- Reset all `overlay_.textures[3]`.
-- Clear `volumes_`, `volumePaths_`, `volumeNames_`, `viewStates_`.
-- Reset `selectedTagIndex_ = -1`.
+1. Parse CLI args (including `--backend` flag — added in Phase 3)
+2. `glfwInit()`
+3. Create backend object (just construction, no GPU init yet)
+4. `backend->setWindowHints()`
+5. `glfwCreateWindow()`
+6. `backend->initialize(window)` (GPU init with the window)
 
-**`loadVolumeSet(paths)`:**
-- Call `clearAllVolumes()`.
-- For each path: if empty, push a default-constructed `Volume` as placeholder
-  (with name `"(missing)"`). If non-empty, try `loadVolume(path)`; on exception,
-  push placeholder with name `"(error)"` and log to stderr.
-- Call `initializeViewStates()`.
-- Does NOT create textures — caller must call `viewManager.initializeAllTextures()`.
-
-### 2.3 Add texture lifecycle methods to `ViewManager`
-
-**File: `include/ViewManager.h`** — Add after `resetViews()` at line 19:
-```cpp
-void initializeAllTextures();
-void destroyAllTextures();
-```
-
-**File: `src/ViewManager.cpp`** — Implement:
-
-**`initializeAllTextures()`:** Refactored from `main.cpp` lines 267-276:
-- For each volume: skip if `data.empty()` (placeholder), else call
-  `updateSliceTexture(vi, 0/1/2)`.
-- If `hasOverlay()`: call `updateAllOverlayTextures()`.
-
-**`destroyAllTextures()`:**
-- Reset all `sliceTextures` and `overlay_.textures` via `unique_ptr::reset()`.
-
-**Update `main.cpp`:**
-- Replace inline texture init (lines 267-276) with `viewManager.initializeAllTextures()`.
-- Replace inline shutdown cleanup (lines 303-314) with:
-  ```cpp
-  backend->waitIdle();
-  viewManager.destroyAllTextures();
-  ```
+The backend constructor must be lightweight (no GPU work). This is already the case
+for `VulkanBackend` (default constructor).
 
 ### Phase 2 Checkpoint
-- Full build succeeds.
-- App runs normally, startup and shutdown work.
-- Existing tests still pass.
+- Build + tests pass.
+- App runs identically (Vulkan backend sets `GLFW_NO_API` as before).
+- **Commit**: "Decouple GLFW window hints from backend via setWindowHints()"
 
 ---
 
-## Phase 3: CLI and Mode Activation
+## Phase 3: Backend Registry and Selection
 
-### 3.1 Add QC CLI arguments to `main.cpp`
+### 3.1 Define `BackendType` enum
 
-**Add include** (after line 27): `#include "QCState.h"`
+**File: `include/GraphicsBackend.h`** — Add before the `Texture` struct:
 
-**Add variables** (after `pendingLut` at line 42):
 ```cpp
-std::string qcInputPath;
-std::string qcOutputPath;
+/// Available graphics backend types.
+/// Not all types are available on all platforms — availability depends on
+/// compile-time CMake options (ENABLE_VULKAN, ENABLE_OPENGL2, ENABLE_METAL).
+enum class BackendType
+{
+    Vulkan,
+    OpenGL2,
+    Metal
+};
 ```
 
-**Add parsing** (in arg loop, after `--lut` block at line 101):
+### 3.2 Replace factory method
+
+**File: `include/GraphicsBackend.h`** — Replace the existing `createDefault()`:
+
 ```cpp
-else if (arg == "--qc" && i + 1 < argc)
+    // --- Factory ---
+
+    /// Create a backend of the specified type.
+    /// @throws std::runtime_error if the type was not compiled in.
+    static std::unique_ptr<GraphicsBackend> create(BackendType type);
+
+    /// Auto-detect the best available backend for the current platform.
+    /// Preference order: Vulkan > OpenGL2 > Metal.
+    /// Falls back to the next option if the preferred one is not compiled in.
+    static BackendType detectBest();
+
+    /// Return the list of backends that were compiled into this binary.
+    static std::vector<BackendType> availableBackends();
+
+    /// Convert a BackendType to a human-readable string.
+    static const char* backendName(BackendType type);
+
+    /// Parse a backend name string (case-insensitive).
+    /// Returns nullopt if the string is not recognized.
+    static std::optional<BackendType> parseBackendName(const std::string& name);
+```
+
+### 3.3 CMake compile-time options
+
+**File: `CMakeLists.txt`** — Add after `project()` (around line 3):
+
+```cmake
+# --- Backend options ---
+option(ENABLE_VULKAN  "Build Vulkan backend"  ON)
+option(ENABLE_OPENGL2 "Build OpenGL2 backend" ON)
+option(ENABLE_METAL   "Build Metal backend"   OFF)
+```
+
+Make Vulkan conditional (replace `find_package(Vulkan REQUIRED)` at line 13):
+```cmake
+if(ENABLE_VULKAN)
+    find_package(Vulkan REQUIRED)
+endif()
+
+if(ENABLE_OPENGL2)
+    find_package(OpenGL REQUIRED)
+endif()
+```
+
+Conditionally compile backend sources (replace lines 108-113):
+```cmake
+# ImGui platform backend (always needed)
+set(IMGUI_DIR ${imgui_SOURCE_DIR})
+list(APPEND SOURCES
+    ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+)
+
+# Backend-specific ImGui renderer sources
+if(ENABLE_VULKAN)
+    list(APPEND SOURCES ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp)
+endif()
+if(ENABLE_OPENGL2)
+    list(APPEND SOURCES ${IMGUI_DIR}/backends/imgui_impl_opengl2.cpp)
+endif()
+```
+
+Pass defines to C++ (add after `target_compile_definitions`):
+```cmake
+if(ENABLE_VULKAN)
+    target_compile_definitions(new_register PRIVATE HAS_VULKAN=1)
+endif()
+if(ENABLE_OPENGL2)
+    target_compile_definitions(new_register PRIVATE HAS_OPENGL2=1)
+endif()
+if(ENABLE_METAL)
+    target_compile_definitions(new_register PRIVATE HAS_METAL=1)
+endif()
+```
+
+Conditionally link (replace `Vulkan::Vulkan` in `target_link_libraries`):
+```cmake
+target_link_libraries(new_register PRIVATE
+    glfw
+    imgui
+    minc2-simple-static
+    ${MINC2_LIB}
+    nlohmann_json::nlohmann_json
+    glm
+)
+if(ENABLE_VULKAN)
+    target_link_libraries(new_register PRIVATE Vulkan::Vulkan)
+endif()
+if(ENABLE_OPENGL2)
+    target_link_libraries(new_register PRIVATE OpenGL::GL)
+endif()
+```
+
+Conditionally compile backend source files. The `file(GLOB_RECURSE)` at line 102
+picks up all `.cpp` in `src/`. We need to exclude backend files when their backend
+is disabled. Two approaches:
+
+**Option A (recommended):** Switch from GLOB to explicit source list. This is better
+CMake practice anyway:
+```cmake
+set(SOURCES
+    src/main.cpp
+    src/AppState.cpp
+    src/AppConfig.cpp
+    src/ColourMap.cpp
+    src/Interface.cpp
+    src/QCState.cpp
+    src/TagWrapper.cpp
+    src/ViewManager.cpp
+    src/Volume.cpp
+)
+if(ENABLE_VULKAN)
+    list(APPEND SOURCES src/VulkanBackend.cpp src/VulkanHelpers.cpp)
+endif()
+if(ENABLE_OPENGL2)
+    list(APPEND SOURCES src/OpenGL2Backend.cpp)
+endif()
+```
+
+**Option B:** Keep GLOB but exclude with `list(REMOVE_ITEM)`. Less clean.
+
+Go with **Option A**.
+
+### 3.4 Implement factory in a new file `src/BackendFactory.cpp`
+
+This avoids putting `#ifdef` logic inside any single backend file. The factory
+implementation needs to know about all compiled-in backends.
+
+**File: `src/BackendFactory.cpp`** (new):
+
+```cpp
+#include "GraphicsBackend.h"
+#include <stdexcept>
+#include <algorithm>
+#include <cctype>
+
+#ifdef HAS_VULKAN
+#include "VulkanBackend.h"
+#endif
+#ifdef HAS_OPENGL2
+#include "OpenGL2Backend.h"
+#endif
+
+std::unique_ptr<GraphicsBackend> GraphicsBackend::create(BackendType type)
 {
-    qcInputPath = argv[++i];
+    switch (type)
+    {
+#ifdef HAS_VULKAN
+    case BackendType::Vulkan:
+        return std::make_unique<VulkanBackend>();
+#endif
+#ifdef HAS_OPENGL2
+    case BackendType::OpenGL2:
+        return std::make_unique<OpenGL2Backend>();
+#endif
+    default:
+        throw std::runtime_error(
+            std::string("Backend not available: ") + backendName(type));
+    }
 }
-else if (arg == "--qc-output" && i + 1 < argc)
+
+BackendType GraphicsBackend::detectBest()
 {
-    qcOutputPath = argv[++i];
+    auto avail = availableBackends();
+    if (avail.empty())
+        throw std::runtime_error("No graphics backends compiled in");
+    return avail.front();
+}
+
+std::vector<BackendType> GraphicsBackend::availableBackends()
+{
+    std::vector<BackendType> result;
+#ifdef HAS_VULKAN
+    result.push_back(BackendType::Vulkan);
+#endif
+#ifdef HAS_OPENGL2
+    result.push_back(BackendType::OpenGL2);
+#endif
+#ifdef HAS_METAL
+    result.push_back(BackendType::Metal);
+#endif
+    return result;
+}
+
+const char* GraphicsBackend::backendName(BackendType type)
+{
+    switch (type)
+    {
+    case BackendType::Vulkan:  return "vulkan";
+    case BackendType::OpenGL2: return "opengl2";
+    case BackendType::Metal:   return "metal";
+    }
+    return "unknown";
+}
+
+std::optional<BackendType> GraphicsBackend::parseBackendName(const std::string& name)
+{
+    std::string lower = name;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+        [](unsigned char c) { return std::tolower(c); });
+
+    if (lower == "vulkan" || lower == "vk")    return BackendType::Vulkan;
+    if (lower == "opengl2" || lower == "gl2"
+        || lower == "opengl" || lower == "gl") return BackendType::OpenGL2;
+    if (lower == "metal" || lower == "mtl")    return BackendType::Metal;
+    return std::nullopt;
 }
 ```
 
-**Add validation** (after arg loop, around line 123):
+Add `BackendFactory.cpp` to the explicit source list in CMake (always compiled).
+
+### 3.5 Remove old `createDefault()` from `VulkanBackend.cpp`
+
+**File: `src/VulkanBackend.cpp`** — Delete lines 39-42:
 ```cpp
-if (!qcInputPath.empty() && qcOutputPath.empty())
+std::unique_ptr<GraphicsBackend> GraphicsBackend::createDefault()
 {
-    std::cerr << "Error: --qc requires --qc-output\n";
-    return 1;
+    return std::make_unique<VulkanBackend>();
 }
 ```
 
-**Update help text** (lines 69-85), add:
-```
-  --qc <input.csv>       Enable QC mode with input CSV
-  --qc-output <out.csv>  Output CSV for QC verdicts (required with --qc)
-```
+This is now handled by `BackendFactory.cpp`.
 
-### 3.2 Integrate QC startup into `main.cpp`
+### 3.6 Add `--backend` CLI flag to `main.cpp`
 
-**After config merging** (line 152), add QC state initialization:
+**File: `src/main.cpp`** — Add to arg parsing loop:
+
 ```cpp
-QCState qcState;
-if (!qcInputPath.empty())
+else if ((arg == "--backend" || arg == "-B") && i + 1 < argc)
 {
-    qcState.active = true;
-    qcState.inputCsvPath = qcInputPath;
-    qcState.outputCsvPath = qcOutputPath;
-    qcState.loadInputCsv(qcInputPath);
-    if (std::filesystem::exists(qcOutputPath))
-        qcState.loadOutputCsv(qcOutputPath);
-    if (mergedCfg.qcColumns)
-        qcState.columnConfigs = *mergedCfg.qcColumns;
-    qcState.showOverlay = mergedCfg.global.showOverlay;
+    cliBackendName = argv[++i];
 }
 ```
 
-**Wrap existing volume loading** (lines 154-196) in `if (!qcState.active)`:
+After arg parsing, determine backend type:
 ```cpp
-if (qcState.active)
+BackendType backendType;
+if (!cliBackendName.empty())
 {
-    int startRow = qcState.firstUnratedRow();
-    if (startRow < 0) startRow = 0;
-    qcState.currentRowIndex = startRow;
-    // Volumes loaded after backend init (below)
+    if (cliBackendName == "auto")
+    {
+        backendType = GraphicsBackend::detectBest();
+    }
+    else
+    {
+        auto parsed = GraphicsBackend::parseBackendName(cliBackendName);
+        if (!parsed)
+        {
+            std::cerr << "Unknown backend: " << cliBackendName << "\n";
+            std::cerr << "Available:";
+            for (auto b : GraphicsBackend::availableBackends())
+                std::cerr << " " << GraphicsBackend::backendName(b);
+            std::cerr << "\n";
+            return 1;
+        }
+        backendType = *parsed;
+    }
 }
 else
 {
-    // ... existing volume loading code unchanged ...
+    backendType = GraphicsBackend::detectBest();
 }
 ```
 
-**After ViewManager/Interface construction** (line 260), change Interface constructor
-to accept QCState reference and add QC volume loading:
+Create backend before window:
 ```cpp
-Interface interface(state, viewManager, qcState);
+auto backend = GraphicsBackend::create(backendType);
+backend->setWindowHints();
+glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
 
-if (qcState.active && qcState.rowCount() > 0)
+GLFWwindow* window = glfwCreateWindow(initW, initH,
+    "New Register", nullptr, nullptr);
+```
+
+Update the window title to include backend name:
+```cpp
+std::string title = std::string("New Register (") +
+    GraphicsBackend::backendName(backendType) + ")";
+GLFWwindow* window = glfwCreateWindow(initW, initH,
+    title.c_str(), nullptr, nullptr);
+```
+
+Update help text:
+```
+  -B, --backend <name>   Graphics backend: auto, vulkan, opengl2 (default: auto)
+```
+
+### 3.7 Runtime fallback on initialization failure
+
+In `main.cpp`, wrap `backend->initialize(window)` with a fallback:
+
+```cpp
+try
 {
-    const auto& paths = qcState.pathsForRow(qcState.currentRowIndex);
-    state.loadVolumeSet(paths);
-    // Apply per-column configs (colour map, range)
-    for (int ci = 0; ci < qcState.columnCount() && ci < state.volumeCount(); ++ci)
+    backend->initialize(window);
+}
+catch (const std::exception& e)
+{
+    std::cerr << "[backend] " << GraphicsBackend::backendName(backendType)
+              << " failed: " << e.what() << "\n";
+
+    // Try fallback backends
+    bool initialized = false;
+    for (auto fallback : GraphicsBackend::availableBackends())
     {
-        auto it = qcState.columnConfigs.find(qcState.columnNames[ci]);
-        if (it != qcState.columnConfigs.end())
+        if (fallback == backendType)
+            continue;
+        std::cerr << "[backend] Trying fallback: "
+                  << GraphicsBackend::backendName(fallback) << "\n";
+        try
         {
-            VolumeViewState& vs = state.viewStates_[ci];
-            vs.colourMap = colourMapFromName(it->second.colourMap);
-            if (it->second.valueMin) vs.valueRange[0] = *it->second.valueMin;
-            if (it->second.valueMax) vs.valueRange[1] = *it->second.valueMax;
+            glfwDestroyWindow(window);
+            backend = GraphicsBackend::create(fallback);
+            backend->setWindowHints();
+            glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
+            window = glfwCreateWindow(initW, initH,
+                (std::string("New Register (") +
+                 GraphicsBackend::backendName(fallback) + ")").c_str(),
+                nullptr, nullptr);
+            if (!window)
+                continue;
+            backend->initialize(window);
+            backendType = fallback;
+            initialized = true;
+            break;
+        }
+        catch (const std::exception& e2)
+        {
+            std::cerr << "[backend] " << GraphicsBackend::backendName(fallback)
+                      << " also failed: " << e2.what() << "\n";
         }
     }
-    viewManager.initializeAllTextures();
-}
-else if (!state.volumes_.empty())
-{
-    // Normal mode: existing init code
-    state.initializeViewStates();
-    state.applyConfig(mergedCfg, initW, initH);
-    viewManager.initializeAllTextures();
+    if (!initialized)
+    {
+        std::cerr << "Error: No usable graphics backend found.\n";
+        glfwTerminate();
+        return 1;
+    }
 }
 ```
-
-### 3.3 Add `colourMapFromName()` helper
-
-**File: `include/ColourMap.h`** — Add declaration:
-```cpp
-ColourMapType colourMapFromName(const std::string& name);
-```
-
-**File: `src/ColourMap.cpp`** — Implement: iterate over all `ColourMapType` values
-(0 to `colourMapCount()-1`), compare `colourMapName(type)` with the input string
-(case-insensitive). Return matching type or `ColourMapType::GrayScale` as default.
 
 ### Phase 3 Checkpoint
-- `new_register --qc test.csv --qc-output results.csv` loads the first row's volumes.
-- `new_register vol1.mnc vol2.mnc` still works normally.
-- Full build + existing tests pass.
+- Build with `-DENABLE_VULKAN=ON -DENABLE_OPENGL2=ON` succeeds (even though
+  `OpenGL2Backend.cpp` doesn't exist yet — it won't be in the source list until
+  Phase 4). Actually at this point we need at least a stub. See Phase 4.
+- Build with `-DENABLE_VULKAN=ON -DENABLE_OPENGL2=OFF` succeeds.
+- `--backend vulkan` works, `--backend opengl2` gives "Backend not available"
+  (until Phase 4).
+- 11/11 tests pass.
+- **Commit**: "Add backend registry, factory, CLI selection, and runtime fallback"
 
 ---
 
-## Phase 4: QC User Interface
+## Phase 4: Implement OpenGL2Backend
 
-### 4.1 Update `Interface` class
+### 4.1 Create `include/OpenGL2Backend.h`
 
-**File: `include/Interface.h`:**
-- Add forward declaration: `class QCState;`
-- Change constructor: `Interface(AppState&, ViewManager&, QCState&);`
-- Add private member: `QCState& qcState_;`
-- Add private member: `bool scrollToCurrentRow_ = true;`
-- Add private methods:
-  ```cpp
-  void renderQCListWindow();
-  void renderQCVerdictPanel(int volumeIndex);
-  void switchQCRow(int newRow);
-  ```
-
-**File: `src/Interface.cpp`:**
-- Update constructor to accept and store `QCState&`.
-- Add `#include "QCState.h"`.
-
-**File: `src/main.cpp`:**
-- Update `Interface` construction to pass `qcState`.
-- For non-QC mode, `qcState.active` is `false`, so all QC code paths are skipped.
-
-### 4.2 Implement `switchQCRow(int newRow)`
-
-Core volume-swap function. Called by QC list clicks and `[`/`]` keys.
-
-- Bounds check: return if `newRow < 0` or `>= rowCount()` or `== currentRowIndex`.
-- Set `qcState_.currentRowIndex = newRow`.
-- Call `state_.loadVolumeSet(qcState_.pathsForRow(newRow))`.
-- Re-apply per-column configs (colour map, value range) from `qcState_.columnConfigs`.
-- Call `viewManager_.initializeAllTextures()`.
-- Rebuild `columnNames_` from QC column headers.
-- Set `state_.layoutInitialized_ = false` to force layout rebuild.
-- Set `scrollToCurrentRow_ = true`.
-
-### 4.3 Implement `renderQCListWindow()`
-
-A docked ImGui window with a scrollable table.
-
-- Window title: `"QC List"` (fixed, for stable DockBuilder ID).
-- Show progress in content: `"Rated: 12 / 50"`.
-- Table with 3 columns: `#`, `ID`, `Status`.
-- Per row:
-  - Compute status: `anyFail`, `allPass`, `anyRated` from verdicts.
-  - Color row background: red tint if `anyFail`, green tint if `allPass`, default otherwise.
-  - `Selectable` spanning all columns. On click: `switchQCRow(ri)`.
-  - Status column: colored text `FAIL`/`PASS`/`...`/`---`.
-  - Unique ImGui ID per row: `"##qc_{row}"` suffix.
-- Auto-scroll to current row on first render (`scrollToCurrentRow_` flag +
-  `ImGui::SetScrollHereY()`).
-
-### 4.4 Implement `renderQCVerdictPanel(int volumeIndex)`
-
-Rendered inside each volume column, below the slice views.
-
-- Guard: return if `currentRowIndex` invalid or `volumeIndex >= columnCount()`.
-- Get mutable reference to `QCRowResult.verdicts[volumeIndex]` and `.comments[volumeIndex]`.
-- `ImGui::PushID(volumeIndex + 5000)` to avoid ID conflicts.
-- Three `ImGui::RadioButton` on one line: `PASS`, `FAIL`, `---` (UNRATED).
-- `ImGui::InputText` for comment (256 char buffer).
-- On any change: call `qcState_.saveOutputCsv()`.
-- `ImGui::PopID()`.
-
-### 4.5 Integrate QC into `Interface::render()`
-
-**Keyboard shortcuts** — Inside the `!WantTextInput` guard (after `T` key at line 103):
 ```cpp
-if (qcState_.active)
+#pragma once
+
+#include "GraphicsBackend.h"
+
+#include <map>
+
+struct GLFWwindow;
+
+/// OpenGL 2 (fixed-function pipeline) backend.
+/// Uses ImGui's imgui_impl_opengl2 renderer backend.
+/// This is the simplest backend, suitable for legacy Linux systems,
+/// software renderers (Mesa llvmpipe), and SSH/X11 forwarding.
+class OpenGL2Backend : public GraphicsBackend
 {
-    if (ImGui::IsKeyPressed(ImGuiKey_RightBracket))  // ]
-        switchQCRow(qcState_.currentRowIndex + 1);
-    if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket))   // [
-        switchQCRow(qcState_.currentRowIndex - 1);
+public:
+    OpenGL2Backend() = default;
+    ~OpenGL2Backend() override = default;
+
+    // --- Lifecycle ---
+    void setWindowHints() override;
+    void initialize(GLFWwindow* window) override;
+    void shutdown() override;
+    void waitIdle() override;
+
+    // --- Frame cycle ---
+    bool needsSwapchainRebuild() const override;
+    void rebuildSwapchain(int width, int height) override;
+    void beginFrame() override;
+    void endFrame() override;
+
+    // --- ImGui integration ---
+    void initImGui(GLFWwindow* window) override;
+    void shutdownImGui() override;
+    void imguiNewFrame() override;
+    void imguiRenderDrawData() override;
+
+    // --- DPI ---
+    float contentScale() const override;
+
+    // --- Screenshot ---
+    std::vector<uint8_t> captureScreenshot(int& width, int& height) override;
+
+    // --- Texture management ---
+    std::unique_ptr<Texture> createTexture(int w, int h, const void* data) override;
+    void updateTexture(Texture* tex, const void* data) override;
+    void destroyTexture(Texture* tex) override;
+    void shutdownTextureSystem() override;
+
+private:
+    GLFWwindow* window_ = nullptr;
+    float contentScale_ = 1.0f;
+    int fbWidth_ = 0;
+    int fbHeight_ = 0;
+
+    /// Map from ImTextureID to OpenGL texture name (GLuint), for cleanup.
+    std::map<ImTextureID, unsigned int> glTextures_;
+};
+```
+
+### 4.2 Create `src/OpenGL2Backend.cpp`
+
+This is the core new implementation. OpenGL 2 is refreshingly simple compared to
+Vulkan — no instances, no devices, no command buffers, no descriptor sets, no
+swapchains. GLFW manages the GL context, and buffer swapping is just
+`glfwSwapBuffers()`.
+
+```cpp
+#include "OpenGL2Backend.h"
+
+#include <imgui.h>
+#include <backends/imgui_impl_glfw.h>
+#include <backends/imgui_impl_opengl2.h>
+
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
+
+// We need GL headers for texture management and glReadPixels.
+// On Linux, GLFW's built-in GL loader or a system header works.
+// imgui_impl_opengl2.cpp uses its own minimal loader, but we need
+// a few functions directly. Use GLFW's built-in loader for simplicity.
+#ifdef _WIN32
+#include <GL/gl.h>
+#else
+#define GL_GLEXT_PROTOTYPES
+#include <GL/gl.h>
+#endif
+
+#include <iostream>
+#include <stdexcept>
+#include <cstring>
+
+// ---------------------------------------------------------------------------
+// GLFW hints
+// ---------------------------------------------------------------------------
+
+void OpenGL2Backend::setWindowHints()
+{
+    // Use default GLFW_OPENGL_API (no hint needed — it's the default).
+    // Explicitly reset in case a previous backend attempt set GLFW_NO_API.
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_API);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+    // Do NOT request core profile — GL 2.1 uses compatibility profile.
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
+
+void OpenGL2Backend::initialize(GLFWwindow* window)
+{
+    window_ = window;
+
+    // OpenGL requires making the context current before any GL calls.
+    glfwMakeContextCurrent(window);
+    glfwSwapInterval(1);  // VSync
+
+    // Query content scale for HiDPI
+    {
+        float xscale = 1.0f, yscale = 1.0f;
+        glfwGetWindowContentScale(window, &xscale, &yscale);
+        contentScale_ = (xscale > yscale) ? xscale : yscale;
+        if (contentScale_ < 1.0f) contentScale_ = 1.0f;
+    }
+
+    // Store initial framebuffer size
+    glfwGetFramebufferSize(window, &fbWidth_, &fbHeight_);
+
+    std::cerr << "[opengl2] Initialized: " << glGetString(GL_RENDERER)
+              << " (" << glGetString(GL_VERSION) << ")\n";
+}
+
+void OpenGL2Backend::shutdown()
+{
+    // OpenGL context is destroyed when the GLFW window is destroyed.
+    // Nothing to do here.
+}
+
+void OpenGL2Backend::waitIdle()
+{
+    glFinish();
+}
+
+// ---------------------------------------------------------------------------
+// Frame cycle
+// ---------------------------------------------------------------------------
+
+bool OpenGL2Backend::needsSwapchainRebuild() const
+{
+    // OpenGL handles resize automatically — the default framebuffer
+    // always matches the window. No explicit "swapchain rebuild" needed.
+    return false;
+}
+
+void OpenGL2Backend::rebuildSwapchain(int width, int height)
+{
+    fbWidth_ = width;
+    fbHeight_ = height;
+    glViewport(0, 0, width, height);
+}
+
+void OpenGL2Backend::beginFrame()
+{
+    // Update framebuffer size each frame (handles resize)
+    glfwGetFramebufferSize(window_, &fbWidth_, &fbHeight_);
+    glViewport(0, 0, fbWidth_, fbHeight_);
+}
+
+void OpenGL2Backend::endFrame()
+{
+    ImDrawData* drawData = ImGui::GetDrawData();
+    if (!drawData) return;
+
+    glViewport(0, 0,
+        static_cast<int>(drawData->DisplaySize.x),
+        static_cast<int>(drawData->DisplaySize.y));
+    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    ImGui_ImplOpenGL2_RenderDrawData(drawData);
+
+    glfwSwapBuffers(window_);
+}
+
+// ---------------------------------------------------------------------------
+// ImGui integration
+// ---------------------------------------------------------------------------
+
+void OpenGL2Backend::initImGui(GLFWwindow* window)
+{
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+
+    ImGui::StyleColorsDark();
+
+    // Scale the entire ImGui style for HiDPI
+    if (contentScale_ > 1.0f)
+        ImGui::GetStyle().ScaleAllSizes(contentScale_);
+
+    // Load default font at scaled size
+    {
+        float fontSize = 13.0f * contentScale_;
+        ImFontConfig fontCfg;
+        fontCfg.SizePixels = fontSize;
+        fontCfg.OversampleH = 1;
+        fontCfg.OversampleV = 1;
+        fontCfg.PixelSnapH = true;
+        io.Fonts->AddFontDefault(&fontCfg);
+    }
+
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL2_Init();
+}
+
+void OpenGL2Backend::shutdownImGui()
+{
+    ImGui_ImplOpenGL2_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+}
+
+void OpenGL2Backend::imguiNewFrame()
+{
+    ImGui_ImplOpenGL2_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+}
+
+void OpenGL2Backend::imguiRenderDrawData()
+{
+    endFrame();
+}
+
+float OpenGL2Backend::contentScale() const
+{
+    return contentScale_;
+}
+
+// ---------------------------------------------------------------------------
+// Screenshot
+// ---------------------------------------------------------------------------
+
+std::vector<uint8_t> OpenGL2Backend::captureScreenshot(int& width, int& height)
+{
+    glFinish();
+
+    glfwGetFramebufferSize(window_, &width, &height);
+    if (width <= 0 || height <= 0)
+        return {};
+
+    std::vector<uint8_t> pixels(width * height * 4);
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+
+    // OpenGL reads bottom-to-top; flip vertically for top-to-bottom RGBA.
+    int rowBytes = width * 4;
+    std::vector<uint8_t> rowBuf(rowBytes);
+    for (int y = 0; y < height / 2; ++y)
+    {
+        uint8_t* top = pixels.data() + y * rowBytes;
+        uint8_t* bot = pixels.data() + (height - 1 - y) * rowBytes;
+        std::memcpy(rowBuf.data(), top, rowBytes);
+        std::memcpy(top, bot, rowBytes);
+        std::memcpy(bot, rowBuf.data(), rowBytes);
+    }
+
+    return pixels;
+}
+
+// ---------------------------------------------------------------------------
+// Texture management
+// ---------------------------------------------------------------------------
+
+std::unique_ptr<Texture> OpenGL2Backend::createTexture(int w, int h, const void* data)
+{
+    GLuint texId = 0;
+    glGenTextures(1, &texId);
+    glBindTexture(GL_TEXTURE_2D, texId);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, data);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    auto tex = std::make_unique<Texture>();
+    tex->id     = reinterpret_cast<ImTextureID>(static_cast<intptr_t>(texId));
+    tex->width  = w;
+    tex->height = h;
+
+    glTextures_[tex->id] = texId;
+    return tex;
+}
+
+void OpenGL2Backend::updateTexture(Texture* tex, const void* data)
+{
+    if (!tex) return;
+    auto it = glTextures_.find(tex->id);
+    if (it == glTextures_.end()) return;
+
+    glBindTexture(GL_TEXTURE_2D, it->second);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, tex->width, tex->height,
+                    GL_RGBA, GL_UNSIGNED_BYTE, data);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+void OpenGL2Backend::destroyTexture(Texture* tex)
+{
+    if (!tex) return;
+    auto it = glTextures_.find(tex->id);
+    if (it != glTextures_.end())
+    {
+        glDeleteTextures(1, &it->second);
+        glTextures_.erase(it);
+    }
+    tex->id = nullptr;
+}
+
+void OpenGL2Backend::shutdownTextureSystem()
+{
+    for (auto& [id, glId] : glTextures_)
+        glDeleteTextures(1, &glId);
+    glTextures_.clear();
 }
 ```
 
-**Suppress tag list** — Modify tag list rendering (line 114):
-```cpp
-if (!qcState_.active && state_.tagListWindowVisible_ && state_.volumeCount() > 0)
-    renderTagListWindow();
-```
+### 4.3 Update CMakeLists.txt
 
-**Add QC list** — After tag list block:
-```cpp
-if (qcState_.active)
-    renderQCListWindow();
-```
-
-**Column names** — Modify `columnNames_` init (lines 29-34): in QC mode, use
-`qcState_.columnNames` instead of `state_.volumeNames_`.
-
-**Overlay** — Modify overlay block (line 110):
-```cpp
-bool showOverlayPanel = hasOverlay;
-if (qcState_.active)
-    showOverlayPanel = showOverlayPanel && qcState_.showOverlay;
-if (showOverlayPanel)
-    renderOverlayPanel();
-```
-
-### 4.6 Add verdict panel to `renderVolumeColumn()`
-
-**File: `src/Interface.cpp`, `renderVolumeColumn()` (starts at line 317):**
-
-After the controls child block (`if (!state_.cleanMode_) { ... }` ending around line 530),
-before `ImGui::End()`:
-```cpp
-if (qcState_.active)
-{
-    ImGui::BeginChild("##qc_verdict", ImVec2(viewWidth, 0), ImGuiChildFlags_Borders);
-    renderQCVerdictPanel(vi);
-    ImGui::EndChild();
-}
-```
-
-Adjust `viewAreaHeight` (line 327) to reserve space for the verdict panel:
-```cpp
-const float verdictHeight = qcState_.active ? 60.0f * state_.dpiScale_ : 0.0f;
-float viewAreaHeight = avail.y - controlsHeight - verdictHeight;
-```
-
-Note: Verdict panel is always visible in QC mode, even in clean mode, so the user
-can always rate volumes.
-
-### 4.7 QC mode restrictions in `renderToolsPanel()`
-
-- Wrap "Save Global" / "Save Local" buttons with `if (!qcState_.active)`.
-- Wrap tag list checkbox with `if (!qcState_.active)`.
-- Add QC progress info at top of tools panel when QC active:
-  ```cpp
-  if (qcState_.active)
-  {
-      ImGui::Text("QC Mode");
-      ImGui::Text("%d / %d rated", qcState_.ratedCount(), qcState_.rowCount());
-      if (qcState_.currentRowIndex >= 0)
-          ImGui::Text("ID: %s", qcState_.rowIds[qcState_.currentRowIndex].c_str());
-      ImGui::Separator();
-  }
-  ```
-
-### 4.8 Suppress right-click tag creation in QC mode
-
-**File: `src/Interface.cpp`, `renderSliceView()`** — The right-click handler (around
-line 1012):
-```cpp
-if (!qcState_.active && imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
-```
-
-### 4.9 Layout adjustments for QC mode
-
-**File: `src/Interface.cpp`, `render()`** — In the layout block (lines 41-78):
-
-When `qcState_.active`, add a QC List dock on the far left:
-```cpp
-if (qcState_.active)
-{
-    ImGuiID qcListId, remainder;
-    ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, 0.12f,
-        &qcListId, &remainder);
-    ImGui::DockBuilderDockWindow("QC List", qcListId);
-
-    ImGuiID toolsId, contentId;
-    ImGui::DockBuilderSplitNode(remainder, ImGuiDir_Left, 0.06f,
-        &toolsId, &contentId);
-    ImGui::DockBuilderDockWindow("Tools", toolsId);
-
-    // Volume columns + optional overlay split into contentId
-    // ... same column splitting logic as existing code ...
-}
-else
-{
-    // ... existing layout code unchanged ...
-}
-```
+Add `OpenGL2Backend.cpp` to the conditional source list (inside `if(ENABLE_OPENGL2)`).
+Add `BackendFactory.cpp` to the always-compiled source list.
 
 ### Phase 4 Checkpoint
-- QC mode: list window shows all rows, color coded.
-- Clicking row or pressing `[`/`]` swaps volumes.
-- Verdict radio buttons + comment field per column.
-- PASS/FAIL changes auto-save to output CSV.
-- Tags disabled, save buttons hidden.
-- Normal mode: no visible changes.
+- Build with both backends: `cmake -DENABLE_VULKAN=ON -DENABLE_OPENGL2=ON ..`
+- `--backend vulkan` works as before.
+- `--backend opengl2` launches with OpenGL 2 and renders correctly.
+- `--backend auto` picks Vulkan first (if available), falls back to OpenGL2.
+- 11/11 tests pass.
+- Screenshot works with both backends.
+- **Commit**: "Implement OpenGL 2 backend"
 
 ---
 
-## Phase 5: Polish and Edge Cases
+## Phase 5: Polish and Metal Stub
 
-### 5.1 Missing file handling
+### 5.1 Diagnostic logging at startup
 
-In `renderVolumeColumn()`, check `vol.data.empty()` before rendering slices:
+Print the selected backend and available backends:
 ```cpp
-if (vol.data.empty())
-{
-    ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "Volume not loaded");
-    if (!state_.volumePaths_[vi].empty())
-        ImGui::TextWrapped("File: %s", state_.volumePaths_[vi].c_str());
-    if (qcState_.active)
-        renderQCVerdictPanel(vi);
-    ImGui::End();
-    return;
-}
+std::cerr << "[backend] Using: " << GraphicsBackend::backendName(backendType) << "\n";
+std::cerr << "[backend] Available:";
+for (auto b : GraphicsBackend::availableBackends())
+    std::cerr << " " << GraphicsBackend::backendName(b);
+std::cerr << "\n";
 ```
 
-### 5.2 Auto-scroll to current row
+### 5.2 Update window title dynamically
 
-In `Interface`, add `scrollToCurrentRow_` bool member (default `true`).
-In `renderQCListWindow()`, after the `Selectable` for the current row:
+After successful backend init:
 ```cpp
-if (qcState_.currentRowIndex == ri && scrollToCurrentRow_)
-{
-    ImGui::SetScrollHereY();
-    scrollToCurrentRow_ = false;
-}
+std::string title = std::string("New Register (") +
+    GraphicsBackend::backendName(backendType) + ")";
+glfwSetWindowTitle(window, title.c_str());
 ```
-Reset to `true` in `switchQCRow()`.
 
-### 5.3 Clean mode interaction
+This handles the fallback case where the actual backend differs from the originally
+requested one.
 
-In clean mode, verdict panel remains visible (remove `!state_.cleanMode_` guard).
-Controls (colour map, range inputs) are hidden as usual. The QC list window and
-tools panel follow clean mode visibility rules.
+### 5.3 Metal documentation in PLAN.md
 
-### 5.4 Proper flush on quit
+Add a "Metal Backend (Future)" section to PLAN.md documenting what's needed:
 
-After the main loop in `main.cpp`, before shutdown:
-```cpp
-if (qcState.active)
-    qcState.saveOutputCsv();
-```
+1. `include/MetalBackend.h` / `src/MetalBackend.mm` (Objective-C++)
+2. CMake: `enable_language(OBJCXX)`, find Metal framework
+3. GLFW: `GLFW_NO_API`, create `CAMetalLayer` on native Cocoa view
+4. ImGui: `ImGui_ImplGlfw_InitForOther()` + `ImGui_ImplMetal_Init(device)`
+5. Texture: `MTLTexture` objects, `ImTextureID` = `MTLTexture*`
+
+### 5.4 OpenGL2 missing features check
+
+The OpenGL2 backend uses `glReadPixels` for screenshots which reads the front buffer
+after swap. This might produce a black frame on some drivers. If so, read before
+`glfwSwapBuffers()` instead. Test and fix if needed.
+
+### Phase 5 Checkpoint
+- All polish applied.
+- Both backends work correctly.
+- 11/11 tests pass.
+- **Commit**: "Polish backend selection, add Metal stub documentation"
 
 ---
 
 ## Implementation Order and Checkpoints
 
-| Step | Phase | Files Changed | Checkpoint |
+| Step | Phase | Files Changed / Added | Commit Message |
 |---|---|---|---|
-| 1 | 1.1-1.2 | `QCState.h` (new), `QCState.cpp` (new) | Compiles standalone |
-| 2 | 1.3-1.4 | `AppConfig.h`, `AppConfig.cpp` | Config loads with `qc_columns` |
-| 3 | 1.5-1.6 | `CMakeLists.txt`, `test_qc_csv.cpp` (new) | `ctest -R QCCsv` passes |
-| 4 | 2.1 | `VulkanHelpers.h`, `VulkanHelpers.cpp` | Full build, existing tests pass |
-| 5 | 2.2 | `AppState.h`, `AppState.cpp` | Full build |
-| 6 | 2.3 | `ViewManager.h`, `ViewManager.cpp`, `main.cpp` | App runs normally |
-| 7 | 3.1-3.3 | `main.cpp`, `ColourMap.h`, `ColourMap.cpp` | `--qc` loads first row |
-| 8 | 4.1-4.4 | `Interface.h`, `Interface.cpp` | QC list + verdict panels render |
-| 9 | 4.5-4.9 | `Interface.cpp` | Full QC UI functional |
-| 10 | 5.1-5.4 | `Interface.cpp`, `main.cpp` | Edge cases handled |
+| 1 | 1.1–1.7 | `GraphicsBackend.h`, `VulkanBackend.h`, `VulkanBackend.cpp`, `AppState.h`, `ViewManager.h`, `ViewManager.cpp`, `Interface.cpp`, `main.cpp` | Abstract texture system behind GraphicsBackend interface |
+| 2 | 2.1–2.3 | `GraphicsBackend.h`, `VulkanBackend.h`, `VulkanBackend.cpp`, `main.cpp` | Decouple GLFW window hints from backend via setWindowHints() |
+| 3 | 3.1–3.7 | `GraphicsBackend.h`, `CMakeLists.txt`, `BackendFactory.cpp` (new), `VulkanBackend.cpp`, `main.cpp` | Add backend registry, factory, CLI selection, and runtime fallback |
+| 4 | 4.1–4.3 | `OpenGL2Backend.h` (new), `OpenGL2Backend.cpp` (new), `CMakeLists.txt` | Implement OpenGL 2 backend |
+| 5 | 5.1–5.4 | `main.cpp`, `PLAN.md` | Polish backend selection, add Metal stub documentation |
 
-Each step should be a separate commit. The app compiles and runs (in normal mode)
-after every step. QC mode becomes functional at step 7 and fully featured at step 9.
+Each step should be a separate commit. The app compiles and runs (Vulkan only)
+after steps 1-3. OpenGL2 becomes functional at step 4.
 
 ---
 
 ## File Changes Summary
 
-| File | Action | Description |
-|---|---|---|
-| `include/QCState.h` | **New** | QC data structures, enums, state class |
-| `src/QCState.cpp` | **New** | CSV parsing, saving, row management |
-| `tests/test_qc_csv.cpp` | **New** | Unit test for CSV round-trip |
-| `include/AppConfig.h` | Edit | Add `QCColumnConfig`, `showOverlay`, `qcColumns` |
-| `src/AppConfig.cpp` | Edit | Glaze meta for `QCColumnConfig`, updated serialization |
-| `include/VulkanHelpers.h` | Edit | Add `~VulkanTexture()` destructor |
-| `src/VulkanHelpers.cpp` | Edit | Implement destructor with `cleanup(g_Device)` |
-| `include/AppState.h` | Edit | Add `clearAllVolumes()`, `loadVolumeSet()` |
-| `src/AppState.cpp` | Edit | Implement volume lifecycle methods |
-| `include/ViewManager.h` | Edit | Add `initializeAllTextures()`, `destroyAllTextures()` |
-| `src/ViewManager.cpp` | Edit | Implement texture lifecycle methods |
-| `include/Interface.h` | Edit | Add QCState ref, QC methods, `scrollToCurrentRow_` |
-| `src/Interface.cpp` | Edit | QC list, verdict panels, mode restrictions, layout |
-| `include/ColourMap.h` | Edit | Add `colourMapFromName()` |
-| `src/ColourMap.cpp` | Edit | Implement `colourMapFromName()` |
-| `src/main.cpp` | Edit | QC CLI args, startup integration, shutdown flush |
-| `CMakeLists.txt` | Edit | Add `test_qc_csv` test target |
+| File | Action | Phase | Description |
+|---|---|---|---|
+| `include/GraphicsBackend.h` | Edit | 1, 2, 3 | Add `Texture` struct, texture methods, `setWindowHints()`, `BackendType` enum, factory methods |
+| `include/VulkanBackend.h` | Edit | 1, 2 | Add texture method overrides, `vulkanTextures_` map, `setWindowHints()` |
+| `src/VulkanBackend.cpp` | Edit | 1, 2, 3 | Implement texture methods, `setWindowHints()`, remove old `createDefault()` |
+| `include/AppState.h` | Edit | 1 | Replace `VulkanTexture` with `Texture`, remove `VulkanHelpers.h` include |
+| `include/ViewManager.h` | Edit | 1 | Add `GraphicsBackend&` to constructor |
+| `src/ViewManager.cpp` | Edit | 1 | Replace `VulkanHelpers` calls with `backend_` calls |
+| `src/Interface.cpp` | Edit | 1 | Replace `VulkanTexture*` with `Texture*`, `descriptor_set` with `id` |
+| `src/main.cpp` | Edit | 1, 2, 3, 5 | Remove Vulkan includes, add `--backend`, reorder init, add fallback |
+| `src/BackendFactory.cpp` | **New** | 3 | Factory method, `detectBest()`, `availableBackends()`, name parsing |
+| `include/OpenGL2Backend.h` | **New** | 4 | OpenGL 2 backend header |
+| `src/OpenGL2Backend.cpp` | **New** | 4 | Full OpenGL 2 backend implementation |
+| `CMakeLists.txt` | Edit | 3, 4 | Backend options, conditional compilation and linking |
+| `PLAN.md` | Edit | 5 | Multi-backend section, Metal stub documentation |
+
+---
+
+## Risk Assessment
+
+- **Phase 1 (Texture Abstraction)** is the highest risk — it touches the most files
+  and changes the texture ownership model. But it's a clean mechanical refactor with
+  clear before/after states. The `vulkanTextures_` map in `VulkanBackend` adds one
+  indirection layer but the texture count is small (< 30).
+
+- **Phase 2 (GLFW Decoupling)** requires reordering initialization in `main.cpp`.
+  The key constraint is that backend construction must be lightweight (no GPU work)
+  and `setWindowHints()` must be called before `glfwCreateWindow()`. Both are easy
+  to verify.
+
+- **Phase 3 (Registry)** is straightforward plumbing. The fallback logic in `main.cpp`
+  is the most complex part (destroy window, recreate with new hints).
+
+- **Phase 4 (OpenGL2)** is the most new code but also the simplest conceptually.
+  OpenGL 2 is trivial compared to Vulkan — ImGui's `imgui_impl_opengl2` does all
+  the heavy lifting. The texture management is 4 GL calls per operation.
+
+- **OpenGL header portability**: On Linux `<GL/gl.h>` is standard. On macOS it would
+  be `<OpenGL/gl.h>`. The `#ifdef` in the header section handles this. Metal backend
+  (future) has its own headers entirely.

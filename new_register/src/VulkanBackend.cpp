@@ -886,3 +886,49 @@ std::vector<uint8_t> VulkanBackend::captureScreenshot(int& width, int& height)
 
     return pixels;
 }
+
+// ---------------------------------------------------------------------------
+// Texture management (wraps VulkanHelpers)
+// ---------------------------------------------------------------------------
+
+std::unique_ptr<Texture> VulkanBackend::createTexture(int w, int h, const void* data)
+{
+    auto vkTex = VulkanHelpers::CreateTexture(w, h, data);
+    if (!vkTex)
+        return nullptr;
+
+    auto tex = std::make_unique<Texture>();
+    tex->id     = reinterpret_cast<ImTextureID>(vkTex->descriptor_set);
+    tex->width  = vkTex->width;
+    tex->height = vkTex->height;
+
+    vulkanTextures_[tex->id] = std::move(vkTex);
+
+    return tex;
+}
+
+void VulkanBackend::updateTexture(Texture* tex, const void* data)
+{
+    if (!tex) return;
+    auto it = vulkanTextures_.find(tex->id);
+    if (it != vulkanTextures_.end())
+        VulkanHelpers::UpdateTexture(it->second.get(), data);
+}
+
+void VulkanBackend::destroyTexture(Texture* tex)
+{
+    if (!tex) return;
+    auto it = vulkanTextures_.find(tex->id);
+    if (it != vulkanTextures_.end())
+    {
+        VulkanHelpers::DestroyTexture(it->second.get());
+        vulkanTextures_.erase(it);
+    }
+    tex->id = 0;
+}
+
+void VulkanBackend::shutdownTextureSystem()
+{
+    vulkanTextures_.clear();  // ~VulkanTexture() cleans up GPU resources
+    VulkanHelpers::Shutdown();
+}

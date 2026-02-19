@@ -8,6 +8,10 @@
 #include <vulkan/vulkan.h>
 #include <backends/imgui_impl_vulkan.h>
 
+#include <map>
+
+class VulkanTexture;
+
 /// Vulkan implementation of the GraphicsBackend interface.
 /// Owns all Vulkan handles (instance, device, pools, swapchain window data)
 /// and manages their full lifecycle.
@@ -37,6 +41,12 @@ public:
 
     std::vector<uint8_t> captureScreenshot(int& width, int& height) override;
 
+    // --- Texture management ---
+    std::unique_ptr<Texture> createTexture(int w, int h, const void* data) override;
+    void updateTexture(Texture* tex, const void* data) override;
+    void destroyTexture(Texture* tex) override;
+    void shutdownTextureSystem() override;
+
 private:
     // --- Vulkan handles ---
     VkAllocationCallbacks*   allocator_       = nullptr;
@@ -56,6 +66,9 @@ private:
     bool                     swapChainRebuild_= false;
     float                    contentScale_    = 1.0f;
     GLFWwindow*              window_          = nullptr;
+
+    /// Map from ImTextureID to internal VulkanTexture, for update/destroy.
+    std::map<ImTextureID, std::unique_ptr<VulkanTexture>> vulkanTextures_;
 
     // --- Private helpers ---
     void createInstance(const char** extensions, uint32_t extensionCount);

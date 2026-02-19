@@ -6,9 +6,11 @@
 
 #include "AppState.h"
 
+class GraphicsBackend;
+
 class ViewManager {
 public:
-    explicit ViewManager(AppState& state);
+    ViewManager(AppState& state, GraphicsBackend& backend);
 
     void updateSliceTexture(int volumeIndex, int viewIndex);
     void updateOverlayTexture(int viewIndex);
@@ -30,4 +32,5 @@ public:
 
 private:
     AppState& state_;
+    GraphicsBackend& backend_;
 };

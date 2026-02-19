@@ -5,9 +5,10 @@
 #include <cstdio>
 
 #include "ColourMap.h"
-#include "VulkanHelpers.h"
+#include "GraphicsBackend.h"
 
-ViewManager::ViewManager(AppState& state) : state_(state) {}
+ViewManager::ViewManager(AppState& state, GraphicsBackend& backend)
+    : state_(state), backend_(backend) {}
 
 void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
     if (volumeIndex < 0 ||
@@ -105,15 +106,15 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
         }
     }
 
-    std::unique_ptr<VulkanTexture>& tex = state.sliceTextures[viewIndex];
+    std::unique_ptr<Texture>& tex = state.sliceTextures[viewIndex];
     if (!tex) {
-        tex = VulkanHelpers::CreateTexture(w, h, pixels.data());
+        tex = backend_.createTexture(w, h, pixels.data());
     } else {
         if (tex->width != w || tex->height != h) {
-            VulkanHelpers::DestroyTexture(tex.get());
-            tex = VulkanHelpers::CreateTexture(w, h, pixels.data());
+            backend_.destroyTexture(tex.get());
+            tex = backend_.createTexture(w, h, pixels.data());
         } else {
-            VulkanHelpers::UpdateTexture(tex.get(), pixels.data());
+            backend_.updateTexture(tex.get(), pixels.data());
         }
     }
 }
@@ -256,15 +257,15 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         }
     }
 
-    std::unique_ptr<VulkanTexture>& tex = state_.overlay_.textures[viewIndex];
+    std::unique_ptr<Texture>& tex = state_.overlay_.textures[viewIndex];
     if (!tex) {
-        tex = VulkanHelpers::CreateTexture(w, h, pixels.data());
+        tex = backend_.createTexture(w, h, pixels.data());
     } else {
         if (tex->width != w || tex->height != h) {
-            VulkanHelpers::DestroyTexture(tex.get());
-            tex = VulkanHelpers::CreateTexture(w, h, pixels.data());
+            backend_.destroyTexture(tex.get());
+            tex = backend_.createTexture(w, h, pixels.data());
         } else {
-            VulkanHelpers::UpdateTexture(tex.get(), pixels.data());
+            backend_.updateTexture(tex.get(), pixels.data());
         }
     }
 }

@@ -8,7 +8,7 @@
 
 #include "ColourMap.h"
 #include "Volume.h"
-#include "VulkanHelpers.h"
+#include "GraphicsBackend.h"  // for Texture
 
 class AppConfig;
 
@@ -16,7 +16,7 @@ constexpr int kClampCurrent = -2;
 constexpr int kClampTransparent = -1;
 
 struct VolumeViewState {
-    std::unique_ptr<VulkanTexture> sliceTextures[3];
+    std::unique_ptr<Texture> sliceTextures[3];
     glm::ivec3 sliceIndices{0, 0, 0};
     std::array<double, 2> valueRange = {0.0, 1.0};
     glm::dvec3 dragAccum{0.0, 0.0, 0.0};
@@ -33,7 +33,7 @@ struct VolumeViewState {
 };
 
 struct OverlayState {
-    std::unique_ptr<VulkanTexture> textures[3];
+    std::unique_ptr<Texture> textures[3];
     glm::dvec3 zoom{1.0, 1.0, 1.0};
     glm::dvec3 panU{0.5, 0.5, 0.5};
     glm::dvec3 panV{0.5, 0.5, 0.5};
@@ -81,7 +81,7 @@ public:
     void applyConfig(const AppConfig& cfg, int defaultWindowWidth, int defaultWindowHeight);
 
     /// Clear all volumes, view states, and overlay textures.
-    /// Vulkan resources are released via ~VulkanTexture().
+    /// GPU resources are released via Texture destructor.
     void clearAllVolumes();
 
     /// Replace all volumes with those loaded from the given file paths.

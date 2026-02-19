@@ -13,7 +13,6 @@
 #include <stdexcept>
 
 #define GLFW_INCLUDE_NONE
-#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
 #include "AppConfig.h"
@@ -23,7 +22,6 @@
 #include "Interface.h"
 #include "QCState.h"
 #include "Volume.h"
-#include "VulkanHelpers.h"
 #include "ViewManager.h"
 
 #include <glm/glm.hpp>
@@ -303,7 +301,7 @@ int main(int argc, char** argv)
         state.dpiScale_ = backend->contentScale();
         state.localConfigPath_ = localConfigPath;
 
-        ViewManager viewManager(state);
+        ViewManager viewManager(state, *backend);
         Interface interface(state, viewManager, qcState);
 
         if (qcState.active && qcState.rowCount() > 0)
@@ -373,7 +371,7 @@ int main(int argc, char** argv)
             qcState.saveOutputCsv();
 
         viewManager.destroyAllTextures();
-        VulkanHelpers::Shutdown();
+        backend->shutdownTextureSystem();
 
         backend->shutdownImGui();
         backend->shutdown();

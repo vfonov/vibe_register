@@ -972,7 +972,7 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
     ImGui::BeginChild(childId, childSize, ImGuiChildFlags_Borders);
     {
         if (state.sliceTextures[viewIndex]) {
-            VulkanTexture* tex = state.sliceTextures[viewIndex].get();
+            Texture* tex = state.sliceTextures[viewIndex].get();
             ImVec2 avail = ImGui::GetContentRegionAvail();
             float sliderHeight = 30.0f * state_.dpiScale_;
             avail.y -= sliderHeight;
@@ -1019,7 +1019,7 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                 ImVec2 uv1(centerU + halfU, centerV + halfV);
 
                 ImGui::Image(
-                    reinterpret_cast<ImTextureID>(tex->descriptor_set),
+                    tex->id,
                     imgSize, uv0, uv1);
 
                 {
@@ -1338,7 +1338,7 @@ int Interface::renderOverlayView(int viewIndex, const ImVec2& childSize) {
     ImGui::BeginChild(childId, childSize, ImGuiChildFlags_Borders);
     {
         if (state_.overlay_.textures[viewIndex]) {
-            VulkanTexture* tex = state_.overlay_.textures[viewIndex].get();
+            Texture* tex = state_.overlay_.textures[viewIndex].get();
             ImVec2 avail = ImGui::GetContentRegionAvail();
             float sliderHeight = 30.0f * state_.dpiScale_;
             avail.y -= sliderHeight;
@@ -1385,7 +1385,7 @@ int Interface::renderOverlayView(int viewIndex, const ImVec2& childSize) {
                 ImVec2 uv1(centerU + halfU, centerV + halfV);
 
                 ImGui::Image(
-                    reinterpret_cast<ImTextureID>(tex->descriptor_set),
+                    tex->id,
                     imgSize, uv0, uv1);
 
                 {
