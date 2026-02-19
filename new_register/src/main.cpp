@@ -319,6 +319,18 @@ int main(int argc, char** argv)
         {
             state.initializeViewStates();
             state.applyConfig(mergedCfg, initW, initH);
+
+            // CLI LUT flags override config colour maps.
+            for (size_t vi = 0; vi < cliLutPerVolume.size() && vi < static_cast<size_t>(state.volumeCount()); ++vi)
+            {
+                if (cliLutPerVolume[vi].has_value())
+                {
+                    auto cmOpt = colourMapByName(*cliLutPerVolume[vi]);
+                    if (cmOpt)
+                        state.viewStates_[vi].colourMap = *cmOpt;
+                }
+            }
+
             viewManager.initializeAllTextures();
         }
 
