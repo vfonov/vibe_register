@@ -129,6 +129,13 @@ add_test(NAME ColourMapTests COMMAND test_colour_map)
 add_nr_test(test_qc_csv
     SOURCES   QCState.cpp AppConfig.cpp
     INCLUDES  ${INC_DIR}
-    LINKS     glaze::glaze
+    LINKS     nlohmann_json::nlohmann_json
 )
 add_test(NAME QCCsvTest COMMAND test_qc_csv)
+
+# --- GCC < 10 needs -lstdc++fs for std::filesystem ---
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 10)
+    foreach(_tgt test_qc_csv test_matrix_debug test_world_to_voxel test_coordinate_sync)
+        target_link_libraries(${_tgt} PRIVATE stdc++fs)
+    endforeach()
+endif()

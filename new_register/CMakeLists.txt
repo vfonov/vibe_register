@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 project(NewRegister VERSION 0.1.0 LANGUAGES C CXX)
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --- Dependencies ---
@@ -24,14 +24,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(imgui)
 
-# 3.5. Glaze (JSON serialization)
+# 3.5. nlohmann/json (JSON serialization, C++11+)
 FetchContent_Declare(
-    glaze
-    GIT_REPOSITORY https://github.com/stephenberry/glaze.git
-    GIT_TAG        v4.2.3
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.11.3
     GIT_SHALLOW    TRUE
 )
-FetchContent_MakeAvailable(glaze)
+FetchContent_MakeAvailable(nlohmann_json)
 
 # 3.75. GLM (Math library for vector/matrix operations)
 FetchContent_Declare(
@@ -124,9 +124,14 @@ target_link_libraries(new_register PRIVATE
     imgui
     minc2-simple-static
     ${MINC2_LIB}
-    glaze::glaze
+    nlohmann_json::nlohmann_json
     glm
 )
+
+# std::filesystem requires separate library on GCC 9
+if(CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "10.0")
+    target_link_libraries(new_register PRIVATE stdc++fs)
+endif()
 
 # Definitions
 target_compile_definitions(new_register PRIVATE 

@@ -11,7 +11,6 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
-#include <format>
 
 #define GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_VULKAN

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (Docking), GLFW, and Glaze.
+Modern C++17 rewrite of the legacy `register` application using Vulkan, ImGui (Docking), GLFW, and nlohmann/json.
 
 ---
 
@@ -60,7 +60,7 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] **Overlay visibility toggle**: "Overlay" checkbox in Tools panel for both QC and regular modes; hides/shows overlay column with layout rebuild; persisted in config
 
 ### Configuration
-- [x] JSON config persistence using Glaze
+- [x] JSON config persistence using nlohmann/json
 - [x] Config loaded from `./config.json` or `--config` path
 - [x] Per-volume paths, colour maps, value ranges, slice indices, zoom, pan
 - [x] Tools panel with Save Local, Reset All Views, Quit buttons
@@ -253,7 +253,7 @@ sub03,PASS,,PASS,
   }
 }
 ```
-- Uses existing `--config` flag and Glaze JSON config system.
+- Uses existing `--config` flag and nlohmann/json config system.
 - `qc_columns` maps CSV column names to per-column display settings.
 - `showOverlay` controls whether the blended overlay panel appears (default: true).
 - Colour map and value range are applied as initial defaults but remain adjustable at runtime.
@@ -363,7 +363,7 @@ sub03,PASS,,PASS,
 | `src/QCState.cpp` | **New** | CSV parsing, saving, row management |
 | `tests/test_qc_csv.cpp` | **New** | Unit test for CSV round-trip |
 | `include/AppConfig.h` | Edit | Add `qcColumns`, `showOverlay` |
-| `src/AppConfig.cpp` | Edit | Glaze meta for QCColumnConfig |
+| `src/AppConfig.cpp` | Edit | nlohmann/json serialization for QCColumnConfig |
 | `include/VulkanHelpers.h` | Edit | Fix VulkanTexture destructor |
 | `src/VulkanHelpers.cpp` | Edit | Implement cleanup in destructor |
 | `include/AppState.h` | Edit | Add `clearAllVolumes()`, `loadVolumeSet()`, QCState ref |
@@ -398,6 +398,32 @@ sub03,PASS,,PASS,
 - [ ] **Batch C** (pixel buffer reuse): Move `std::vector<uint32_t>` to ViewManager member
 - [ ] **Batch D** (volume cache): LRU cache for QC row switches
 - [ ] **Item 4** (ratedCount caching): Deferred — negligible impact
+
+---
+
+## C++17 / GCC 9 Compatibility
+
+Downgraded from C++23 to C++17 for broader compiler support (GCC 9+).
+
+### Changes
+- [x] **Replace Glaze with nlohmann/json** — Glaze v4.2.3 requires C++23 (`cxx_std_23`). Replaced with nlohmann/json v3.11.3 (C++11+). All `glz::meta<T>` template specializations replaced with `to_json`/`from_json` free function pairs.
+- [x] **Remove `std::format`** — Only 2 call sites (both in `Interface.cpp`). Replaced with `snprintf` + `char[]` buffer and `std::to_string` concatenation. Removed unused `#include <format>` from `Interface.cpp` and `main.cpp`.
+- [x] **`CMAKE_CXX_STANDARD` 23 → 17** — Changed in `CMakeLists.txt`.
+- [x] **`stdc++fs` conditional link** — GCC < 10 requires `-lstdc++fs` for `std::filesystem`. Added conditional in both `CMakeLists.txt` (main target) and `tests/CMakeLists.txt` (4 test targets).
+- [x] **Test link target** — Changed `test_qc_csv` link from `glaze::glaze` to `nlohmann_json::nlohmann_json`.
+
+### Files Changed
+| File | Change |
+|---|---|
+| `CMakeLists.txt` | C++17, nlohmann/json FetchContent, stdc++fs conditional |
+| `tests/CMakeLists.txt` | nlohmann link target, stdc++fs conditional for 4 tests |
+| `src/AppConfig.cpp` | Full rewrite: nlohmann/json `to_json`/`from_json` |
+| `src/Interface.cpp` | `std::format` → `snprintf`/`std::to_string` |
+| `src/main.cpp` | Removed `#include <format>` |
+
+### Dependency Compatibility
+All other dependencies were already C++17-compatible:
+- ImGui (C++11), GLM (C++98+), minc2-simple (pure C), libminc (pure C), GLFW (C), Vulkan (C)
 
 ---
 
@@ -478,7 +504,7 @@ new_register/
 - `ImGui` (FetchContent, docking branch)
 - `GLFW` (system)
 - `Vulkan` (system)
-- `Glaze` (FetchContent, v4.2.3)
+- `nlohmann/json` (FetchContent, v3.11.3)
 - `HDF5` (system, required by MINC2)
 - `stb_image_write` (single header, in `include/`)
 

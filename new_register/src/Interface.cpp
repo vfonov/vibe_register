@@ -10,7 +10,6 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
-#include <format>
 #include <iostream>
 
 #include <GLFW/glfw3.h>
@@ -170,7 +169,9 @@ void Interface::saveScreenshot(GraphicsBackend& backend) {
     int index = 1;
     std::string filename;
     while (true) {
-        filename = std::format("screenshot{:06d}.png", index);
+        char fmtBuf[64];
+        std::snprintf(fmtBuf, sizeof(fmtBuf), "screenshot%06d.png", index);
+        filename = fmtBuf;
         if (!std::filesystem::exists(filename))
             break;
         ++index;
@@ -1192,7 +1193,7 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
 
                     if (!qcState_.active && imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
                         int tagCount = state_.volumes_[0].getTagCount();
-                        std::string newLabel = std::format("Point{}", tagCount + 1);
+                        std::string newLabel = "Point" + std::to_string(tagCount + 1);
 
                         for (int v = 0; v < state_.volumeCount(); ++v) {
                             Volume& curVol = state_.volumes_[v];
