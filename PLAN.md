@@ -73,13 +73,17 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] Positional volume file arguments
 - [x] `-r`/`--red`, `-g`/`--green`, `-b`/`--blue` — set colour map for next volume
 - [x] `-G`/`--gray`, `-H`/`--hot`, `-S`/`--spectral` — set colour map for next volume
-- [x] `--lut <name>` — set any colour map by name for next volume
-- LUT flags apply to the next volume file; CLI overrides config values
+  - [x] `--lut <name>` — set any colour map by name for next volume
+  - [x] `-B`/`--backend <name>` — graphics backend: `auto`, `vulkan`, `opengl2` (default: auto)
+  - LUT flags apply to the next volume file; CLI overrides config values
 - [x] CLI LUT flags now properly applied to view states after config
 - Example: `new_register --gray vol1.mnc -r vol2.mnc`
 
 ### Graphics / Rendering
+- [x] Multi-backend support: Vulkan and OpenGL 2, with runtime auto-detection and CLI override (`--backend`)
 - [x] Vulkan backend with full lifecycle management
+- [x] OpenGL 2 backend for legacy Linux, software renderers, and SSH/X11
+- [x] Runtime fallback: if selected backend fails, tries remaining backends automatically
 - [x] ImGui docking (multi-viewport removed for SSH/X11 compatibility)
 - [x] HiDPI support (GLFW content scale query, ImGui style/font scaling)
 - [x] Auto-layout: Tools panel on the left (top), Tags panel docked below Tools, one column per volume + overlay column. Left panel width adapts to volume count (25% for 1 column, 16% for 2, 13% for 3, 10% for 4+; QC mode adds +2%)
@@ -460,6 +464,57 @@ The Tags window was a free-floating ImGui window that got clipped by the main wi
 
 ---
 
+## Multi-Backend Graphics Support
+
+Added support for multiple graphics backends with compile-time selection and runtime auto-detection.
+
+### Architecture
+- **`GraphicsBackend`** abstract interface: lifecycle, frame cycle, ImGui integration, texture management, screenshots
+- **`Texture` struct**: Backend-agnostic opaque handle (`ImTextureID` + dimensions)
+- **`BackendType` enum**: `Vulkan`, `OpenGL2`, `Metal`
+- **Factory pattern**: `GraphicsBackend::create(type)`, `detectBest()`, `availableBackends()`
+- **CMake options**: `ENABLE_VULKAN` (default ON), `ENABLE_OPENGL2` (default ON), `ENABLE_METAL` (default OFF)
+
+### Backends
+- [x] **Vulkan** — Full-featured backend (swapchain, command buffers, descriptor sets, staging buffers)
+- [x] **OpenGL 2** — Fixed-function pipeline backend for legacy Linux, software renderers, SSH/X11
+- [ ] **Metal** — Future macOS backend (architecture supports it, not yet implemented)
+
+### CLI
+- `-B`, `--backend <name>` — Select backend: `auto`, `vulkan`, `opengl2` (default: `auto`)
+- Auto-detection prefers Vulkan > OpenGL2
+- Runtime fallback: if selected backend fails to initialize, tries remaining backends automatically
+
+### Changes
+| File | Action | Description |
+|---|---|---|
+| `include/GraphicsBackend.h` | Edit | `Texture` struct, `BackendType` enum, factory methods, texture lifecycle, `setWindowHints()` |
+| `include/VulkanBackend.h` | Edit | Texture method overrides, `vulkanTextures_` map |
+| `src/VulkanBackend.cpp` | Edit | Texture methods, `setWindowHints()`, removed `createDefault()` |
+| `src/BackendFactory.cpp` | **New** | Factory with `#ifdef` guards for all backends |
+| `include/OpenGL2Backend.h` | **New** | OpenGL 2 backend header |
+| `src/OpenGL2Backend.cpp` | **New** | Full OpenGL 2 backend implementation |
+| `include/AppState.h` | Edit | `VulkanTexture` → `Texture` |
+| `include/ViewManager.h` | Edit | `GraphicsBackend&` constructor parameter |
+| `src/ViewManager.cpp` | Edit | Backend-agnostic texture calls |
+| `src/Interface.cpp` | Edit | `Texture*` and `tex->id` instead of Vulkan types |
+| `src/main.cpp` | Edit | `--backend` flag, factory creation, runtime fallback, dynamic window title |
+| `CMakeLists.txt` | Edit | Backend options, conditional compilation and linking, explicit source list |
+
+### Metal Backend (Future)
+
+To add Metal support for macOS:
+
+1. **Files**: `include/MetalBackend.h` / `src/MetalBackend.mm` (Objective-C++)
+2. **CMake**: `enable_language(OBJCXX)`, find Metal and QuartzCore frameworks
+3. **GLFW**: `GLFW_CLIENT_API = GLFW_NO_API`, create `CAMetalLayer` on native Cocoa view
+4. **ImGui**: `ImGui_ImplGlfw_InitForOther()` + `ImGui_ImplMetal_Init(device)`
+5. **Texture**: `MTLTexture` objects, `ImTextureID = MTLTexture*`
+6. **Frame cycle**: `CAMetalDrawable` acquire, command buffer, render pass, present
+7. **Compile guard**: `#ifdef HAS_METAL` in `BackendFactory.cpp`
+
+---
+
 ## Architecture Notes
 
 ### Current File Structure
@@ -472,6 +527,7 @@ new_register/
 │   ├── ColourMap.h
 │   ├── GraphicsBackend.h
 │   ├── Interface.h
+│   ├── OpenGL2Backend.h
 │   ├── QCState.h
 │   ├── TagWrapper.hpp
 │   ├── Volume.h
@@ -481,15 +537,17 @@ new_register/
 ├── src/
 │   ├── main.cpp
 │   ├── AppState.cpp
-│   ├── ViewManager.cpp
-│   ├── Interface.cpp
-│   ├── VulkanBackend.cpp
+│   ├── AppConfig.cpp
+│   ├── BackendFactory.cpp
 │   ├── ColourMap.cpp
-│   ├── VulkanHelpers.cpp
-│   ├── Volume.cpp
-│   ├── TagWrapper.cpp
+│   ├── Interface.cpp
+│   ├── OpenGL2Backend.cpp
 │   ├── QCState.cpp
-│   └── AppConfig.cpp
+│   ├── TagWrapper.cpp
+│   ├── ViewManager.cpp
+│   ├── Volume.cpp
+│   ├── VulkanBackend.cpp
+│   └── VulkanHelpers.cpp
 └── tests/
     ├── test_real_data.cpp
     ├── test_colour_map.cpp
@@ -536,7 +594,8 @@ new_register/
   - `minc2-simple`: FetchContent from `https://github.com/NIST-MNI/minc2-simple.git` (develop branch)
 - `ImGui` (FetchContent, docking branch)
 - `GLFW` (system)
-- `Vulkan` (system)
+- `Vulkan` (system, optional — controlled by `ENABLE_VULKAN`)
+- `OpenGL` (system, optional — controlled by `ENABLE_OPENGL2`)
 - `nlohmann/json` (FetchContent, v3.11.3)
 - `HDF5` (system, required by MINC2)
 - `stb_image_write` (single header, in `include/`)

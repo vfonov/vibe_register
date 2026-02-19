@@ -27,7 +27,7 @@ backend files (`VulkanBackend.cpp`, `VulkanHelpers.cpp`):
 
 ---
 
-## Phase 1: Abstract the Texture System
+## Phase 1: Abstract the Texture System ✅ COMPLETE (commit `26df1fb`)
 
 The critical prerequisite. Replace all `VulkanTexture` references outside backend files
 with a backend-agnostic `Texture` type. After this phase, the only files that know about
@@ -345,7 +345,7 @@ backend->shutdownTextureSystem();
 
 ---
 
-## Phase 2: Decouple GLFW Window Hints from Backend
+## Phase 2: Decouple GLFW Window Hints from Backend ✅ COMPLETE (commit `0d2454a`)
 
 Currently `main.cpp` hardcodes `GLFW_CLIENT_API = GLFW_NO_API` which is Vulkan-specific.
 OpenGL needs the default `GLFW_OPENGL_API`. The backend must control this.
@@ -412,7 +412,7 @@ for `VulkanBackend` (default constructor).
 
 ---
 
-## Phase 3: Backend Registry and Selection
+## Phase 3: Backend Registry and Selection ✅ COMPLETE (commit `723abc5`)
 
 ### 3.1 Define `BackendType` enum
 
@@ -787,7 +787,7 @@ catch (const std::exception& e)
 
 ---
 
-## Phase 4: Implement OpenGL2Backend
+## Phase 4: Implement OpenGL2Backend ✅ COMPLETE (commit `723abc5`)
 
 ### 4.1 Create `include/OpenGL2Backend.h`
 
@@ -1137,7 +1137,7 @@ Add `BackendFactory.cpp` to the always-compiled source list.
 
 ---
 
-## Phase 5: Polish and Metal Stub
+## Phase 5: Polish and Metal Stub — IN PROGRESS
 
 ### 5.1 Diagnostic logging at startup
 
@@ -1188,13 +1188,13 @@ after swap. This might produce a black frame on some drivers. If so, read before
 
 ## Implementation Order and Checkpoints
 
-| Step | Phase | Files Changed / Added | Commit Message |
+| Step | Phase | Files Changed / Added | Commit |
 |---|---|---|---|
-| 1 | 1.1–1.7 | `GraphicsBackend.h`, `VulkanBackend.h`, `VulkanBackend.cpp`, `AppState.h`, `ViewManager.h`, `ViewManager.cpp`, `Interface.cpp`, `main.cpp` | Abstract texture system behind GraphicsBackend interface |
-| 2 | 2.1–2.3 | `GraphicsBackend.h`, `VulkanBackend.h`, `VulkanBackend.cpp`, `main.cpp` | Decouple GLFW window hints from backend via setWindowHints() |
-| 3 | 3.1–3.7 | `GraphicsBackend.h`, `CMakeLists.txt`, `BackendFactory.cpp` (new), `VulkanBackend.cpp`, `main.cpp` | Add backend registry, factory, CLI selection, and runtime fallback |
-| 4 | 4.1–4.3 | `OpenGL2Backend.h` (new), `OpenGL2Backend.cpp` (new), `CMakeLists.txt` | Implement OpenGL 2 backend |
-| 5 | 5.1–5.4 | `main.cpp`, `PLAN.md` | Polish backend selection, add Metal stub documentation |
+| 1 | 1.1–1.7 | `GraphicsBackend.h`, `VulkanBackend.h`, `VulkanBackend.cpp`, `AppState.h`, `ViewManager.h`, `ViewManager.cpp`, `Interface.cpp`, `main.cpp` | `26df1fb` ✅ |
+| 2 | 2.1–2.3 | `GraphicsBackend.h`, `VulkanBackend.h`, `VulkanBackend.cpp`, `main.cpp` | `0d2454a` ✅ |
+| 3 | 3.1–3.7 | `GraphicsBackend.h`, `CMakeLists.txt`, `BackendFactory.cpp` (new), `VulkanBackend.cpp`, `main.cpp` | `723abc5` ✅ |
+| 4 | 4.1–4.3 | `OpenGL2Backend.h` (new), `OpenGL2Backend.cpp` (new), `CMakeLists.txt` | `723abc5` ✅ |
+| 5 | 5.1–5.4 | `main.cpp`, `PLAN.md`, `README.md` | In progress |
 
 Each step should be a separate commit. The app compiles and runs (Vulkan only)
 after steps 1-3. OpenGL2 becomes functional at step 4.

@@ -1,8 +1,8 @@
 # new_register
 
-A multi-volume MINC2 viewer built with Vulkan, ImGui (Docking), and GLFW.
-Supports side-by-side volume comparison, tag point management, and a batch
-QC (Quality Control) review mode.
+A multi-volume MINC2 viewer built with ImGui (Docking) and GLFW.
+Supports multiple graphics backends (Vulkan, OpenGL 2), side-by-side volume
+comparison, tag point management, and a batch QC (Quality Control) review mode.
 
 ## Building
 
@@ -13,7 +13,22 @@ cmake ..
 make -j$(nproc)
 ```
 
-Requires system packages: Vulkan SDK, GLFW3, and a C++23 compiler.
+Requires system packages: GLFW3 and a C++17 compiler (GCC 9+).
+
+### Backend Options
+
+By default both Vulkan and OpenGL 2 backends are compiled. You can control
+which backends are included at build time:
+
+```bash
+cmake -DENABLE_VULKAN=ON -DENABLE_OPENGL2=ON ..   # both (default)
+cmake -DENABLE_VULKAN=ON -DENABLE_OPENGL2=OFF ..  # Vulkan only
+cmake -DENABLE_VULKAN=OFF -DENABLE_OPENGL2=ON ..  # OpenGL 2 only
+```
+
+Additional system dependencies depend on which backends you enable:
+- **Vulkan**: Vulkan SDK (`libvulkan-dev`)
+- **OpenGL 2**: OpenGL development libraries (`libgl-dev`)
 
 ## Command Line Usage
 
@@ -34,11 +49,16 @@ new_register [options] [volume1.mnc volume2.mnc ...]
 | `-r`, `--red` | | Set Red colour map for the next volume |
 | `-g`, `--green` | | Set Green colour map for the next volume |
 | `-b`, `--blue` | | Set Blue colour map for the next volume |
+| `-B`, `--backend` | `<name>` | Graphics backend: `auto`, `vulkan`, `opengl2` (default: `auto`) |
+| `--test` | | Launch with a generated test volume |
 | `--qc` | `<input.csv>` | Enable QC mode with input CSV (see below) |
 | `--qc-output` | `<output.csv>` | Output CSV for QC verdicts (required with `--qc`) |
 
 Positional arguments are treated as volume file paths (MINC2 `.mnc` files).
 LUT flags apply to the next volume on the command line.
+
+Running with no arguments prints help and exits. Use `--test` to launch with
+a generated test volume.
 
 ### Examples
 
@@ -58,6 +78,12 @@ Load a saved configuration:
 
 ```bash
 ./new_register --config my_config.json
+```
+
+Force a specific graphics backend:
+
+```bash
+./new_register --backend opengl2 vol1.mnc
 ```
 
 Run in QC mode:

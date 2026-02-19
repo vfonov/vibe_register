@@ -175,14 +175,24 @@ float OpenGL2Backend::contentScale() const
 
 std::vector<uint8_t> OpenGL2Backend::captureScreenshot(int& width, int& height)
 {
+    // Read the front buffer (the last fully-rendered frame) since this method
+    // is called mid-frame before endFrame() renders the current frame to the
+    // back buffer.
+    glReadBuffer(GL_FRONT);
     glFinish();
 
     glfwGetFramebufferSize(window_, &width, &height);
     if (width <= 0 || height <= 0)
+    {
+        glReadBuffer(GL_BACK);
         return {};
+    }
 
     std::vector<uint8_t> pixels(width * height * 4);
     glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+
+    // Restore default read buffer
+    glReadBuffer(GL_BACK);
 
     // OpenGL reads bottom-to-top; flip vertically for top-to-bottom RGBA.
     int rowBytes = width * 4;
