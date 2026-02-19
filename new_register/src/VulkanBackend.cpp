@@ -5,6 +5,7 @@
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
 
+#include <algorithm>
 #include <iostream>
 #include <cstdlib>
 #include <cstring>
@@ -70,12 +71,49 @@ void VulkanBackend::createDevice()
     err = vkEnumeratePhysicalDevices(instance_, &gpuCount, gpus.data());
     checkVkResult(err);
 
-    // Select GPU and queue family that supports Graphics AND Present
+    // Sort GPUs by preference: discrete > integrated > virtual > other/cpu.
+    // Some software drivers (e.g. lavapipe) crash inside
+    // vkGetPhysicalDeviceSurfaceSupportKHR on X11-forwarded surfaces,
+    // so we try hardware GPUs first.
+    auto gpuPriority = [](VkPhysicalDevice gpu) -> int
+    {
+        VkPhysicalDeviceProperties props;
+        vkGetPhysicalDeviceProperties(gpu, &props);
+        switch (props.deviceType)
+        {
+        case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:   return 0;
+        case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: return 1;
+        case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:    return 2;
+        default:                                     return 3;
+        }
+    };
+    std::stable_sort(gpus.begin(), gpus.end(),
+        [&](VkPhysicalDevice a, VkPhysicalDevice b)
+        {
+            return gpuPriority(a) < gpuPriority(b);
+        });
+
+    // Select GPU and queue family that supports Graphics AND Present.
+    // Skip devices whose driver crashes on surface queries (e.g. lavapipe
+    // over SSH/X11).
     physicalDevice_ = VK_NULL_HANDLE;
     queueFamily_ = static_cast<uint32_t>(-1);
 
     for (uint32_t i = 0; i < gpuCount; ++i)
     {
+        VkPhysicalDeviceProperties props;
+        vkGetPhysicalDeviceProperties(gpus[i], &props);
+
+        // Skip CPU / software rasterisers when a surface was created via
+        // X11 forwarding — their vkGetPhysicalDeviceSurfaceSupportKHR
+        // implementation may segfault.
+        if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU)
+        {
+            std::cerr << "[vulkan] Skipping CPU device: "
+                      << props.deviceName << "\n";
+            continue;
+        }
+
         uint32_t queueCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(gpus[i], &queueCount, nullptr);
         std::vector<VkQueueFamilyProperties> queues(queueCount);
@@ -86,11 +124,21 @@ void VulkanBackend::createDevice()
             if (queues[j].queueFlags & VK_QUEUE_GRAPHICS_BIT)
             {
                 VkBool32 presentSupport = VK_FALSE;
-                vkGetPhysicalDeviceSurfaceSupportKHR(gpus[i], j, surface_, &presentSupport);
+                err = vkGetPhysicalDeviceSurfaceSupportKHR(
+                    gpus[i], j, surface_, &presentSupport);
+                if (err != VK_SUCCESS)
+                {
+                    std::cerr << "[vulkan] Surface query failed on "
+                              << props.deviceName
+                              << " (VkResult=" << err << "), skipping\n";
+                    continue;
+                }
                 if (presentSupport == VK_TRUE)
                 {
                     physicalDevice_ = gpus[i];
                     queueFamily_ = j;
+                    std::cerr << "[vulkan] Selected device: "
+                              << props.deviceName << "\n";
                     goto found;
                 }
             }
@@ -101,11 +149,6 @@ found:
     if (physicalDevice_ == VK_NULL_HANDLE)
     {
         throw std::runtime_error("Could not find a GPU with Graphics and Presentation support");
-    }
-
-    {
-        VkPhysicalDeviceProperties props;
-        vkGetPhysicalDeviceProperties(physicalDevice_, &props);
     }
 
     // Create logical device
@@ -261,6 +304,28 @@ void VulkanBackend::initialize(GLFWwindow* window)
         w = 800;
         h = 600;
     }
+    // GLFW can return absurd sizes over SSH/X11 forwarding.
+    // Clamp to surface capabilities.
+    {
+        VkSurfaceCapabilitiesKHR caps;
+        VkResult capErr = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+            physicalDevice_, surface_, &caps);
+        if (capErr == VK_SUCCESS &&
+            caps.maxImageExtent.width > 0 &&
+            caps.maxImageExtent.height > 0)
+        {
+            if (w > static_cast<int>(caps.maxImageExtent.width))
+                w = static_cast<int>(caps.maxImageExtent.width);
+            if (h > static_cast<int>(caps.maxImageExtent.height))
+                h = static_cast<int>(caps.maxImageExtent.height);
+        }
+        else
+        {
+            // Fallback: hard cap at 8K
+            if (w > 7680) w = 7680;
+            if (h > 4320) h = 4320;
+        }
+    }
     createSwapchainWindow(w, h);
 
     // Initialize VulkanHelpers for texture management
@@ -319,6 +384,20 @@ bool VulkanBackend::needsSwapchainRebuild() const
 
 void VulkanBackend::rebuildSwapchain(int width, int height)
 {
+    // Clamp to surface capabilities (SSH/X11 can report nonsense sizes)
+    VkSurfaceCapabilitiesKHR caps;
+    VkResult capErr = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+        physicalDevice_, surface_, &caps);
+    if (capErr == VK_SUCCESS &&
+        caps.maxImageExtent.width > 0 &&
+        caps.maxImageExtent.height > 0)
+    {
+        if (width > static_cast<int>(caps.maxImageExtent.width))
+            width = static_cast<int>(caps.maxImageExtent.width);
+        if (height > static_cast<int>(caps.maxImageExtent.height))
+            height = static_cast<int>(caps.maxImageExtent.height);
+    }
+
     ImGui_ImplVulkan_SetMinImageCount(minImageCount_);
     ImGui_ImplVulkanH_CreateOrResizeWindow(
         instance_, physicalDevice_, device_, &windowData_,
