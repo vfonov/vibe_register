@@ -53,13 +53,33 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
 
         ImGuiID toolsId, contentId;
 
+        // Adapt left-panel width to the number of content columns:
+        // fewer volumes → wider tools panel so controls aren't cramped.
+        bool showOverlayPanel = hasOverlay;
+        if (qcState_.active)
+            showOverlayPanel = showOverlayPanel && qcState_.showOverlay;
+        else
+            showOverlayPanel = showOverlayPanel && state_.showOverlay_;
+        int totalColumns = numVolumes + (showOverlayPanel ? 1 : 0);
+
+        float toolsFraction;
+        if (totalColumns <= 1)
+            toolsFraction = 0.25f;
+        else if (totalColumns == 2)
+            toolsFraction = 0.16f;
+        else if (totalColumns == 3)
+            toolsFraction = 0.13f;
+        else
+            toolsFraction = 0.10f;
+
         if (qcState_.active) {
-            // QC mode: Tools panel (with embedded QC list) on the left, then volume columns
-            ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, 0.14f,
+            // QC mode: slightly wider for the embedded QC list
+            toolsFraction += 0.02f;
+            ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, toolsFraction,
                 &toolsId, &contentId);
             ImGui::DockBuilderDockWindow("Tools", toolsId);
         } else {
-            ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, 0.12f, &toolsId, &contentId);
+            ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, toolsFraction, &toolsId, &contentId);
             // Split the tools column: Tools on top, Tags on bottom
             ImGuiID toolsTopId, tagsId;
             ImGui::DockBuilderSplitNode(toolsId, ImGuiDir_Up, 0.55f, &toolsTopId, &tagsId);
@@ -67,13 +87,6 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
             ImGui::DockBuilderDockWindow("Tags", tagsId);
         }
 
-        bool showOverlayPanel = hasOverlay;
-        if (qcState_.active)
-            showOverlayPanel = showOverlayPanel && qcState_.showOverlay;
-        else
-            showOverlayPanel = showOverlayPanel && state_.showOverlay_;
-
-        int totalColumns = numVolumes + (showOverlayPanel ? 1 : 0);
         std::vector<ImGuiID> columnIds(totalColumns);
         if (totalColumns == 1) {
             columnIds[0] = contentId;

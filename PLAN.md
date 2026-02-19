@@ -82,7 +82,7 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] Vulkan backend with full lifecycle management
 - [x] ImGui docking (multi-viewport removed for SSH/X11 compatibility)
 - [x] HiDPI support (GLFW content scale query, ImGui style/font scaling)
-- [x] Auto-layout: Tools panel on the left (top), Tags panel docked below Tools, one column per volume + overlay column
+- [x] Auto-layout: Tools panel on the left (top), Tags panel docked below Tools, one column per volume + overlay column. Left panel width adapts to volume count (25% for 1 column, 16% for 2, 13% for 3, 10% for 4+; QC mode adds +2%)
 - [x] GPU texture creation, upload, and destruction helpers
 - [x] Swapchain resize handling (`VK_ERROR_OUT_OF_DATE_KHR`, `VK_SUBOPTIMAL_KHR`)
 
