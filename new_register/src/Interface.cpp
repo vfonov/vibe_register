@@ -67,6 +67,8 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
         bool showOverlayPanel = hasOverlay;
         if (qcState_.active)
             showOverlayPanel = showOverlayPanel && qcState_.showOverlay;
+        else
+            showOverlayPanel = showOverlayPanel && state_.showOverlay_;
 
         int totalColumns = numVolumes + (showOverlayPanel ? 1 : 0);
         std::vector<ImGuiID> columnIds(totalColumns);
@@ -141,6 +143,8 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
         bool showOverlayPanel = true;
         if (qcState_.active)
             showOverlayPanel = qcState_.showOverlay;
+        else
+            showOverlayPanel = state_.showOverlay_;
         if (showOverlayPanel)
             renderOverlayPanel();
     }
@@ -222,6 +226,11 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
             ImGui::Separator();
         }
 
+        if (!qcState_.active && hasOverlay) {
+            if (ImGui::Checkbox("Overlay", &state_.showOverlay_))
+                state_.layoutInitialized_ = false;
+        }
+
         if (ImGui::Checkbox("Sync Cursor", &state_.syncCursors_)) {
             if (state_.syncCursors_ && numVolumes > 1) {
                 state_.lastSyncSource_ = 0;
@@ -284,6 +293,7 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
                     cfg.global.syncCursors = state_.syncCursors_;
                     cfg.global.syncZoom = state_.syncZoom_;
                     cfg.global.syncPan = state_.syncPan_;
+                    cfg.global.showOverlay = state_.showOverlay_;
 
                     for (int vi = 0; vi < numVolumes; ++vi) {
                         const VolumeViewState& st = state_.viewStates_[vi];

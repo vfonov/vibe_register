@@ -49,6 +49,7 @@ public:
     OverlayState overlay_;
 
     bool tagsVisible_ = true;
+    bool showOverlay_ = true;
     bool cleanMode_ = false;
     bool syncCursors_ = false;
     bool syncZoom_ = false;

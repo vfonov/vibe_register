@@ -57,6 +57,7 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] Own zoom/pan/crosshair controls
 - [x] **Fixed direction cosines**: overlay now uses proper `transformVoxelToWorld`/`transformWorldToVoxel` matrices
 - [x] **Fixed out-of-bounds handling**: out-of-volume pixels show transparent background instead of clamped edge values
+- [x] **Overlay visibility toggle**: "Overlay" checkbox in Tools panel for both QC and regular modes; hides/shows overlay column with layout rebuild; persisted in config
 
 ### Configuration
 - [x] JSON config persistence using Glaze
@@ -73,6 +74,7 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] `-G`/`--gray`, `-H`/`--hot`, `-S`/`--spectral` — set colour map for next volume
 - [x] `--lut <name>` — set any colour map by name for next volume
 - LUT flags apply to the next volume file; CLI overrides config values
+- [x] CLI LUT flags now properly applied to view states after config
 - Example: `new_register --gray vol1.mnc -r vol2.mnc`
 
 ### Graphics / Rendering
@@ -348,7 +350,7 @@ sub03,PASS,,PASS,
 - [x] **6.1** Merge QC list into Tools panel — removed separate docked QC List window; QC list table now embedded directly in the Tools panel after the Quit button, filling remaining vertical space with scrollable child
 - [x] **6.2** Move verdict panels to top of volume columns — PASS/FAIL radios + comment field now render at the top of each volume column (fixed 60px height) instead of the bottom, so they're always visible regardless of scroll position
 - [x] **6.3** Overlay panel alignment — added empty placeholder (same height as verdict panel) at top of overlay panel in QC mode so slice views align horizontally with volume columns
-- [x] **6.4** Overlay toggle — added "Overlay" checkbox in Tools panel (QC mode only) to show/hide the overlay panel at runtime; triggers layout rebuild
+- [x] **6.4** Overlay toggle — added "Overlay" checkbox in Tools panel (both QC and regular modes) to show/hide the overlay panel at runtime; triggers layout rebuild; state persisted in config JSON
 - [x] **6.5** Preserve display settings across row switches — colour map, value range, zoom, pan, under/over clamp modes, and overlay alpha are now saved before switching QC rows and restored after loading new volumes (initial defaults from config only applied on first load)
 - [x] **6.6** Per-column status in QC list — replaced single "Status" column with one column per volume (using CSV column names as headers); shows green "P" for PASS, red "F" for FAIL, gray "-" for unrated
 - [x] **6.7** Resizable QC list columns — table columns are resizable (drag borders) with horizontal scroll support
