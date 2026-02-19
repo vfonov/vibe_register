@@ -206,6 +206,31 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
             ImGui::Text("%d / %d rated", qcState_.ratedCount(), qcState_.rowCount());
             if (qcState_.currentRowIndex >= 0)
                 ImGui::Text("ID: %s", qcState_.rowIds[qcState_.currentRowIndex].c_str());
+
+            // --- Prev / Next navigation buttons ---
+            {
+                float halfW = (btnWidth - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+                bool atFirst = (qcState_.currentRowIndex <= 0);
+                bool atLast  = (qcState_.currentRowIndex >= qcState_.rowCount() - 1);
+
+                if (atFirst) ImGui::BeginDisabled();
+                if (ImGui::Button("<< Prev [", ImVec2(halfW, 0)))
+                    switchQCRow(qcState_.currentRowIndex - 1, backend);
+                if (atFirst) ImGui::EndDisabled();
+
+                ImGui::SameLine();
+
+                if (atLast) ImGui::BeginDisabled();
+                if (ImGui::Button("] Next >>", ImVec2(halfW, 0)))
+                    switchQCRow(qcState_.currentRowIndex + 1, backend);
+                if (atLast) ImGui::EndDisabled();
+            }
+
+            // --- Autosave checkbox + manual Save button ---
+            ImGui::Checkbox("Autosave results", &autosave_);
+            if (ImGui::Button("Save Results", ImVec2(btnWidth, 0)))
+                qcState_.saveOutputCsv();
+
             if (hasOverlay) {
                 if (ImGui::Checkbox("Overlay", &qcState_.showOverlay))
                     state_.layoutInitialized_ = false;
@@ -360,7 +385,7 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
         if (qcState_.active)
         {
             ImGui::Separator();
-            ImGui::Text("[/] Prev / Next");
+            ImGui::TextDisabled("[ ] = prev/next row");
 
             // Fill remaining vertical space with a scrollable child
             ImVec2 remaining = ImGui::GetContentRegionAvail();
@@ -1776,7 +1801,7 @@ void Interface::renderQCVerdictPanel(int volumeIndex) {
         changed = true;
     }
 
-    if (changed)
+    if (changed && autosave_)
         qcState_.saveOutputCsv();
 
     ImGui::PopID();

@@ -28,6 +28,7 @@ private:
 
     std::vector<std::string> columnNames_;
     bool scrollToCurrentRow_ = true;
+    bool autosave_ = true;
 
     void setupLayout(int numVolumes);
     void renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window);
