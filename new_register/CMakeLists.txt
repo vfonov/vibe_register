@@ -64,7 +64,12 @@ else()
         GIT_REPOSITORY https://github.com/BIC-MNI/libminc.git
         GIT_TAG        develop
     )
+    # Suppress upstream libminc tests (known failures: test-io-full missing
+    # history attribute, test-nan-short Inf/NaN in integer storage)
+    set(_SAVE_BUILD_TESTING ${BUILD_TESTING})
+    set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(libminc)
+    set(BUILD_TESTING ${_SAVE_BUILD_TESTING} CACHE BOOL "" FORCE)
 endif()
 
 # 5. minc2-simple
@@ -87,7 +92,11 @@ if(EXISTS "${libminc_BINARY_DIR}")
 endif()
 set(CMAKE_PREFIX_PATH "${LIBMINC_PREFIX};${CMAKE_PREFIX_PATH}")
 
+# Suppress upstream minc2-simple tests (same known failures as libminc)
+set(_SAVE_BUILD_TESTING ${BUILD_TESTING})
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 add_subdirectory(${minc2-simple-static_SOURCE_DIR} ${minc2-simple-static_BINARY_DIR})
+set(BUILD_TESTING ${_SAVE_BUILD_TESTING} CACHE BOOL "" FORCE)
 
 # --- Sources ---
 file(GLOB_RECURSE SOURCES 
