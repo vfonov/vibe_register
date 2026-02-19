@@ -145,13 +145,6 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        AppConfig globalCfg;
-        try { globalCfg = loadConfig(globalConfigPath()); }
-        catch (const std::exception& e)
-        {
-            std::cerr << "Warning: " << e.what() << "\n";
-        }
-
         std::string localConfigPath;
         if (!cliConfigPath.empty())
         {
@@ -162,17 +155,15 @@ int main(int argc, char** argv)
             localConfigPath = "config.json";
         }
 
-        AppConfig localCfg;
+        AppConfig mergedCfg;
         if (!localConfigPath.empty())
         {
-            try { localCfg = loadConfig(localConfigPath); }
+            try { mergedCfg = loadConfig(localConfigPath); }
             catch (const std::exception& e)
             {
                 std::cerr << "Warning: " << e.what() << "\n";
             }
         }
-
-        AppConfig mergedCfg = mergeConfigs(globalCfg, localCfg);
 
         // --- QC mode initialization ---
         QCState qcState;

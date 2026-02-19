@@ -60,9 +60,9 @@ Modern C++23 rewrite of the legacy `register` application using Vulkan, ImGui (D
 
 ### Configuration
 - [x] JSON config persistence using Glaze
-- [x] Two-tier config: global (`~/.config/new_register/config.json`) and local (`./config.json`)
+- [x] Config loaded from `./config.json` or `--config` path
 - [x] Per-volume paths, colour maps, value ranges, slice indices, zoom, pan
-- [x] Tools panel with Save Global, Save Local, Reset All Views, Quit buttons
+- [x] Tools panel with Save Local, Reset All Views, Quit buttons
 - [x] Tag list visibility saved/loaded in config
 
 ### Command Line Options
@@ -330,7 +330,7 @@ sub03,PASS,,PASS,
   - On any change: update `QCState::results`, call `saveOutputCsv()`
 - [x] **4.4** QC mode UI restrictions
   - Hide: tag list window, tag checkbox, right-click tag creation, tag visibility toggle
-  - Hide: "Save Local" / "Save Global" config buttons (config is read-only in QC)
+  - Hide: "Save Local" config button (config is read-only in QC)
   - Hide: volume path/load controls
   - Show: QC progress info, sync checkboxes, Reset View, colour map (adjustable), Quit
 - [x] **4.5** Layout adjustments

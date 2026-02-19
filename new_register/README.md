@@ -91,13 +91,10 @@ Run in QC mode:
 
 ## Configuration
 
-Configuration is stored as JSON. Two levels are merged at startup:
+Configuration is stored as JSON. The config file is loaded from `./config.json`
+in the current directory, or from a path specified with `--config`.
 
-1. **Global config**: `$HOME/.config/new_register/config.json`
-2. **Local config**: `./config.json` (or the path given by `--config`)
-
-Local values override global values. The "Save Global" and "Save Local"
-buttons in the UI write to these respective paths.
+The "Save Local" button in the UI writes to the active config path.
 
 ### config.json (Regular Mode)
 
@@ -266,7 +263,7 @@ The keys under `qc_columns` must match the CSV column headers exactly.
 ### QC Mode Behavior
 
 - Tags are completely disabled (no creation, no list, no `T` key).
-- "Save Global" and "Save Local" buttons are hidden.
+- "Save Local" button is hidden.
 - The QC list panel on the left shows all rows with colour-coded status
   (green = all pass, red = any fail, gray = unrated).
 - Navigate with `[`/`]` keys or by clicking rows in the QC list.

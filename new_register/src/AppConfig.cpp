@@ -1,6 +1,5 @@
 #include "AppConfig.h"
 
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -66,25 +65,6 @@ struct glz::meta<AppConfig>
 
 // ---- Implementation --------------------------------------------------------
 
-std::string globalConfigPath()
-{
-    // Prefer XDG_CONFIG_HOME, fall back to $HOME/.config
-    const char* xdg = std::getenv("XDG_CONFIG_HOME");
-    std::filesystem::path dir;
-    if (xdg && xdg[0] != '\0')
-    {
-        dir = std::filesystem::path(xdg) / "new_register";
-    }
-    else
-    {
-        const char* home = std::getenv("HOME");
-        if (!home || home[0] == '\0')
-            throw std::runtime_error("Cannot determine home directory");
-        dir = std::filesystem::path(home) / ".config" / "new_register";
-    }
-    return (dir / "config.json").string();
-}
-
 AppConfig loadConfig(const std::string& path)
 {
     if (!std::filesystem::exists(path))
@@ -129,60 +109,4 @@ void saveConfig(const AppConfig& config, const std::string& path)
     if (!ofs)
         throw std::runtime_error("Cannot write config file: " + path);
     ofs << buffer;
-}
-
-AppConfig mergeConfigs(const AppConfig& global, const AppConfig& local)
-{
-    AppConfig merged = global;
-
-    // Override global settings with local ones if they differ from defaults
-    GlobalConfig defaultGlobal{};
-    if (local.global.defaultColourMap != defaultGlobal.defaultColourMap)
-        merged.global.defaultColourMap = local.global.defaultColourMap;
-    if (local.global.windowWidth.has_value())
-        merged.global.windowWidth = local.global.windowWidth;
-    if (local.global.windowHeight.has_value())
-        merged.global.windowHeight = local.global.windowHeight;
-    if (local.global.syncCursors != defaultGlobal.syncCursors)
-        merged.global.syncCursors = local.global.syncCursors;
-    if (local.global.syncZoom != defaultGlobal.syncZoom)
-        merged.global.syncZoom = local.global.syncZoom;
-    if (local.global.syncPan != defaultGlobal.syncPan)
-        merged.global.syncPan = local.global.syncPan;
-    if (local.global.tagListVisible != defaultGlobal.tagListVisible)
-        merged.global.tagListVisible = local.global.tagListVisible;
-    if (local.global.showOverlay != defaultGlobal.showOverlay)
-        merged.global.showOverlay = local.global.showOverlay;
-
-    // Merge volumes: local volumes override global ones matched by path,
-    // unmatched local volumes are appended.
-    for (const auto& lv : local.volumes)
-    {
-        bool found = false;
-        for (auto& mv : merged.volumes)
-        {
-            if (mv.path == lv.path)
-            {
-                mv = lv;
-                found = true;
-                break;
-            }
-        }
-        if (!found)
-            merged.volumes.push_back(lv);
-    }
-
-    // Merge QC column configs: local overrides global
-    if (local.qcColumns.has_value())
-    {
-        if (!merged.qcColumns.has_value())
-            merged.qcColumns = local.qcColumns;
-        else
-        {
-            for (const auto& [name, cfg] : *local.qcColumns)
-                (*merged.qcColumns)[name] = cfg;
-        }
-    }
-
-    return merged;
 }

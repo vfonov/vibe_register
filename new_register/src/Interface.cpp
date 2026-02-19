@@ -222,40 +222,6 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
             ImGui::Separator();
         }
 
-        if (!qcState_.active) {
-            if (ImGui::Button("Save Global", ImVec2(btnWidth, 0))) {
-                try {
-                    AppConfig cfg;
-                    cfg.global.defaultColourMap = "GrayScale";
-                    int winW, winH;
-                    glfwGetWindowSize(window, &winW, &winH);
-                    cfg.global.windowWidth = winW;
-                    cfg.global.windowHeight = winH;
-                    cfg.global.syncCursors = state_.syncCursors_;
-                    cfg.global.syncZoom = state_.syncZoom_;
-                    cfg.global.syncPan = state_.syncPan_;
-                    cfg.global.tagListVisible = state_.tagListWindowVisible_;
-
-                    for (int vi = 0; vi < numVolumes; ++vi) {
-                        const VolumeViewState& st = state_.viewStates_[vi];
-                        VolumeConfig vc;
-                        vc.path = state_.volumePaths_[vi];
-                        vc.colourMap = std::string(colourMapName(st.colourMap));
-                        vc.valueMin = st.valueRange[0];
-                        vc.valueMax = st.valueRange[1];
-                        vc.sliceIndices = {st.sliceIndices.x, st.sliceIndices.y, st.sliceIndices.z};
-                        vc.zoom = {st.zoom[0], st.zoom[1], st.zoom[2]};
-                        vc.panU = {st.panU[0], st.panU[1], st.panU[2]};
-                        vc.panV = {st.panV[0], st.panV[1], st.panV[2]};
-                        cfg.volumes.push_back(std::move(vc));
-                    }
-                    saveConfig(cfg, globalConfigPath());
-                } catch (const std::exception& e) {
-                    std::cerr << "Failed to save global config: " << e.what() << "\n";
-                }
-            }
-        }
-
         if (ImGui::Checkbox("Sync Cursor", &state_.syncCursors_)) {
             if (state_.syncCursors_ && numVolumes > 1) {
                 state_.lastSyncSource_ = 0;

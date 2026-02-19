@@ -48,9 +48,6 @@ struct AppConfig
     std::optional<std::map<std::string, QCColumnConfig>> qcColumns;
 };
 
-/// Return the global config file path: $HOME/.config/new_register/config.json
-std::string globalConfigPath();
-
 /// Load a config from a JSON file.  Returns a default AppConfig if the file
 /// does not exist.  Throws std::runtime_error on parse errors.
 AppConfig loadConfig(const std::string& path);
@@ -58,9 +55,3 @@ AppConfig loadConfig(const std::string& path);
 /// Save a config to a JSON file.  Creates parent directories as needed.
 /// Throws std::runtime_error on I/O errors.
 void saveConfig(const AppConfig& config, const std::string& path);
-
-/// Merge a local config on top of a global config.
-/// Local values override global values where present.
-/// Local volume entries override global volume entries matched by path;
-/// unmatched local volumes are appended.
-AppConfig mergeConfigs(const AppConfig& global, const AppConfig& local);
