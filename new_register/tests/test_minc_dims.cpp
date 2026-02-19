@@ -4,9 +4,16 @@
 #include <glm/gtc/matrix_inverse.hpp>
 #include <cmath>
 
-int main() {
-    const char* file1 = "/app/test_data/mni_icbm152_t1_tal_nlin_sym_09c.mnc";
-    const char* file2 = "/app/test_data/mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc";
+int main(int argc, char** argv) {
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <test_data_dir>\n";
+        return 1;
+    }
+    std::string dataDir = argv[1];
+    std::string file1_str = dataDir + "/mni_icbm152_t1_tal_nlin_sym_09c.mnc";
+    std::string file2_str = dataDir + "/mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc";
+    const char* file1 = file1_str.c_str();
+    const char* file2 = file2_str.c_str();
     
     minc2_file_handle h1 = nullptr, h2 = nullptr;
     

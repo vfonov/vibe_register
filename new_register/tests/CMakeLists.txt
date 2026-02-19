@@ -55,7 +55,7 @@ add_nr_test(test_coordinate_sync
     SOURCES  Volume.cpp TagWrapper.cpp
     LINKS    minc2-simple-static glm
 )
-add_test(NAME CoordinateSyncTest COMMAND test_coordinate_sync)
+add_test(NAME CoordinateSyncTest COMMAND test_coordinate_sync ${TEST_DATA_DIR})
 
 add_nr_test(test_center_of_mass
     SOURCES  Volume.cpp TagWrapper.cpp
@@ -77,13 +77,13 @@ add_nr_test(test_world_to_voxel
     SOURCES  Volume.cpp TagWrapper.cpp
     LINKS    minc2-simple-static minc2 glm
 )
-add_test(NAME WorldToVoxelTest COMMAND test_world_to_voxel)
+add_test(NAME WorldToVoxelTest COMMAND test_world_to_voxel ${TEST_DATA_DIR})
 
 add_nr_test(test_matrix_debug
     SOURCES  Volume.cpp TagWrapper.cpp
     LINKS    minc2-simple-static minc2 glm
 )
-add_test(NAME MatrixDebugTest COMMAND test_matrix_debug)
+add_test(NAME MatrixDebugTest COMMAND test_matrix_debug ${TEST_DATA_DIR})
 
 # ------------------------------------------------------------------
 # Tag test (no Volume.cpp, links minc2 directly)
@@ -104,12 +104,12 @@ add_test(NAME TagLoadTest COMMAND test_tag_load
 add_nr_test(test_volume_info
     LINKS  minc2-simple-static minc2 glm
 )
-add_test(NAME VolumeInfoTest COMMAND test_volume_info)
+add_test(NAME VolumeInfoTest COMMAND test_volume_info ${TEST_DATA_DIR})
 
 add_nr_test(test_minc_dims
     LINKS  minc2-simple-static minc2 glm
 )
-add_test(NAME MincDimsTest COMMAND test_minc_dims)
+add_test(NAME MincDimsTest COMMAND test_minc_dims ${TEST_DATA_DIR})
 
 # ------------------------------------------------------------------
 # Colour map test (no MINC, no GLM)

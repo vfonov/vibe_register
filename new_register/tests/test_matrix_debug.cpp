@@ -4,8 +4,12 @@
 #include <filesystem>
 #include <glm/glm.hpp>
 
-int main() {
-    std::filesystem::path testDataDir = "/app/test_data";
+int main(int argc, char** argv) {
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <test_data_dir>\n";
+        return 1;
+    }
+    std::filesystem::path testDataDir = argv[1];
 
     Volume hiRes, loRes;
     hiRes.load((testDataDir / "mni_icbm152_t1_tal_nlin_sym_09c.mnc").string());

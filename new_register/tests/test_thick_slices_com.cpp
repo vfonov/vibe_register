@@ -3,10 +3,14 @@
 #include <cmath>
 #include <glm/glm.hpp>
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <volume_path>\n";
+        return 1;
+    }
     Volume vol;
     try {
-        vol.load("/app/test_data/mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc");
+        vol.load(argv[1]);
     } catch (const std::exception& e) {
         std::cerr << "Failed to load volume: " << e.what() << "\n";
         return 1;

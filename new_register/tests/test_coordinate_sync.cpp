@@ -21,16 +21,12 @@ void syncCursors(const Volume& refVol, const glm::ivec3& refVoxelMINC,
     otherVol.transformWorldToVoxel(worldPos, otherVoxelMINC);
 }
 
-int main() {
-    std::filesystem::path testDataDir;
-    if (std::filesystem::exists("/app/test_data")) {
-        testDataDir = "/app/test_data";
-    } else if (std::filesystem::exists(std::filesystem::current_path() / "test_data")) {
-        testDataDir = std::filesystem::current_path() / "test_data";
-    } else {
-        std::cerr << "Test data directory not found\n";
+int main(int argc, char** argv) {
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <test_data_dir>\n";
         return 1;
     }
+    std::filesystem::path testDataDir = argv[1];
     
     std::string hiResPath = (testDataDir / "mni_icbm152_t1_tal_nlin_sym_09c.mnc").string();
     std::string loResPath = (testDataDir / "mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc").string();
