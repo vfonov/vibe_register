@@ -245,8 +245,11 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
+
+        // Create backend before window so it can set appropriate GLFW hints
+        auto backend = GraphicsBackend::createDefault();
+        backend->setWindowHints();
 
         float initScale = 1.0f;
         int monWorkX = 0, monWorkY = 0, monWorkW = 1280, monWorkH = 720;
@@ -284,7 +287,7 @@ int main(int argc, char** argv)
         if (initH > maxH) initH = maxH;
 
         GLFWwindow* window = glfwCreateWindow(initW, initH,
-                                              "New Register (ImGui + Vulkan)",
+                                              "New Register",
                                               nullptr, nullptr);
         if (!window)
         {
@@ -293,7 +296,6 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        auto backend = GraphicsBackend::createDefault();
         backend->initialize(window);
 
         backend->initImGui(window);

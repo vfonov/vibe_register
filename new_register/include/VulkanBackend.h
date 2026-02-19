@@ -22,6 +22,7 @@ public:
     ~VulkanBackend() override = default;
 
     // --- GraphicsBackend interface ---
+    void setWindowHints() override;
     void initialize(GLFWwindow* window) override;
     void shutdown() override;
     void waitIdle() override;

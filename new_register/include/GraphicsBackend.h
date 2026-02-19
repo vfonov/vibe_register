@@ -32,6 +32,12 @@ public:
 
     // --- Lifecycle ---
 
+    /// Set GLFW window hints appropriate for this backend.
+    /// Must be called BEFORE glfwCreateWindow().
+    /// - Vulkan/Metal: GLFW_CLIENT_API = GLFW_NO_API
+    /// - OpenGL: GLFW_CLIENT_API = GLFW_OPENGL_API (default)
+    virtual void setWindowHints() = 0;
+
     /// Set up the graphics API: create instance, select physical device,
     /// create logical device, allocate pools, create swapchain, and
     /// initialize any helper subsystems (e.g. VulkanHelpers).
