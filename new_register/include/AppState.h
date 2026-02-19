@@ -55,6 +55,7 @@ public:
     bool syncPan_ = false;
     int lastSyncSource_ = 0;
     int lastSyncView_ = 0;
+    bool cursorSyncDirty_ = false;
     float dpiScale_ = 1.0f;
     std::string localConfigPath_;
     bool layoutInitialized_ = false;

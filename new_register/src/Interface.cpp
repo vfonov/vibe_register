@@ -126,8 +126,15 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
         }
     }
 
+    int overlayDirtyMask = 0;
     for (int vi = 0; vi < numVolumes; ++vi) {
-        renderVolumeColumn(vi);
+        overlayDirtyMask |= renderVolumeColumn(vi);
+    }
+    if (state_.hasOverlay()) {
+        for (int v = 0; v < 3; ++v) {
+            if (overlayDirtyMask & (1 << v))
+                viewManager_.updateOverlayTexture(v);
+        }
     }
 
     if (hasOverlay) {
@@ -142,8 +149,10 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
         renderTagListWindow();
     }
 
-    if (state_.syncCursors_)
+    if (state_.syncCursors_ && state_.cursorSyncDirty_) {
         viewManager_.syncCursors();
+        state_.cursorSyncDirty_ = false;
+    }
 }
 
 void Interface::saveScreenshot(GraphicsBackend& backend) {
@@ -251,6 +260,7 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
             if (state_.syncCursors_ && numVolumes > 1) {
                 state_.lastSyncSource_ = 0;
                 state_.lastSyncView_ = 0;
+                state_.cursorSyncDirty_ = true;
 
                 glm::dvec3 worldPos;
                 state_.volumes_[0].transformVoxelToWorld(state_.viewStates_[0].sliceIndices, worldPos);
@@ -468,9 +478,10 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
     ImGui::End();
 }
 
-void Interface::renderVolumeColumn(int vi) {
+int Interface::renderVolumeColumn(int vi) {
     VolumeViewState& state = state_.viewStates_[vi];
     const Volume& vol = state_.volumes_[vi];
+    int viewDirtyMask = 0;
 
     ImGui::Begin(columnNames_[vi].c_str());
     {
@@ -486,7 +497,7 @@ void Interface::renderVolumeColumn(int vi) {
                 ImGui::EndChild();
             }
             ImGui::End();
-            return;
+            return 0;
         }
 
         float viewWidth = ImGui::GetContentRegionAvail().x;
@@ -510,7 +521,6 @@ void Interface::renderVolumeColumn(int vi) {
         if (viewRowHeight < 40.0f * state_.dpiScale_)
             viewRowHeight = 40.0f * state_.dpiScale_;
 
-        int viewDirtyMask = 0;
         for (int v = 0; v < 3; ++v) {
             viewDirtyMask |= renderSliceView(vi, v, ImVec2(viewWidth, viewRowHeight));
         }
@@ -518,8 +528,6 @@ void Interface::renderVolumeColumn(int vi) {
         for (int v = 0; v < 3; ++v) {
             if (viewDirtyMask & (1 << v)) {
                 viewManager_.updateSliceTexture(vi, v);
-                if (state_.hasOverlay())
-                    viewManager_.updateOverlayTexture(v);
             }
         }
 
@@ -762,6 +770,7 @@ void Interface::renderVolumeColumn(int vi) {
 
     }
     ImGui::End();
+    return viewDirtyMask;
 }
 
 void Interface::renderOverlayPanel() {
@@ -1098,6 +1107,7 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                         if (state_.syncCursors_) {
                             state_.lastSyncSource_ = vi;
                             state_.lastSyncView_ = viewIndex;
+                            state_.cursorSyncDirty_ = true;
                         }
                     } else if (viewIndex == 1) {
                         int voxY = static_cast<int>(normU * (vol.dimensions.y - 1) + 0.5f);
@@ -1108,6 +1118,7 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                         if (state_.syncCursors_) {
                             state_.lastSyncSource_ = vi;
                             state_.lastSyncView_ = viewIndex;
+                            state_.cursorSyncDirty_ = true;
                         }
                     } else {
                         int voxX = static_cast<int>(normU * (vol.dimensions.x - 1) + 0.5f);
@@ -1118,6 +1129,7 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                         if (state_.syncCursors_) {
                             state_.lastSyncSource_ = vi;
                             state_.lastSyncView_ = viewIndex;
+                            state_.cursorSyncDirty_ = true;
                         }
                     }
                 }
@@ -1166,6 +1178,7 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                             if (state_.syncCursors_) {
                                 state_.lastSyncSource_ = vi;
                                 state_.lastSyncView_ = viewIndex;
+                                state_.cursorSyncDirty_ = true;
                             }
                         }
                     }
@@ -1287,6 +1300,7 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                         if (state_.syncCursors_) {
                             state_.lastSyncSource_ = vi;
                             state_.lastSyncView_ = viewIndex;
+                            state_.cursorSyncDirty_ = true;
                         }
                     }
 
@@ -1306,6 +1320,7 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                             if (state_.syncCursors_) {
                                 state_.lastSyncSource_ = vi;
                                 state_.lastSyncView_ = viewIndex;
+                                state_.cursorSyncDirty_ = true;
                             }
                         }
                     }
@@ -1796,8 +1811,9 @@ void Interface::renderQCVerdictPanel(int volumeIndex) {
     if (ImGui::InputText("##comment", buf, sizeof(buf)))
     {
         comment = buf;
-        changed = true;
     }
+    if (ImGui::IsItemDeactivatedAfterEdit())
+        changed = true;
 
     if (changed && autosave_)
         qcState_.saveOutputCsv();

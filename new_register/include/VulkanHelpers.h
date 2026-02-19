@@ -26,6 +26,7 @@ public:
 
 namespace VulkanHelpers {
     void Init(VkDevice device, VkPhysicalDevice physical_device, uint32_t queue_family, VkQueue queue, VkDescriptorPool pool, VkCommandPool command_pool);
+    void Shutdown();
     std::unique_ptr<VulkanTexture> CreateTexture(int w, int h, const void* data);
     void UpdateTexture(VulkanTexture* texture, const void* data);
     void DestroyTexture(VulkanTexture* texture);

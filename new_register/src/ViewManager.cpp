@@ -328,11 +328,6 @@ void ViewManager::syncZoom(int sourceVolume, int viewIndex) {
     if (!fromOverlay) {
         state_.overlay_.zoom[viewIndex] = sourceZoom;
     }
-
-    for (int i = 0; i < state_.volumeCount(); ++i) {
-        updateSliceTexture(i, viewIndex);
-    }
-    updateAllOverlayTextures();
 }
 
 void ViewManager::syncPan(int sourceVolume, int viewIndex) {
@@ -361,11 +356,6 @@ void ViewManager::syncPan(int sourceVolume, int viewIndex) {
         state_.overlay_.panU[viewIndex] = sourcePanU;
         state_.overlay_.panV[viewIndex] = sourcePanV;
     }
-
-    for (int i = 0; i < state_.volumeCount(); ++i) {
-        updateSliceTexture(i, viewIndex);
-    }
-    updateAllOverlayTextures();
 }
 
 void ViewManager::resetViews() {

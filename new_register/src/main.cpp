@@ -360,6 +360,7 @@ int main(int argc, char** argv)
             qcState.saveOutputCsv();
 
         viewManager.destroyAllTextures();
+        VulkanHelpers::Shutdown();
 
         backend->shutdownImGui();
         backend->shutdown();

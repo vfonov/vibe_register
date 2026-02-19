@@ -375,6 +375,30 @@ sub03,PASS,,PASS,
 
 ---
 
+## Performance Optimizations
+
+### Tier 1: Quick Wins (Complete)
+- [x] **Guard `syncCursors()` with dirty flag** — `syncCursors()` was called every frame even when cursors hadn't changed. Added `cursorSyncDirty_` flag to `AppState`; only sync when flag is set (at 7 cursor-change points in Interface.cpp).
+- [x] **Remove texture rebuilds from `syncZoom()`/`syncPan()`** — Zoom and pan don't change slice data, so the 4-line texture rebuild blocks in both functions were dead work. Removed.
+- [x] **Deduplicate overlay texture rebuilds** — Each `renderVolumeColumn()` was independently rebuilding overlay textures. Changed to return a dirty bitmask; overlay rebuilds happen once per frame after all columns are processed.
+- [x] **CSV save on deactivation** — Comment field was triggering `saveOutputCsv()` on every keystroke. Changed to `IsItemDeactivatedAfterEdit()` so save only fires when the field loses focus.
+
+### Tier 2 Batch B: Persistent Vulkan Staging Buffer (Complete)
+- [x] **`StagingResources` struct** — Holds a single `VkBuffer`, `VkDeviceMemory`, `VkCommandBuffer`, and persistently-mapped `void*`. Grows to the next power of 2 (min 256 KB) when a larger texture is encountered; never shrinks.
+- [x] **`ensureCapacity()`** — Reallocates buffer/memory only when current capacity is insufficient. Persistently maps `HOST_VISIBLE | HOST_COHERENT` memory (no per-call map/unmap).
+- [x] **`destroy()`** — Clean teardown of all staging resources at shutdown.
+- [x] **Persistent command buffer** — Allocated once in `VulkanHelpers::Init()`, reset via `vkResetCommandBuffer()` before each use (pool has `RESET_COMMAND_BUFFER_BIT`).
+- [x] **Rewritten `UpdateTexture()`** — No per-call Vulkan allocations. Just `memcpy` into persistent mapping + reset/record/submit the persistent command buffer.
+- [x] **`VulkanHelpers::Shutdown()`** — New function called at app exit to release staging resources before Vulkan device teardown.
+
+### Tier 2 items (Not Yet Implemented)
+- [ ] **Batch A** (overlay compositing loop): Precompute combined transform, `getUnchecked()`, hoist LUT pointers
+- [ ] **Batch C** (pixel buffer reuse): Move `std::vector<uint32_t>` to ViewManager member
+- [ ] **Batch D** (volume cache): LRU cache for QC row switches
+- [ ] **Item 4** (ratedCount caching): Deferred — negligible impact
+
+---
+
 ## Architecture Notes
 
 ### Current File Structure

@@ -32,7 +32,7 @@ private:
 
     void setupLayout(int numVolumes);
     void renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window);
-    void renderVolumeColumn(int vi);
+    int renderVolumeColumn(int vi);
     void renderOverlayPanel();
     void renderTagListWindow();
     void renderQCVerdictPanel(int volumeIndex);
