@@ -94,25 +94,23 @@ void VulkanBackend::createDevice()
         });
 
     // Select GPU and queue family that supports Graphics AND Present.
-    // Skip devices whose driver crashes on surface queries (e.g. lavapipe
-    // over SSH/X11).
+    // Two-pass approach: first try hardware GPUs (where the surface query
+    // is safe), then fall back to CPU/software devices.  Some software
+    // drivers (e.g. lavapipe/llvmpipe) segfault in
+    // vkGetPhysicalDeviceSurfaceSupportKHR on X11-forwarded surfaces, so
+    // for CPU devices we skip that call and just pick the first queue
+    // family that has VK_QUEUE_GRAPHICS_BIT.
     physicalDevice_ = VK_NULL_HANDLE;
     queueFamily_ = static_cast<uint32_t>(-1);
 
+    // --- Pass 1: non-CPU devices (safe to query surface support) ---
     for (uint32_t i = 0; i < gpuCount; ++i)
     {
         VkPhysicalDeviceProperties props;
         vkGetPhysicalDeviceProperties(gpus[i], &props);
 
-        // Skip CPU / software rasterisers when a surface was created via
-        // X11 forwarding — their vkGetPhysicalDeviceSurfaceSupportKHR
-        // implementation may segfault.
         if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU)
-        {
-            std::cerr << "[vulkan] Skipping CPU device: "
-                      << props.deviceName << "\n";
             continue;
-        }
 
         uint32_t queueCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(gpus[i], &queueCount, nullptr);
@@ -141,6 +139,34 @@ void VulkanBackend::createDevice()
                               << props.deviceName << "\n";
                     goto found;
                 }
+            }
+        }
+    }
+
+    // --- Pass 2: CPU / software devices (skip surface query to avoid
+    //     driver crashes; assume present is supported if graphics is) ---
+    for (uint32_t i = 0; i < gpuCount; ++i)
+    {
+        VkPhysicalDeviceProperties props;
+        vkGetPhysicalDeviceProperties(gpus[i], &props);
+
+        if (props.deviceType != VK_PHYSICAL_DEVICE_TYPE_CPU)
+            continue;
+
+        uint32_t queueCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(gpus[i], &queueCount, nullptr);
+        std::vector<VkQueueFamilyProperties> queues(queueCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(gpus[i], &queueCount, queues.data());
+
+        for (uint32_t j = 0; j < queueCount; ++j)
+        {
+            if (queues[j].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+            {
+                physicalDevice_ = gpus[i];
+                queueFamily_ = j;
+                std::cerr << "[vulkan] Selected software device: "
+                          << props.deviceName << "\n";
+                goto found;
             }
         }
     }
