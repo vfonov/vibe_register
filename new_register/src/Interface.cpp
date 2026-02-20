@@ -18,6 +18,7 @@
 #include "ColourMap.h"
 #include "Prefetcher.h"
 #include "QCState.h"
+#include "Transform.h"
 #include "ViewManager.h"
 
 Interface::Interface(AppState& state, ViewManager& viewManager, QCState& qcState)
@@ -908,6 +909,62 @@ void Interface::renderTagListWindow() {
 
         int maxTags = state_.getMaxTagCount();
 
+        // --- Transform section ---
+        if (numVolumes >= 2) {
+            ImGui::Text("Transform: %s", transformTypeName(state_.transformType_));
+            ImGui::SameLine();
+
+            // Transform type dropdown
+            const char* typeNames[] = {
+                "LSQ6 (Rigid)",
+                "LSQ7 (Similarity)",
+                "LSQ9 (9 param)",
+                "LSQ10 (10 param)",
+                "LSQ12 (Full Affine)",
+                "TPS (Thin-Plate Spline)"
+            };
+            int currentType = static_cast<int>(state_.transformType_);
+            ImGui::SetNextItemWidth(150 * state_.dpiScale_);
+            if (ImGui::Combo("##transform_type", &currentType, typeNames, IM_ARRAYSIZE(typeNames))) {
+                state_.setTransformType(static_cast<TransformType>(currentType));
+            }
+
+            // Compute/recompute transform
+            state_.recomputeTransform();
+            const TransformResult& result = state_.transformResult_;
+
+            if (result.valid) {
+                ImGui::Text("Avg RMS: %.6f", result.avgRMS);
+
+                // Per-tag RMS (collapsible)
+                if (ImGui::TreeNode("Per-tag RMS")) {
+                    for (size_t i = 0; i < result.perTagRMS.size(); ++i) {
+                        ImGui::Text("  Tag %zu: %.6f", i, result.perTagRMS[i]);
+                    }
+                    ImGui::TreePop();
+                }
+
+                // Save .xfm button
+                if (result.valid) {
+                    ImGui::Separator();
+                    if (ImGui::Button("Save .xfm", ImVec2(100 * state_.dpiScale_, 0))) {
+                        std::string xfmPath = "transform.xfm";
+                        if (writeXfmFile(xfmPath, result)) {
+                            std::cout << "Saved transform to " << xfmPath << "\n";
+                        } else {
+                            std::cerr << "Failed to save transform\n";
+                        }
+                    }
+                }
+            } else {
+                ImGui::TextColored(ImVec4(1,0.5,0,1), "Need %d+ tag pairs",
+                    state_.transformType_ == TransformType::TPS ? kMinPointsTPS : kMinPointsLinear);
+            }
+
+            ImGui::Separator();
+        }
+        // --- End transform section ---
+
         if (maxTags == 0) {
             ImGui::Text("No tags loaded");
         } else {
@@ -927,6 +984,7 @@ void Interface::renderTagListWindow() {
                         }
                     }
                     state_.selectedTagIndex_ = -1;
+                    state_.invalidateTransform();
                 }
             }
             ImGui::SameLine();
@@ -1284,6 +1342,7 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                         }
 
                         state_.selectedTagIndex_ = tagCount;
+                        state_.invalidateTransform();
                         for (int v = 0; v < state_.volumeCount(); ++v) {
                             for (int vv = 0; vv < 3; ++vv) {
                                 viewManager_.updateSliceTexture(v, vv);
