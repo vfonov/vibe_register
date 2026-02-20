@@ -86,11 +86,11 @@ public:
     TagWrapper(TagWrapper&& other) noexcept;
     TagWrapper& operator=(TagWrapper&& other) noexcept;
 
-private:
-    // Non‑copyable
-    TagWrapper(const TagWrapper&) = delete;
-    TagWrapper& operator=(const TagWrapper&) = delete;
+    /// Copy constructor — copies points and labels but not the raw C handle.
+    TagWrapper(const TagWrapper& other);
+    TagWrapper& operator=(const TagWrapper& other);
 
+private:
     minc2_tags* tags_;                // Raw C structure allocated by minc2_simple
     int n_volumes_;                   // Number of volumes stored in the tag file
     std::vector<glm::dvec3> points_;   // Tag coordinates (first volume)

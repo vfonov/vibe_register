@@ -22,99 +22,113 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
         return;
 
     VolumeViewState& state = state_.viewStates_[volumeIndex];
-    const ColourLut& lut = colourMapLut(state.colourMap);
+
+    // Hoist LUT pointers and colour count outside the pixel loop
+    const uint32_t* mainLut = colourMapLut(state.colourMap).table.data();
+    int numMaps = colourMapCount();
 
     int w, h;
-    std::vector<uint32_t> pixels;
 
     int dimX = vol.dimensions.x;
     int dimY = vol.dimensions.y;
     int dimZ = vol.dimensions.z;
 
-    float rangeMin = state.valueRange[0];
-    float rangeMax = state.valueRange[1];
+    float rangeMin = static_cast<float>(state.valueRange[0]);
+    float rangeMax = static_cast<float>(state.valueRange[1]);
     float rangeSpan = rangeMax - rangeMin;
     if (rangeSpan < 1e-12f)
         rangeSpan = 1e-12f;
+    float invSpan = 1.0f / rangeSpan;
+
+    // Pre-resolve under/over LUT pointers to avoid per-pixel lookups
+    int underMode = state.underColourMode;
+    uint32_t underColour = 0x00000000;
+    bool underTransparent = (underMode == kClampTransparent);
+    if (!underTransparent)
+    {
+        ColourMapType underMap = state.colourMap;
+        if (underMode >= 0 && underMode < numMaps)
+            underMap = static_cast<ColourMapType>(underMode);
+        underColour = colourMapLut(underMap).table[0];
+    }
+
+    int overMode = state.overColourMode;
+    uint32_t overColour = 0x00000000;
+    bool overTransparent = (overMode == kClampTransparent);
+    if (!overTransparent)
+    {
+        ColourMapType overMap = state.colourMap;
+        if (overMode >= 0 && overMode < numMaps)
+            overMap = static_cast<ColourMapType>(overMode);
+        overColour = colourMapLut(overMap).table[255];
+    }
 
     auto voxelToColour = [&](float val) -> uint32_t {
-        if (val < rangeMin) {
-            int mode = state.underColourMode;
-            if (mode == kClampTransparent)
-                return 0x00000000;
-            ColourMapType mapToUse = state.colourMap;
-            if (mode >= 0 && mode < colourMapCount())
-                mapToUse = static_cast<ColourMapType>(mode);
-            const ColourLut& lut = colourMapLut(mapToUse);
-            return lut.table[0];
-        }
-        if (val > rangeMax) {
-            int mode = state.overColourMode;
-            if (mode == kClampTransparent)
-                return 0x00000000;
-            ColourMapType mapToUse = state.colourMap;
-            if (mode >= 0 && mode < colourMapCount())
-                mapToUse = static_cast<ColourMapType>(mode);
-            const ColourLut& lut = colourMapLut(mapToUse);
-            return lut.table[255];
-        }
-        float norm = (val - rangeMin) / rangeSpan;
-        int idx = static_cast<int>(norm * 255.0f + 0.5f);
+        if (val < rangeMin)
+            return underTransparent ? 0x00000000 : underColour;
+        if (val > rangeMax)
+            return overTransparent ? 0x00000000 : overColour;
+        int idx = static_cast<int>((val - rangeMin) * invSpan * 255.0f + 0.5f);
         if (idx > 255)
             idx = 255;
-        return lut.table[idx];
+        return mainLut[idx];
     };
+
+    // Direct pointer to volume data for unchecked linear indexing
+    const float* vdata = vol.data.data();
 
     if (viewIndex == 0) {
         w = dimX;
         h = dimY;
-        int z = state.sliceIndices.z;
-        if (z >= dimZ)
-            z = dimZ - 1;
+        int z = std::clamp(state.sliceIndices.z, 0, dimZ - 1);
 
-        pixels.resize(w * h);
+        pixelBuf_.resize(w * h);
+        int zOff = z * dimY * dimX;
         for (int y = 0; y < h; ++y) {
+            int rowOff = zOff + y * dimX;
+            int dstOff = (h - 1 - y) * w;
             for (int x = 0; x < w; ++x) {
-                pixels[(h - 1 - y) * w + x] = voxelToColour(vol.get(x, y, z));
+                pixelBuf_[dstOff + x] = voxelToColour(vdata[rowOff + x]);
             }
         }
     } else if (viewIndex == 1) {
         w = dimY;
         h = dimZ;
-        int x = state.sliceIndices.x;
-        if (x >= dimX)
-            x = dimX - 1;
+        int x = std::clamp(state.sliceIndices.x, 0, dimX - 1);
 
-        pixels.resize(w * h);
+        pixelBuf_.resize(w * h);
         for (int z = 0; z < h; ++z) {
+            int zOff = z * dimY * dimX + x;
+            int dstOff = (h - 1 - z) * w;
             for (int y = 0; y < w; ++y) {
-                pixels[(h - 1 - z) * w + y] = voxelToColour(vol.get(x, y, z));
+                pixelBuf_[dstOff + y] = voxelToColour(vdata[zOff + y * dimX]);
             }
         }
     } else {
         w = dimX;
         h = dimZ;
-        int y = state.sliceIndices.y;
-        if (y >= dimY)
-            y = dimY - 1;
+        int y = std::clamp(state.sliceIndices.y, 0, dimY - 1);
 
-        pixels.resize(w * h);
+        pixelBuf_.resize(w * h);
+        int yOff = y * dimX;
         for (int z = 0; z < h; ++z) {
+            int zOff = z * dimY * dimX + yOff;
+            int dstOff = (h - 1 - z) * w;
             for (int x = 0; x < w; ++x) {
-                pixels[(h - 1 - z) * w + x] = voxelToColour(vol.get(x, y, z));
+                pixelBuf_[dstOff + x] = voxelToColour(vdata[zOff + x]);
             }
         }
     }
 
     std::unique_ptr<Texture>& tex = state.sliceTextures[viewIndex];
     if (!tex) {
-        tex = backend_.createTexture(w, h, pixels.data());
+        tex = backend_.createTexture(w, h, pixelBuf_.data());
     } else {
         if (tex->width != w || tex->height != h) {
             backend_.destroyTexture(tex.get());
-            tex = backend_.createTexture(w, h, pixels.data());
+            tex = backend_.createTexture(w, h, pixelBuf_.data());
         } else {
-            backend_.updateTexture(tex.get(), pixels.data());
+            backend_.updateTexture(tex.get(), pixelBuf_.data());
         }
     }
 }
@@ -149,123 +163,196 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
     else
         sliceIdx = refState.sliceIndices.y;
 
-    std::vector<uint32_t> pixels(w * h);
+    // --- Per-volume precomputed data ---
+    // For each volume we precompute:
+    //   combined = vol.worldToVoxel * ref.voxelToWorld  (ref-voxel → target-voxel)
+    //   LUT pointer, range params, under/over colours, overlay alpha
+    struct PerVolInfo {
+        glm::dmat4 combined;         // ref-voxel → target-voxel transform
+        const float* vdata;          // pointer to volume data
+        glm::ivec3 dims;             // target volume dimensions
+        int dimXY;                   // dims.x * dims.y
+        float rangeMin, rangeMax, invSpan;
+        const uint32_t* mainLut;
+        uint32_t underColour, overColour;
+        bool underTransparent, overTransparent;
+        float alpha;
+    };
+
+    int numMaps = colourMapCount();
+    std::vector<PerVolInfo> infos;
+    infos.reserve(numVols);
+
+    for (int vi = 0; vi < numVols; ++vi) {
+        const Volume& vol = state_.volumes_[vi];
+        const VolumeViewState& st = state_.viewStates_[vi];
+        if (vol.data.empty() || st.overlayAlpha <= 0.0f)
+            continue;
+
+        PerVolInfo info;
+        info.combined = vol.worldToVoxel * ref.voxelToWorld;
+        info.vdata = vol.data.data();
+        info.dims = vol.dimensions;
+        info.dimXY = vol.dimensions.x * vol.dimensions.y;
+        info.rangeMin = static_cast<float>(st.valueRange[0]);
+        info.rangeMax = static_cast<float>(st.valueRange[1]);
+        float span = info.rangeMax - info.rangeMin;
+        if (span < 1e-12f) span = 1e-12f;
+        info.invSpan = 1.0f / span;
+        info.mainLut = colourMapLut(st.colourMap).table.data();
+        info.alpha = st.overlayAlpha;
+
+        // Pre-resolve under/over colours
+        int underMode = st.underColourMode;
+        info.underTransparent = (underMode == kClampTransparent);
+        info.underColour = 0x00000000;
+        if (!info.underTransparent) {
+            ColourMapType underMap = st.colourMap;
+            if (underMode >= 0 && underMode < numMaps)
+                underMap = static_cast<ColourMapType>(underMode);
+            info.underColour = colourMapLut(underMap).table[0];
+        }
+
+        int overMode = st.overColourMode;
+        info.overTransparent = (overMode == kClampTransparent);
+        info.overColour = 0x00000000;
+        if (!info.overTransparent) {
+            ColourMapType overMap = st.colourMap;
+            if (overMode >= 0 && overMode < numMaps)
+                overMap = static_cast<ColourMapType>(overMode);
+            info.overColour = colourMapLut(overMap).table[255];
+        }
+
+        infos.push_back(info);
+    }
+
+    pixelBuf_.resize(w * h);
+
+    // Precompute the ref-voxel base and row/col deltas for the 2D scan.
+    // This avoids a full 4x4 matrix multiply per pixel per volume.
+    // ref-voxel as doubles: base is the corner of the slice, dPx/dPy are deltas.
+    glm::dvec3 refBase, refDpx, refDpy;
+    if (viewIndex == 0) {
+        // Transverse: px=refX, py=refY, refZ=sliceIdx
+        int z = std::clamp(sliceIdx, 0, ref.dimensions.z - 1);
+        refBase = glm::dvec3(0.0, 0.0, static_cast<double>(z));
+        refDpx = glm::dvec3(1.0, 0.0, 0.0);
+        refDpy = glm::dvec3(0.0, 1.0, 0.0);
+    } else if (viewIndex == 1) {
+        // Sagittal: px=refY, py=refZ, refX=sliceIdx
+        int x = std::clamp(sliceIdx, 0, ref.dimensions.x - 1);
+        refBase = glm::dvec3(static_cast<double>(x), 0.0, 0.0);
+        refDpx = glm::dvec3(0.0, 1.0, 0.0);
+        refDpy = glm::dvec3(0.0, 0.0, 1.0);
+    } else {
+        // Coronal: px=refX, py=refZ, refY=sliceIdx
+        int y = std::clamp(sliceIdx, 0, ref.dimensions.y - 1);
+        refBase = glm::dvec3(0.0, static_cast<double>(y), 0.0);
+        refDpx = glm::dvec3(1.0, 0.0, 0.0);
+        refDpy = glm::dvec3(0.0, 0.0, 1.0);
+    }
+
+    // For each target volume, precompute the combined scanline parameters:
+    //   targetBase  = combined * (refBase, 1)
+    //   targetDpx   = combined * (refDpx, 0)  (direction, no translation)
+    //   targetDpy   = combined * (refDpy, 0)
+    struct ScanInfo {
+        glm::dvec3 base;   // target-voxel at (px=0, py=0)
+        glm::dvec3 dpx;    // target-voxel delta per px++
+        glm::dvec3 dpy;    // target-voxel delta per py++
+    };
+    std::vector<ScanInfo> scans(infos.size());
+    for (size_t i = 0; i < infos.size(); ++i) {
+        const auto& M = infos[i].combined;
+        glm::dvec4 bH = M * glm::dvec4(refBase, 1.0);
+        glm::dvec4 dxH = M * glm::dvec4(refDpx, 0.0);
+        glm::dvec4 dyH = M * glm::dvec4(refDpy, 0.0);
+        scans[i].base = glm::dvec3(bH);
+        scans[i].dpx = glm::dvec3(dxH);
+        scans[i].dpy = glm::dvec3(dyH);
+    }
 
     for (int py = 0; py < h; ++py) {
+        int dstRowOff = (h - 1 - py) * w;
+
         for (int px = 0; px < w; ++px) {
-            int refX, refY, refZ;
-            if (viewIndex == 0) {
-                refX = px;
-                refY = py;
-                refZ = std::clamp(sliceIdx, 0, ref.dimensions.z - 1);
-            } else if (viewIndex == 1) {
-                refX = std::clamp(sliceIdx, 0, ref.dimensions.x - 1);
-                refY = px;
-                refZ = py;
-            } else {
-                refX = px;
-                refY = std::clamp(sliceIdx, 0, ref.dimensions.y - 1);
-                refZ = py;
-            }
-
-            glm::dvec3 worldPos;
-            ref.transformVoxelToWorld(glm::ivec3(refX, refY, refZ), worldPos);
-
             float accR = 0.0f, accG = 0.0f, accB = 0.0f;
             float totalWeight = 0.0f;
 
-            for (int vi = 0; vi < numVols; ++vi) {
-                const Volume& vol = state_.volumes_[vi];
-                const VolumeViewState& st = state_.viewStates_[vi];
-                if (vol.data.empty())
-                    continue;
-                if (st.overlayAlpha <= 0.0f)
+            for (size_t vi = 0; vi < infos.size(); ++vi) {
+                const auto& info = infos[vi];
+                const auto& sc = scans[vi];
+
+                // Target voxel = base + px*dpx + py*dpy
+                glm::dvec3 tv = sc.base + static_cast<double>(px) * sc.dpx
+                                        + static_cast<double>(py) * sc.dpy;
+                int tx = static_cast<int>(std::round(tv.x));
+                int ty = static_cast<int>(std::round(tv.y));
+                int tz = static_cast<int>(std::round(tv.z));
+
+                // Bounds check
+                if (tx < 0 || tx >= info.dims.x ||
+                    ty < 0 || ty >= info.dims.y ||
+                    tz < 0 || tz >= info.dims.z)
                     continue;
 
-                glm::ivec3 targetVoxel;
-                if (!vol.transformWorldToVoxel(worldPos, targetVoxel))
-                    continue;
-
-                float raw = vol.get(targetVoxel.x, targetVoxel.y, targetVoxel.z);
-                float rangeMin = st.valueRange[0];
-                float rangeMax = st.valueRange[1];
-                float rangeSpan = rangeMax - rangeMin;
-                if (rangeSpan < 1e-12f)
-                    rangeSpan = 1e-12f;
+                float raw = info.vdata[tz * info.dimXY + ty * info.dims.x + tx];
 
                 uint32_t packed;
-                if (raw < rangeMin) {
-                    int mode = st.underColourMode;
-                    if (mode == kClampTransparent) {
-                        packed = 0x00000000;
-                    } else {
-                        ColourMapType mapToUse = st.colourMap;
-                        if (mode >= 0 && mode < colourMapCount())
-                            mapToUse = static_cast<ColourMapType>(mode);
-                        const ColourLut& lut = colourMapLut(mapToUse);
-                        packed = lut.table[0];
-                    }
-                } else if (raw > rangeMax) {
-                    int mode = st.overColourMode;
-                    if (mode == kClampTransparent) {
-                        packed = 0x00000000;
-                    } else {
-                        ColourMapType mapToUse = st.colourMap;
-                        if (mode >= 0 && mode < colourMapCount())
-                            mapToUse = static_cast<ColourMapType>(mode);
-                        const ColourLut& lut = colourMapLut(mapToUse);
-                        packed = lut.table[255];
-                    }
+                if (raw < info.rangeMin) {
+                    if (info.underTransparent) continue;
+                    packed = info.underColour;
+                } else if (raw > info.rangeMax) {
+                    if (info.overTransparent) continue;
+                    packed = info.overColour;
                 } else {
-                    float norm = (raw - rangeMin) / rangeSpan;
-                    norm = std::clamp(norm, 0.0f, 1.0f);
-                    int lutIdx = std::min(static_cast<int>(norm * 255.0f + 0.5f), 255);
-                    const ColourLut& lut = colourMapLut(st.colourMap);
-                    packed = lut.table[lutIdx];
+                    int lutIdx = static_cast<int>(
+                        (raw - info.rangeMin) * info.invSpan * 255.0f + 0.5f);
+                    if (lutIdx > 255) lutIdx = 255;
+                    packed = info.mainLut[lutIdx];
                 }
 
                 if ((packed >> 24) == 0)
                     continue;
 
-                float srcR = static_cast<float>((packed >> 0) & 0xFF) / 255.0f;
-                float srcG = static_cast<float>((packed >> 8) & 0xFF) / 255.0f;
-                float srcB = static_cast<float>((packed >> 16) & 0xFF) / 255.0f;
-                float w_alpha = st.overlayAlpha;
+                float srcR = static_cast<float>((packed >> 0) & 0xFF) * (1.0f / 255.0f);
+                float srcG = static_cast<float>((packed >> 8) & 0xFF) * (1.0f / 255.0f);
+                float srcB = static_cast<float>((packed >> 16) & 0xFF) * (1.0f / 255.0f);
 
-                accR += srcR * w_alpha;
-                accG += srcG * w_alpha;
-                accB += srcB * w_alpha;
-                totalWeight += w_alpha;
+                accR += srcR * info.alpha;
+                accG += srcG * info.alpha;
+                accB += srcB * info.alpha;
+                totalWeight += info.alpha;
             }
 
             if (totalWeight > 0.0f) {
-                accR /= totalWeight;
-                accG /= totalWeight;
-                accB /= totalWeight;
+                float inv = 1.0f / totalWeight;
+                accR *= inv;
+                accG *= inv;
+                accB *= inv;
             }
 
-            auto toByte = [](float v) -> uint8_t {
-                return static_cast<uint8_t>(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f);
+            auto toByte = [](float v) -> uint32_t {
+                int c = static_cast<int>(v * 255.0f + 0.5f);
+                return static_cast<uint32_t>(c < 0 ? 0 : (c > 255 ? 255 : c));
             };
 
-            uint32_t result = static_cast<uint32_t>(toByte(accR))
-                            | (static_cast<uint32_t>(toByte(accG)) << 8)
-                            | (static_cast<uint32_t>(toByte(accB)) << 16)
-                            | (0xFFu << 24);
-
-            pixels[(h - 1 - py) * w + px] = result;
+            pixelBuf_[dstRowOff + px] = toByte(accR)
+                                       | (toByte(accG) << 8)
+                                       | (toByte(accB) << 16)
+                                       | (0xFFu << 24);
         }
     }
 
     std::unique_ptr<Texture>& tex = state_.overlay_.textures[viewIndex];
     if (!tex) {
-        tex = backend_.createTexture(w, h, pixels.data());
+        tex = backend_.createTexture(w, h, pixelBuf_.data());
     } else {
         if (tex->width != w || tex->height != h) {
             backend_.destroyTexture(tex.get());
-            tex = backend_.createTexture(w, h, pixels.data());
+            tex = backend_.createTexture(w, h, pixelBuf_.data());
         } else {
-            backend_.updateTexture(tex.get(), pixels.data());
+            backend_.updateTexture(tex.get(), pixelBuf_.data());
         }
     }
 }

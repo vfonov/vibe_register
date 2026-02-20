@@ -400,10 +400,26 @@ sub03,PASS,,PASS,
 - [x] **Rewritten `UpdateTexture()`** — No per-call Vulkan allocations. Just `memcpy` into persistent mapping + reset/record/submit the persistent command buffer.
 - [x] **`VulkanHelpers::Shutdown()`** — New function called at app exit to release staging resources before Vulkan device teardown.
 
+### Tier 2 Batch A: Overlay Compositing Optimization (Complete)
+- [x] **Precompute combined ref→target transform** — `vol.worldToVoxel * ref.voxelToWorld` computed once per volume per overlay update. Eliminates two 4x4 matrix multiplies per pixel per volume.
+- [x] **Affine scanline increments** — Precompute `base`, `dpx`, `dpy` vectors from the combined transform. Inner loop uses `base + px*dpx + py*dpy` (3 muls + 3 adds) instead of a full 4x4 matrix-vector multiply per pixel.
+- [x] **Hoist LUT pointers** — `colourMapLut()` calls moved outside pixel loops; raw `uint32_t*` pointer stored per volume.
+- [x] **Pre-resolve under/over colours** — Clamp mode LUT lookups done once per volume, not per pixel. Eliminates `colourMapCount()` calls from inner loop.
+- [x] **Multiply by reciprocal** — `1.0f / rangeSpan` precomputed; inner loop uses multiply instead of divide.
+- [x] **Direct data pointer** — `vol.data.data()` stored as `const float*`; linear index computed inline (no `get()` bounds check).
+- [x] **`Volume::getUnchecked()`** — New inline method for bounds-checked-elsewhere access.
+
+### Tier 2 Batch C: Pixel Buffer Reuse (Complete)
+- [x] **Persistent `pixelBuf_`** — `std::vector<uint32_t>` moved from local variable to `ViewManager` member. Resized (never shrinks) on each call, eliminating per-call heap allocation.
+
+### Tier 2 Batch D: LRU Volume Cache (Complete)
+- [x] **`VolumeCache` class** — LRU cache for loaded `Volume` objects, keyed by file path. Uses `std::list` for LRU order + `std::unordered_map` for O(1) lookup.
+- [x] **Configurable capacity** — Default 8 entries; sufficient for QC with 2-4 columns and recent row history.
+- [x] **Cache-aware `loadVolumeSet()`** — Checks cache before disk I/O. On miss, loads from disk and inserts copy into cache. On hit, copies cached volume (fast memcpy vs. slow disk read).
+- [x] **Volume copy semantics** — Added copy constructor/assignment to `Volume` and `TagWrapper` to support cache copies.
+- [x] **Memory bounded** — LRU eviction keeps cache within configured limit.
+
 ### Tier 2 items (Not Yet Implemented)
-- [ ] **Batch A** (overlay compositing loop): Precompute combined transform, `getUnchecked()`, hoist LUT pointers
-- [ ] **Batch C** (pixel buffer reuse): Move `std::vector<uint32_t>` to ViewManager member
-- [ ] **Batch D** (volume cache): LRU cache for QC row switches
 - [ ] **Item 4** (ratedCount caching): Deferred — negligible impact
 
 ---

@@ -40,6 +40,8 @@ public:
     Volume();
     ~Volume();
 
+    Volume(const Volume& other);
+    Volume& operator=(const Volume& other);
     Volume(Volume&& other) noexcept;
     Volume& operator=(Volume&& other) noexcept;
 
@@ -47,6 +49,13 @@ public:
     /// @throws std::runtime_error on any failure (file not found, bad format, etc.)
     void load(const std::string& filename);
     float get(int x, int y, int z) const;
+
+    /// Unchecked voxel access — caller guarantees x,y,z are in bounds.
+    /// Avoids the branch overhead of get() in hot loops.
+    float getUnchecked(int x, int y, int z) const
+    {
+        return data[z * dimensions.y * dimensions.x + y * dimensions.x + x];
+    }
     void generate_test_data();
 
     /// Return the physical (world-space) size of the volume along each

@@ -8,6 +8,42 @@
 
 #include "AppConfig.h"
 
+// --- VolumeCache implementation ---
+
+Volume* VolumeCache::get(const std::string& path) {
+    auto it = map_.find(path);
+    if (it == map_.end())
+        return nullptr;
+    // Move accessed entry to front of LRU list
+    lru_.splice(lru_.begin(), lru_, it->second);
+    return &it->second->vol;
+}
+
+void VolumeCache::put(const std::string& path, Volume vol) {
+    // If already cached, update and move to front
+    auto it = map_.find(path);
+    if (it != map_.end()) {
+        it->second->vol = std::move(vol);
+        lru_.splice(lru_.begin(), lru_, it->second);
+        return;
+    }
+    // Evict LRU entry if at capacity
+    if (map_.size() >= maxEntries_ && !lru_.empty()) {
+        auto& back = lru_.back();
+        map_.erase(back.path);
+        lru_.pop_back();
+    }
+    lru_.push_front(Entry{path, std::move(vol)});
+    map_[path] = lru_.begin();
+}
+
+void VolumeCache::clear() {
+    map_.clear();
+    lru_.clear();
+}
+
+// --- AppState implementation ---
+
 void AppState::loadVolume(const std::string& path) {
     Volume vol;
     vol.load(path);
@@ -179,9 +215,28 @@ void AppState::loadVolumeSet(const std::vector<std::string>& paths) {
             continue;
         }
 
+        // Check LRU cache first
+        Volume* cached = volumeCache_.get(path);
+        if (cached)
+        {
+            // Copy the cached volume (data vector is shared via copy)
+            volumes_.push_back(*cached);
+            volumePaths_.push_back(path);
+            volumeNames_.push_back(
+                std::filesystem::path(path).filename().string());
+            continue;
+        }
+
         try
         {
-            loadVolume(path);
+            Volume vol;
+            vol.load(path);
+            // Store a copy in the cache before moving into the active set
+            volumeCache_.put(path, vol);
+            volumes_.push_back(std::move(vol));
+            volumePaths_.push_back(path);
+            volumeNames_.push_back(
+                std::filesystem::path(path).filename().string());
         }
         catch (const std::exception& e)
         {

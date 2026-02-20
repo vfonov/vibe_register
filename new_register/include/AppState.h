@@ -1,7 +1,9 @@
 #pragma once
 
+#include <list>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -40,6 +42,38 @@ struct OverlayState {
     glm::dvec3 dragAccum{0.0, 0.0, 0.0};
 };
 
+/// LRU cache for loaded Volume objects.  Keyed by absolute file path.
+/// Avoids re-reading MINC files from disk during QC row switches.
+class VolumeCache {
+public:
+    explicit VolumeCache(size_t maxEntries = 8) : maxEntries_(maxEntries) {}
+
+    /// Try to retrieve a cached volume.  On hit, moves the entry to the
+    /// front of the LRU list and returns a pointer (valid until the next
+    /// eviction).  On miss, returns nullptr.
+    Volume* get(const std::string& path);
+
+    /// Insert a volume into the cache, evicting the least-recently-used
+    /// entry if capacity is exceeded.  The Volume is moved in.
+    void put(const std::string& path, Volume vol);
+
+    /// Clear all cached volumes and free memory.
+    void clear();
+
+    size_t size() const { return map_.size(); }
+    size_t capacity() const { return maxEntries_; }
+
+private:
+    struct Entry {
+        std::string path;
+        Volume vol;
+    };
+    size_t maxEntries_;
+    std::list<Entry> lru_;                           // front = most recent
+    std::unordered_map<std::string,
+                       std::list<Entry>::iterator> map_;
+};
+
 class AppState {
 public:
     std::vector<Volume> volumes_;
@@ -63,6 +97,9 @@ public:
 
     int selectedTagIndex_ = -1;
     bool tagListWindowVisible_ = false;
+
+    /// LRU volume cache for QC mode row switches.
+    VolumeCache volumeCache_;
 
     int volumeCount() const { return static_cast<int>(volumes_.size()); }
     bool hasOverlay() const { return volumes_.size() > 1; }
@@ -88,5 +125,6 @@ public:
     /// Empty paths produce placeholder volumes with name "(missing)".
     /// Failed loads produce placeholder volumes with name "(error)".
     /// Caller must call ViewManager::initializeAllTextures() afterward.
+    /// Uses volumeCache_ to avoid re-reading previously loaded files.
     void loadVolumeSet(const std::vector<std::string>& paths);
 };

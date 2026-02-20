@@ -33,4 +33,7 @@ public:
 private:
     AppState& state_;
     GraphicsBackend& backend_;
+
+    /// Reusable pixel buffer to avoid per-call allocation.
+    std::vector<uint32_t> pixelBuf_;
 };

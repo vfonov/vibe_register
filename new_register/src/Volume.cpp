@@ -68,6 +68,35 @@ Volume::Volume()
 
 Volume::~Volume() {}
 
+Volume::Volume(const Volume& other)
+    : dimensions(other.dimensions),
+      step(other.step),
+      start(other.start),
+      dirCos(other.dirCos),
+      data(other.data),
+      min_value(other.min_value),
+      max_value(other.max_value),
+      voxelToWorld(other.voxelToWorld),
+      worldToVoxel(other.worldToVoxel),
+      tags(other.tags)
+{}
+
+Volume& Volume::operator=(const Volume& other) {
+    if (this != &other) {
+        dimensions = other.dimensions;
+        step = other.step;
+        start = other.start;
+        dirCos = other.dirCos;
+        data = other.data;
+        min_value = other.min_value;
+        max_value = other.max_value;
+        voxelToWorld = other.voxelToWorld;
+        worldToVoxel = other.worldToVoxel;
+        tags = other.tags;
+    }
+    return *this;
+}
+
 Volume::Volume(Volume&& other) noexcept
     : dimensions(other.dimensions),
       step(other.step),

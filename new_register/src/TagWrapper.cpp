@@ -53,6 +53,30 @@ TagWrapper& TagWrapper::operator=(TagWrapper&& other) noexcept {
     return *this;
 }
 
+TagWrapper::TagWrapper(const TagWrapper& other)
+    : tags_(nullptr),
+      n_volumes_(other.n_volumes_),
+      points_(other.points_),
+      labels_(other.labels_)
+{
+    // We only copy the high-level points/labels, not the raw C minc2_tags
+    // handle.  The raw handle is only needed for save() and is rebuilt on
+    // demand by that method.
+}
+
+TagWrapper& TagWrapper::operator=(const TagWrapper& other) {
+    if (this != &other) {
+        if (tags_) {
+            minc2_tags_free(tags_);
+            tags_ = nullptr;
+        }
+        n_volumes_ = other.n_volumes_;
+        points_ = other.points_;
+        labels_ = other.labels_;
+    }
+    return *this;
+}
+
 void TagWrapper::load(const std::string& path) {
     clear();
 
