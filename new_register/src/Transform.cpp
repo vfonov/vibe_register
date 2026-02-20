@@ -13,8 +13,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <fstream>
 #include <functional>
+#include <iostream>
 #include <limits>
 #include <numeric>
 #include <sstream>
@@ -23,6 +25,10 @@
 #include <Eigen/Dense>
 #include <unsupported/Eigen/NumericalDiff>
 #include <unsupported/Eigen/NonLinearOptimization>
+
+extern "C" {
+#include "minc2-simple.h"
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -908,50 +914,20 @@ bool writeXfmFile(const std::string& path, const TransformResult& result)
     if (!result.valid)
         return false;
 
-    std::ofstream out(path);
-    if (!out.is_open())
-        return false;
-
-    out << "MNI Transform File\n";
-
-    if (result.type != TransformType::TPS)
+    if (result.type == TransformType::TPS)
     {
-        // Linear transform
-        out << "\nTransform_Type = Linear;\n";
-        out << "Linear_Transform =\n";
+        std::ofstream out(path);
+        if (!out.is_open())
+            return false;
 
-        const glm::dmat4& m = result.linearMatrix;
-        // Write rows 0-2 of the 4x4 matrix (row 3 is implied [0 0 0 1])
-        // MNI format: row-major, each element separated by spaces
-        for (int row = 0; row < 3; ++row)
-        {
-            out << " ";
-            for (int col = 0; col < 4; ++col)
-            {
-                // glm is column-major: m[col][row]
-                char buf[64];
-                std::snprintf(buf, sizeof(buf), "%.15g", m[col][row]);
-                out << buf;
-                if (col < 3)
-                    out << " ";
-            }
-            if (row < 2)
-                out << "\n";
-            else
-                out << ";\n";
-        }
-    }
-    else
-    {
-        // TPS transform
         int n = static_cast<int>(result.tpsSourcePoints.size());
         int nDims = 3;
 
+        out << "MNI Transform File\n";
         out << "\nTransform_Type = Thin_Plate_Spline_Transform;\n";
         out << "Invert_Flag = True;\n";
         out << "Number_Dimensions = " << nDims << ";\n";
 
-        // Points (source positions)
         out << "Points =\n";
         for (int i = 0; i < n; ++i)
         {
@@ -966,7 +942,6 @@ bool writeXfmFile(const std::string& path, const TransformResult& result)
                 out << ";\n";
         }
 
-        // Displacements (weights matrix)
         int nWeights = n + nDims + 1;
         out << "Displacements =\n";
         for (int i = 0; i < nWeights; ++i)
@@ -981,66 +956,84 @@ bool writeXfmFile(const std::string& path, const TransformResult& result)
             else
                 out << ";\n";
         }
+
+        return out.good();
     }
 
-    return out.good();
+    minc2_xfm_file_handle xfm = minc2_xfm_allocate0();
+    if (!xfm)
+        return false;
+
+    double matrix[16];
+    const glm::dmat4& m = result.linearMatrix;
+    for (int row = 0; row < 4; ++row)
+    {
+        for (int col = 0; col < 4; ++col)
+        {
+            matrix[row * 4 + col] = m[col][row];
+        }
+    }
+
+    if (minc2_xfm_append_linear_transform(xfm, matrix) != MINC2_SUCCESS)
+    {
+        minc2_xfm_destroy(xfm);
+        return false;
+    }
+
+    bool success = (minc2_xfm_save(xfm, path.c_str()) == MINC2_SUCCESS);
+    minc2_xfm_destroy(xfm);
+    return success;
 }
 
 bool readXfmFile(const std::string& path, glm::dmat4& matrix)
 {
-    std::ifstream in(path);
-    if (!in.is_open())
+    minc2_xfm_file_handle xfm = minc2_xfm_allocate0();
+    if (!xfm)
         return false;
 
-    std::string line;
-
-    // Find "MNI Transform File" header
-    bool foundHeader = false;
-    while (std::getline(in, line))
+    if (minc2_xfm_open(xfm, path.c_str()) != MINC2_SUCCESS)
     {
-        if (line.find("MNI Transform File") != std::string::npos)
-        {
-            foundHeader = true;
-            break;
-        }
+        minc2_xfm_destroy(xfm);
+        return false;
     }
-    if (!foundHeader)
-        return false;
 
-    // Find "Linear_Transform ="
-    bool foundLinear = false;
-    while (std::getline(in, line))
+    int nConcat = 0;
+    if (minc2_xfm_get_n_concat(xfm, &nConcat) != MINC2_SUCCESS || nConcat < 1)
     {
-        if (line.find("Linear_Transform") != std::string::npos)
-        {
-            foundLinear = true;
-            break;
-        }
+        minc2_xfm_destroy(xfm);
+        return false;
     }
-    if (!foundLinear)
-        return false;
 
-    // Read 3 rows of 4 values each
-    matrix = glm::dmat4(1.0);  // identity
-    for (int row = 0; row < 3; ++row)
+    int xfmType = 0;
+    if (minc2_xfm_get_n_type(xfm, 0, &xfmType) != MINC2_SUCCESS)
     {
-        if (!std::getline(in, line))
-            return false;
+        minc2_xfm_destroy(xfm);
+        return false;
+    }
 
-        // Remove trailing semicolons
-        while (!line.empty() && (line.back() == ';' || line.back() == '\r'))
-            line.pop_back();
+    if (xfmType != MINC2_XFM_LINEAR)
+    {
+        std::cerr << "Error: Only linear transforms are supported for reading\n";
+        minc2_xfm_destroy(xfm);
+        return false;
+    }
 
-        std::istringstream iss(line);
+    double mat[16];
+    if (minc2_xfm_get_linear_transform(xfm, 0, mat) != MINC2_SUCCESS)
+    {
+        minc2_xfm_destroy(xfm);
+        return false;
+    }
+
+    matrix = glm::dmat4(1.0);
+    for (int row = 0; row < 4; ++row)
+    {
         for (int col = 0; col < 4; ++col)
         {
-            double val;
-            if (!(iss >> val))
-                return false;
-            matrix[col][row] = val;
+            matrix[col][row] = mat[row * 4 + col];
         }
     }
 
-    // Row 3 is [0, 0, 0, 1] (already set by identity)
+    minc2_xfm_destroy(xfm);
     return true;
 }

@@ -112,6 +112,7 @@ public:
     TransformType transformType_ = TransformType::LSQ6;
     TransformResult transformResult_;
     bool transformOutOfDate_ = true;  ///< Set when tags change
+    char xfmFilePath_[256] = "transform.xfm";  ///< User-editable .xfm output path
 
     /// LRU volume cache for QC mode row switches.
     VolumeCache volumeCache_;

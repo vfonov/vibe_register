@@ -911,21 +911,19 @@ void Interface::renderTagListWindow() {
 
         // --- Transform section ---
         if (numVolumes >= 2) {
-            ImGui::Text("Transform: %s", transformTypeName(state_.transformType_));
-            ImGui::SameLine();
-
-            // Transform type dropdown
-            const char* typeNames[] = {
-                "LSQ6 (Rigid)",
-                "LSQ7 (Similarity)",
-                "LSQ9 (9 param)",
-                "LSQ10 (10 param)",
-                "LSQ12 (Full Affine)",
-                "TPS (Thin-Plate Spline)"
-            };
+            ImGui::Text("Transform Type:");
+            
             int currentType = static_cast<int>(state_.transformType_);
-            ImGui::SetNextItemWidth(150 * state_.dpiScale_);
-            if (ImGui::Combo("##transform_type", &currentType, typeNames, IM_ARRAYSIZE(typeNames))) {
+            
+            // Radio buttons for transform type
+            ImGui::RadioButton("LSQ6 (Rigid)", &currentType, 0); ImGui::SameLine();
+            ImGui::RadioButton("LSQ7 (Similarity)", &currentType, 1); ImGui::SameLine();
+            ImGui::RadioButton("LSQ9", &currentType, 2);
+            ImGui::RadioButton("LSQ10", &currentType, 3); ImGui::SameLine();
+            ImGui::RadioButton("LSQ12", &currentType, 4); ImGui::SameLine();
+            ImGui::RadioButton("TPS", &currentType, 5);
+            
+            if (currentType != static_cast<int>(state_.transformType_)) {
                 state_.setTransformType(static_cast<TransformType>(currentType));
             }
 
@@ -936,23 +934,29 @@ void Interface::renderTagListWindow() {
             if (result.valid) {
                 ImGui::Text("Avg RMS: %.6f", result.avgRMS);
 
-                // Per-tag RMS (collapsible)
-                if (ImGui::TreeNode("Per-tag RMS")) {
-                    for (size_t i = 0; i < result.perTagRMS.size(); ++i) {
-                        ImGui::Text("  Tag %zu: %.6f", i, result.perTagRMS[i]);
+                // Save .xfm and .tag buttons
+                ImGui::Separator();
+                ImGui::SetNextItemWidth(200.0f * state_.dpiScale_);
+                ImGui::InputText("##xfm_path", state_.xfmFilePath_, sizeof(state_.xfmFilePath_));
+                ImGui::SameLine();
+                float btnWidth = 80.0f * state_.dpiScale_;
+                if (ImGui::Button("Save .xfm", ImVec2(btnWidth, 0))) {
+                    if (writeXfmFile(state_.xfmFilePath_, result)) {
+                        std::cout << "Saved transform to " << state_.xfmFilePath_ << "\n";
+                    } else {
+                        std::cerr << "Failed to save transform\n";
                     }
-                    ImGui::TreePop();
                 }
-
-                // Save .xfm button
-                if (result.valid) {
-                    ImGui::Separator();
-                    if (ImGui::Button("Save .xfm", ImVec2(100 * state_.dpiScale_, 0))) {
-                        std::string xfmPath = "transform.xfm";
-                        if (writeXfmFile(xfmPath, result)) {
-                            std::cout << "Saved transform to " << xfmPath << "\n";
-                        } else {
-                            std::cerr << "Failed to save transform\n";
+                ImGui::SameLine();
+                if (ImGui::Button("Save .tag", ImVec2(btnWidth, 0))) {
+                    for (int vi = 0; vi < numVolumes; ++vi) {
+                        std::filesystem::path tagPath(state_.volumePaths_[vi]);
+                        tagPath.replace_extension(".tag");
+                        try {
+                            state_.volumes_[vi].saveTags(tagPath.string());
+                            std::cout << "Saved tags to " << tagPath << "\n";
+                        } catch (const std::exception& e) {
+                            std::cerr << "Failed to save tags: " << e.what() << "\n";
                         }
                     }
                 }
@@ -994,12 +998,18 @@ void Interface::renderTagListWindow() {
 
             ImGui::Separator();
 
+            bool hasRMS = (numVolumes >= 2 && state_.transformResult_.valid &&
+                           !state_.transformResult_.perTagRMS.empty());
+            int numColumns = 2 + numVolumes + (hasRMS ? 1 : 0);
             int tableFlags = ImGuiTableFlags_RowBg | ImGuiTableFlags_Sortable | ImGuiTableFlags_SizingFixedFit;
-            if (ImGui::BeginTable("##tags_table", 2 + numVolumes, tableFlags)) {
+            if (ImGui::BeginTable("##tags_table", numColumns, tableFlags)) {
                 ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 30.0f);
                 ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 100.0f);
                 for (int vi = 0; vi < numVolumes; ++vi) {
                     ImGui::TableSetupColumn(state_.volumeNames_[vi].c_str(), ImGuiTableColumnFlags_WidthFixed, 120.0f);
+                }
+                if (hasRMS) {
+                    ImGui::TableSetupColumn("RMS", ImGuiTableColumnFlags_WidthFixed, 80.0f);
                 }
                 ImGui::TableHeadersRow();
 
@@ -1022,6 +1032,15 @@ void Interface::renderTagListWindow() {
                         if (ti < state_.volumes_[vi].getTagCount()) {
                             glm::dvec3 worldPos = state_.volumes_[vi].getTagPoints()[ti];
                             ImGui::Text("%.1f,%.1f,%.1f", worldPos.x, worldPos.y, worldPos.z);
+                        } else {
+                            ImGui::Text("-");
+                        }
+                    }
+
+                    if (hasRMS) {
+                        ImGui::TableSetColumnIndex(2 + numVolumes);
+                        if (ti < static_cast<int>(state_.transformResult_.perTagRMS.size())) {
+                            ImGui::Text("%.4f", state_.transformResult_.perTagRMS[ti]);
                         } else {
                             ImGui::Text("-");
                         }

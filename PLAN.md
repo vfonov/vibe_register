@@ -99,7 +99,24 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan/OpenGL 2,
 - [x] Works with both Vulkan and OpenGL 2 backends
 
 ### Tests
-- [x] 11 test suites, all passing (volume loading, colour maps, transforms, coordinate sync, tags, QC CSV, etc.)
+- [x] 12 test suites (volume loading, colour maps, transforms, coordinate sync, tags, QC CSV, etc.)
+
+### Transform Computation
+- [x] Compute transform from tag point pairs (volumes 0 and 1)
+- [x] Transform types: LSQ6 (rigid), LSQ7 (similarity), LSQ9, LSQ10, LSQ12 (full affine), TPS (thin-plate spline)
+- [x] Eigen Levenberg-Marquardt optimizer for LSQ6/7/9/10 (replaced broken Nelder-Mead)
+- [x] Direct linear solve for LSQ12, thin-plate spline for TPS
+- [x] `R * S` affine parameterization (rotate-after-scale) for correct convergence
+- [x] SVD Procrustes initial guess for LSQ6/7; LSQ12 polar decomposition for LSQ9/10
+- [x] Average and per-tag RMS error display in Tags panel
+- [x] Per-tag RMS shown as column in tag table
+- [x] Transform auto-recomputed when tags change (dirty flag)
+- [x] Radio buttons for transform type selection
+- [x] Save `.xfm` files via minc2-simple API (linear) and hand-written (TPS)
+- [x] Read `.xfm` files via minc2-simple API
+- [x] User-editable `.xfm` output filename (InputText)
+- [x] Save `.tag` button alongside Save `.xfm`
+- [x] 11 transform subtests passing (identity, translation, rotation, scaling, mixed, all LSQ types, TPS, XFM I/O)
 
 ---
 
@@ -109,16 +126,7 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan/OpenGL 2,
 - [ ] Edit tag labels in table
 - [ ] Tag markers displayed on slices (inside/outside colours, active/inactive colours)
 - [ ] Up/Down arrow keys to navigate between tags
-- [ ] Per-tag RMS error display
-- [ ] Average RMS error display
 - [ ] Load tags from command line
-
-### Transform Computation
-- [ ] Compute transform from tag point pairs (volumes 0 and 1)
-- [ ] Minimum 4 valid tag points required
-- [ ] Transform types: LSQ6, LSQ7, LSQ9, LSQ10, LSQ12 (affine), TPS (thin-plate spline)
-- [ ] Transform auto-recomputed when tags change
-- [ ] Save `.xfm` transform files
 
 ### Resampling
 - [ ] Resample volume 2 into volume 1's space using computed transform
@@ -257,6 +265,7 @@ new_register/
 │   ├── Prefetcher.h
 │   ├── QCState.h
 │   ├── TagWrapper.hpp
+│   ├── Transform.h
 │   ├── Volume.h
 │   ├── ViewManager.h
 │   ├── VulkanBackend.h
@@ -272,6 +281,7 @@ new_register/
 │   ├── Prefetcher.cpp
 │   ├── QCState.cpp
 │   ├── TagWrapper.cpp
+│   ├── Transform.cpp
 │   ├── ViewManager.cpp
 │   ├── Volume.cpp
 │   ├── VulkanBackend.cpp
@@ -287,7 +297,8 @@ new_register/
     ├── test_tag_load.cpp
     ├── test_thick_slices_com.cpp
     ├── test_center_of_mass.cpp
-    └── test_qc_csv.cpp
+    ├── test_qc_csv.cpp
+    └── test_transform.cpp
 ```
 
 ### Component Design
@@ -307,6 +318,7 @@ new_register/
 - `OpenGL` (system, optional — `ENABLE_OPENGL2`)
 - `nlohmann/json` (FetchContent, v3.11.3)
 - `GLM` (FetchContent, v1.0.1)
+- `Eigen` (FetchContent, v3.4.0 — for Levenberg-Marquardt optimizer)
 - `HDF5` (system, required by MINC2)
 - `Threads` (system, required for Prefetcher)
 - `stb_image_write` (single header, in `include/`)

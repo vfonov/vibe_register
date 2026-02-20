@@ -173,7 +173,7 @@ target_include_directories(new_register PRIVATE
     ${IMGUI_DIR}/backends
     ${glm_SOURCE_DIR}  # GLM is header-only
     ${eigen_SOURCE_DIR}  # Eigen is header-only
-    ${minc2-simple_SOURCE_DIR}/src  # minc2-simple headers
+    ${minc2-simple-static_SOURCE_DIR}/src  # minc2-simple headers
 )
 
 # --- Compile Definitions ---
