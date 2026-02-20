@@ -37,15 +37,25 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
         }
     }
 
-    const float controlsHeightBase = 160.0f * state_.dpiScale_;
-    const float controlsHeight = state_.cleanMode_ ? 0.0f : controlsHeightBase;
-
     ImGuiID dockspaceId = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
+
+    // Rebuild the dock layout when the viewport is resized so that all
+    // content columns scale proportionally (not just the rightmost one).
+    {
+        ImVec2 vpSize = ImGui::GetMainViewport()->Size;
+        if (state_.layoutInitialized_ &&
+            (std::abs(vpSize.x - lastViewportSize_.x) > 1.0f ||
+             std::abs(vpSize.y - lastViewportSize_.y) > 1.0f))
+        {
+            state_.layoutInitialized_ = false;
+        }
+    }
 
     if (!state_.layoutInitialized_ && numVolumes > 0) {
         state_.layoutInitialized_ = true;
 
         ImVec2 vpSize = ImGui::GetMainViewport()->Size;
+        lastViewportSize_ = vpSize;
 
         ImGui::DockBuilderRemoveNode(dockspaceId);
         ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
@@ -141,6 +151,33 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
                 switchQCRow(qcState_.currentRowIndex + 1, backend);
             if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket))
                 switchQCRow(qcState_.currentRowIndex - 1, backend);
+        }
+
+        // +/- keys: step through the axial (Z) slice of the first volume.
+        // Sync cursors propagates the change to other volumes if enabled.
+        if (numVolumes > 0) {
+            bool plus  = ImGui::IsKeyPressed(ImGuiKey_Equal) ||
+                         ImGui::IsKeyPressed(ImGuiKey_KeypadAdd);
+            bool minus = ImGui::IsKeyPressed(ImGuiKey_Minus) ||
+                         ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract);
+            if (plus || minus) {
+                VolumeViewState& vs = state_.viewStates_[0];
+                const Volume& vol = state_.volumes_[0];
+                int maxZ = vol.dimensions.z;
+                int newZ = vs.sliceIndices.z + (plus ? 1 : -1);
+                newZ = std::clamp(newZ, 0, maxZ - 1);
+                if (newZ != vs.sliceIndices.z) {
+                    vs.sliceIndices.z = newZ;
+                    viewManager_.updateSliceTexture(0, 0);
+                    if (state_.syncCursors_) {
+                        state_.lastSyncSource_ = 0;
+                        state_.lastSyncView_ = 0;
+                        state_.cursorSyncDirty_ = true;
+                    }
+                    if (state_.hasOverlay())
+                        viewManager_.updateOverlayTexture(0);
+                }
+            }
         }
     }
 
@@ -813,19 +850,12 @@ void Interface::renderOverlayPanel() {
                     float a1 = state_.viewStates_[1].overlayAlpha;
                     float blendT = (a0 + a1 > 0.0f) ? a1 / (a0 + a1) : 0.5f;
 
-                    ImGui::Text("%s", state_.volumeNames_[0].c_str());
-                    ImGui::SameLine();
-                    ImGui::SetNextItemWidth(
-                        ImGui::GetContentRegionAvail().x
-                        - ImGui::CalcTextSize(state_.volumeNames_[1].c_str()).x
-                        - ImGui::GetStyle().ItemSpacing.x);
+                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
                     if (ImGui::SliderFloat("##blend", &blendT, 0.0f, 1.0f, "%.2f")) {
                         state_.viewStates_[0].overlayAlpha = 1.0f - blendT;
                         state_.viewStates_[1].overlayAlpha = blendT;
                         alphaChanged = true;
                     }
-                    ImGui::SameLine();
-                    ImGui::Text("%s", state_.volumeNames_[1].c_str());
                 } else {
                     for (int vi = 0; vi < numVolumes; ++vi) {
                         ImGui::PushID(vi + 2000);
@@ -974,8 +1004,6 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
         if (state.sliceTextures[viewIndex]) {
             Texture* tex = state.sliceTextures[viewIndex].get();
             ImVec2 avail = ImGui::GetContentRegionAvail();
-            float sliderHeight = 30.0f * state_.dpiScale_;
-            avail.y -= sliderHeight;
 
             ImVec2 imgPos(0, 0);
             ImVec2 imgSize(0, 0);
@@ -1246,81 +1274,6 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                     }
                 }
             }
-
-            if (!state_.cleanMode_) {
-                int sliceDim = -1;
-                int maxSlice = 0;
-                if (viewIndex == 0) {
-                    sliceDim = 0;
-                    maxSlice = vol.dimensions.z;
-                } else if (viewIndex == 1) {
-                    sliceDim = 1;
-                    maxSlice = vol.dimensions.x;
-                } else {
-                    sliceDim = 2;
-                    maxSlice = vol.dimensions.y;
-                }
-
-                ImGui::PushID(vi * 3 + viewIndex);
-                {
-                    if (ImGui::Button("-")) {
-                        int currentSlice = (viewIndex == 0) ? state.sliceIndices.z
-                                             : (viewIndex == 1) ? state.sliceIndices.x
-                                                                 : state.sliceIndices.y;
-                        if (currentSlice > 0) {
-                            if (viewIndex == 0)
-                                state.sliceIndices.z--;
-                            else if (viewIndex == 1)
-                                state.sliceIndices.x--;
-                            else
-                                state.sliceIndices.y--;
-                            dirtyMask |= (1 << viewIndex);
-                        }
-                    }
-                    ImGui::SameLine();
-
-                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 20.0f * state_.dpiScale_);
-                    int sliceValue = (viewIndex == 0) ? state.sliceIndices.z
-                                  : (viewIndex == 1) ? state.sliceIndices.x
-                                                      : state.sliceIndices.y;
-                    if (ImGui::SliderInt("##slice", &sliceValue, 0, maxSlice - 1, "%d")) {
-                        if (viewIndex == 0)
-                            state.sliceIndices.z = sliceValue;
-                        else if (viewIndex == 1)
-                            state.sliceIndices.x = sliceValue;
-                        else
-                            state.sliceIndices.y = sliceValue;
-                        dirtyMask |= (1 << viewIndex);
-                        if (state_.syncCursors_) {
-                            state_.lastSyncSource_ = vi;
-                            state_.lastSyncView_ = viewIndex;
-                            state_.cursorSyncDirty_ = true;
-                        }
-                    }
-
-                    ImGui::SameLine();
-                    if (ImGui::Button("+")) {
-                        int currentSlice = (viewIndex == 0) ? state.sliceIndices.z
-                                             : (viewIndex == 1) ? state.sliceIndices.x
-                                                                 : state.sliceIndices.y;
-                        if (currentSlice < maxSlice - 1) {
-                            if (viewIndex == 0)
-                                state.sliceIndices.z++;
-                            else if (viewIndex == 1)
-                                state.sliceIndices.x++;
-                            else
-                                state.sliceIndices.y++;
-                            dirtyMask |= (1 << viewIndex);
-                            if (state_.syncCursors_) {
-                                state_.lastSyncSource_ = vi;
-                                state_.lastSyncView_ = viewIndex;
-                                state_.cursorSyncDirty_ = true;
-                            }
-                        }
-                    }
-                }
-                ImGui::PopID();
-            }
         }
     }
     ImGui::EndChild();
@@ -1340,8 +1293,6 @@ int Interface::renderOverlayView(int viewIndex, const ImVec2& childSize) {
         if (state_.overlay_.textures[viewIndex]) {
             Texture* tex = state_.overlay_.textures[viewIndex].get();
             ImVec2 avail = ImGui::GetContentRegionAvail();
-            float sliderHeight = 30.0f * state_.dpiScale_;
-            avail.y -= sliderHeight;
 
             ImVec2 imgPos(0, 0);
             ImVec2 imgSize(0, 0);
@@ -1556,70 +1507,6 @@ int Interface::renderOverlayView(int viewIndex, const ImVec2& childSize) {
                     }
                 }
             }
-
-            if (!state_.cleanMode_) {
-                int maxSlice = (viewIndex == 0) ? ref.dimensions.z
-                             : (viewIndex == 1) ? ref.dimensions.x
-                                                : ref.dimensions.y;
-
-                ImGui::PushID(100 + viewIndex);
-                {
-                    if (ImGui::Button("-")) {
-                        int refSlice = (viewIndex == 0) ? refState.sliceIndices.z
-                                            : (viewIndex == 1) ? refState.sliceIndices.x
-                                                               : refState.sliceIndices.y;
-                        if (refSlice > 0) {
-                            int newSlice = refSlice - 1;
-                            for (auto& st : state_.viewStates_) {
-                                if (viewIndex == 0)
-                                    st.sliceIndices.z = newSlice;
-                                else if (viewIndex == 1)
-                                    st.sliceIndices.x = newSlice;
-                                else
-                                    st.sliceIndices.y = newSlice;
-                            }
-                            dirtyMask |= (1 << viewIndex);
-                        }
-                    }
-                    ImGui::SameLine();
-
-                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 30.0f * state_.dpiScale_);
-                    int sliceVal = (viewIndex == 0) ? refState.sliceIndices.z
-                                : (viewIndex == 1) ? refState.sliceIndices.x
-                                                   : refState.sliceIndices.y;
-                    if (ImGui::SliderInt("##slice", &sliceVal, 0, maxSlice - 1, "Slice %d")) {
-                        for (auto& st : state_.viewStates_) {
-                            if (viewIndex == 0)
-                                st.sliceIndices.z = sliceVal;
-                            else if (viewIndex == 1)
-                                st.sliceIndices.x = sliceVal;
-                            else
-                                st.sliceIndices.y = sliceVal;
-                        }
-                        dirtyMask |= (1 << viewIndex);
-                    }
-
-                    ImGui::SameLine();
-                    if (ImGui::Button("+")) {
-                        int refSlice = (viewIndex == 0) ? refState.sliceIndices.z
-                                            : (viewIndex == 1) ? refState.sliceIndices.x
-                                                               : refState.sliceIndices.y;
-                        if (refSlice < maxSlice - 1) {
-                            int newSlice = refSlice + 1;
-                            for (auto& st : state_.viewStates_) {
-                                if (viewIndex == 0)
-                                    st.sliceIndices.z = newSlice;
-                                else if (viewIndex == 1)
-                                    st.sliceIndices.x = newSlice;
-                                else
-                                    st.sliceIndices.y = newSlice;
-                            }
-                            dirtyMask |= (1 << viewIndex);
-                        }
-                    }
-                }
-                ImGui::PopID();
-            }
         }
     }
     ImGui::EndChild();
@@ -1761,7 +1648,6 @@ void Interface::switchQCRow(int newRow, GraphicsBackend& backend) {
     for (int ci = 0; ci < qcState_.columnCount(); ++ci)
         columnNames_.push_back(qcState_.columnNames[ci]);
 
-    state_.layoutInitialized_ = false;
     scrollToCurrentRow_ = true;
 }
 

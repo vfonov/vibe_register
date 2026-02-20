@@ -18,7 +18,7 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan, ImGui (D
 ### Slice Viewing
 - [x] 3-plane slice views per volume (transverse, sagittal, coronal)
 - [x] Correct aspect ratio accounting for non-uniform voxel spacing
-- [x] Slice navigation via slider and +/- buttons
+- [x] Slice navigation via mouse (left-click, middle-drag, scroll wheel) and `+`/`-` keyboard shortcuts
 - [x] Yellow crosshair overlay showing other views' slice positions
 
 ### Mouse Interaction
@@ -53,7 +53,7 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] Alpha-blended composite of all volumes (when >1 volume loaded)
 - [x] World-coordinate resampling (nearest-neighbour)
 - [x] Per-volume alpha sliders (3+ volumes)
-- [x] Single blend slider for two-volume case
+- [x] Single blend slider for two-volume case (balance only, no filename labels)
 - [x] Own zoom/pan/crosshair controls
 - [x] **Fixed direction cosines**: overlay now uses proper `transformVoxelToWorld`/`transformWorldToVoxel` matrices
 - [x] **Fixed out-of-bounds handling**: out-of-volume pixels show transparent background instead of clamped edge values
@@ -86,7 +86,7 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] Runtime fallback: if selected backend fails, tries remaining backends automatically
 - [x] ImGui docking (multi-viewport removed for SSH/X11 compatibility)
 - [x] HiDPI support (GLFW content scale query, ImGui style/font scaling)
-- [x] Auto-layout: Tools panel on the left (top), Tags panel docked below Tools, one column per volume + overlay column. Left panel width adapts to volume count (25% for 1 column, 16% for 2, 13% for 3, 10% for 4+; QC mode adds +2%)
+- [x] Auto-layout: Tools panel on the left (top), Tags panel docked below Tools, one column per volume + overlay column. Left panel width adapts to volume count (25% for 1 column, 16% for 2, 13% for 3, 10% for 4+; QC mode adds +2%). Layout rebuilds proportionally on window resize.
 - [x] GPU texture creation, upload, and destruction helpers
 - [x] Swapchain resize handling (`VK_ERROR_OUT_OF_DATE_KHR`, `VK_SUBOPTIMAL_KHR`)
 
@@ -96,16 +96,17 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan, ImGui (D
 - [x] `C` — Toggle clean mode (hides Tools panel, volume controls, overlay controls; keeps only slice views with crosshairs and window titles)
 - [x] `P` — Screenshot (save window as PNG to current directory)
 - [x] `T` — Toggle tag list window
+- [x] `+`/`-` — Step through axial (Z) slice of first volume (numpad `+`/`-` also work; sync cursors propagates to other volumes)
 
 ### Clean Mode
 - [x] Toggle via `C` key or "Clean Mode" button in Tools panel
-- [x] Hides: Tools panel, per-volume controls (dimensions, colour maps, range inputs), overlay blend controls, slice navigation sliders (+/- buttons and slider bars)
+- [x] Hides: Tools panel, per-volume controls (dimensions, colour maps, range inputs), overlay blend controls
 - [x] Keeps: Volume window title bars (filenames), 3-plane slice views, crosshairs, overlay views
 
 ### Compact UI
 - [x] Removed volume dimensions and voxel size display
 - [x] Combined cursor position into single line: `V: i,j,k  W: x,y,z  I: value`
-- [x] Removed "Slice" label from slice sliders
+- [x] Removed slice navigation sliders — replaced with mouse interaction and `+`/`-` keyboard shortcuts
 
 ### Screenshot
 - [x] Capture entire window to PNG via `P` key or "Screenshot" button in Tools panel
@@ -268,6 +269,7 @@ sub03,PASS,,PASS,
 |---|---|
 | `]` | Next dataset |
 | `[` | Previous dataset |
+| `+`/`-` | Step axial slice |
 | `Up/Down` | Navigate QC list (when list is focused) |
 | `Q` | Quit |
 | `R` | Reset views |
@@ -512,6 +514,24 @@ To add Metal support for macOS:
 5. **Texture**: `MTLTexture` objects, `ImTextureID = MTLTexture*`
 6. **Frame cycle**: `CAMetalDrawable` acquire, command buffer, render pass, present
 7. **Compile guard**: `#ifdef HAS_METAL` in `BackendFactory.cpp`
+
+---
+
+## UI Improvements
+
+Streamlined the viewer interface for a cleaner, more responsive layout.
+
+### Changes
+- [x] **Proportional column resizing** — When the window is resized, the DockBuilder layout is rebuilt so all volume columns (and the overlay column) scale proportionally. Previously only the rightmost column absorbed size changes. Implemented by tracking viewport size and triggering layout rebuild on change (1px deadzone).
+- [x] **QC panel persistence** — Manually dragged dividers between docked panels now persist across QC prev/next row switches. Previously `switchQCRow()` set `layoutInitialized_ = false`, which destroyed all dock node sizes. Since QC column names (from CSV headers) don't change between rows, the layout remains valid.
+- [x] **Simplified overlay blend slider** — Removed the volume filename labels flanking the 2-volume blend slider. The slider now takes the full available width, which is cleaner when filenames are long.
+- [x] **Removed slice navigation sliders** — Removed the `[-] [SliderInt] [+]` controls from all volume and overlay views. Slice navigation now uses existing mouse interactions (left-click cursor placement, middle-drag scrolling, scroll-wheel zoom) plus new `+`/`-` keyboard shortcuts for axial (Z) slice stepping. This reclaims ~30px per view for larger image display.
+
+### Files Changed
+| File | Change |
+|---|---|
+| `include/Interface.h` | Added `lastViewportSize_` member for resize tracking |
+| `src/Interface.cpp` | Viewport resize detection, removed `switchQCRow()` layout reset, simplified blend slider, removed slider blocks from both `renderSliceView()` and `renderOverlayView()`, added `+`/`-` keyboard shortcuts |
 
 ---
 

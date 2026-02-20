@@ -29,6 +29,7 @@ private:
     std::vector<std::string> columnNames_;
     bool scrollToCurrentRow_ = true;
     bool autosave_ = true;
+    ImVec2 lastViewportSize_{0.0f, 0.0f};
 
     void setupLayout(int numVolumes);
     void renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window);
