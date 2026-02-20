@@ -30,6 +30,14 @@ extern "C" {
 #include "minc2-simple.h"
 }
 
+// ---------------------------------------------------------------------------
+// GLFW error callback — prints diagnostic info to stderr
+// ---------------------------------------------------------------------------
+static void glfwErrorCallback(int error, const char* description)
+{
+    std::cerr << "[glfw] Error " << error << ": " << description << "\n";
+}
+
 int main(int argc, char** argv)
 {
     try
@@ -291,6 +299,7 @@ int main(int argc, char** argv)
             return 1;
         }
 
+        glfwSetErrorCallback(glfwErrorCallback);
         glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
 
         // Create backend before window so it can set appropriate GLFW hints
@@ -337,24 +346,32 @@ int main(int argc, char** argv)
         GLFWwindow* window = glfwCreateWindow(initW, initH,
                                               windowTitle.c_str(),
                                               nullptr, nullptr);
-        if (!window)
-        {
-            std::cerr << "Failed to create GLFW window.\n";
-            glfwTerminate();
-            return 1;
-        }
 
-        try
+        // Try to initialize the chosen backend.  If window creation or
+        // backend init fails, fall through to the fallback loop below.
+        bool initialized = false;
+        if (window)
         {
-            backend->initialize(window);
+            try
+            {
+                backend->initialize(window);
+                initialized = true;
+            }
+            catch (const std::exception& e)
+            {
+                std::cerr << "[backend] " << GraphicsBackend::backendName(backendType)
+                          << " init failed: " << e.what() << "\n";
+            }
         }
-        catch (const std::exception& e)
+        else
         {
             std::cerr << "[backend] " << GraphicsBackend::backendName(backendType)
-                      << " failed: " << e.what() << "\n";
+                      << " failed to create window\n";
+        }
 
-            // Try fallback backends
-            bool initialized = false;
+        // Fallback: try every other compiled-in backend
+        if (!initialized)
+        {
             for (auto fallback : GraphicsBackend::availableBackends())
             {
                 if (fallback == backendType)
@@ -363,7 +380,11 @@ int main(int argc, char** argv)
                           << GraphicsBackend::backendName(fallback) << "\n";
                 try
                 {
-                    glfwDestroyWindow(window);
+                    if (window)
+                    {
+                        glfwDestroyWindow(window);
+                        window = nullptr;
+                    }
                     backend = GraphicsBackend::create(fallback);
                     backend->setWindowHints();
                     glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
@@ -384,12 +405,13 @@ int main(int argc, char** argv)
                               << " also failed: " << e2.what() << "\n";
                 }
             }
-            if (!initialized)
-            {
-                std::cerr << "Error: No usable graphics backend found.\n";
-                glfwTerminate();
-                return 1;
-            }
+        }
+
+        if (!initialized)
+        {
+            std::cerr << "Error: No usable graphics backend found.\n";
+            glfwTerminate();
+            return 1;
         }
 
         // Update window title after potential fallback

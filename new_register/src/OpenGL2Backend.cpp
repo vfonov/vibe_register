@@ -28,8 +28,13 @@ void OpenGL2Backend::setWindowHints()
     // Use default GLFW_OPENGL_API (no hint needed — it's the default).
     // Explicitly reset in case a previous backend attempt set GLFW_NO_API.
     glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_API);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+    // Request GL 1.0 as minimum — GLFW treats this as a lower bound, so
+    // capable systems still get GL 2.1+.  Over SSH/X11 indirect rendering,
+    // requesting GL 2.1 can fail because the server may only advertise
+    // GL 1.x-compatible visuals.  ImGui's OpenGL 2 backend only uses
+    // fixed-function GL 1.1 calls, so GL 1.0 as minimum is fine.
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 1);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
     // Do NOT request core profile — GL 2.1 uses compatibility profile.
 }
 
