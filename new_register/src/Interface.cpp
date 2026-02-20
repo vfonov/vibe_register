@@ -1026,21 +1026,41 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                                static_cast<float>(tex->height) *
                                static_cast<float>(pixelAspect);
 
-                imgSize = avail;
-                if (imgSize.x / imgSize.y > aspect)
-                    imgSize.x = imgSize.y * aspect;
+                // Base image size at zoom=1: letterboxed fit to panel
+                ImVec2 base = avail;
+                if (base.x / base.y > aspect)
+                    base.x = base.y * aspect;
                 else
-                    imgSize.y = imgSize.x / aspect;
+                    base.y = base.x / aspect;
 
+                // When zoomed in, expand the image to fill more of the
+                // available panel space (up to the panel edges).  This
+                // lets the zoomed slice use all available pixels instead
+                // of staying inside the zoom=1 letterbox.
+                float zf = static_cast<float>(state.zoom[viewIndex]);
+                imgSize = base;
+                if (zf > 1.0f)
+                {
+                    imgSize.x = std::min(base.x * zf, avail.x);
+                    imgSize.y = std::min(base.y * zf, avail.y);
+                }
+
+                // Center the image in the panel
                 float padX = (avail.x - imgSize.x) * 0.5f;
+                float padY = (avail.y - imgSize.y) * 0.5f;
                 if (padX > 0)
                     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + padX);
+                if (padY > 0)
+                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + padY);
 
                 imgPos = ImGui::GetCursorScreenPos();
 
-                float zf = state.zoom[viewIndex];
-                float halfU = 0.5f / zf;
-                float halfV = 0.5f / zf;
+                // UV span: fraction of texture visible in each axis.
+                // At zoom=1 with base==imgSize: halfU = halfV = 0.5 (full texture).
+                // At zoom>1: the image may have expanded beyond base, so the
+                // UV span widens proportionally to show more context.
+                float halfU = 0.5f * imgSize.x / (base.x * zf);
+                float halfV = 0.5f * imgSize.y / (base.y * zf);
                 float centerU = state.panU[viewIndex];
                 float centerV = state.panV[viewIndex];
                 ImVec2 uv0(centerU - halfU, centerV - halfV);
@@ -1315,21 +1335,36 @@ int Interface::renderOverlayView(int viewIndex, const ImVec2& childSize) {
                                static_cast<float>(tex->height) *
                                static_cast<float>(pixelAspect);
 
-                imgSize = avail;
-                if (imgSize.x / imgSize.y > aspect)
-                    imgSize.x = imgSize.y * aspect;
+                // Base image size at zoom=1: letterboxed fit to panel
+                ImVec2 base = avail;
+                if (base.x / base.y > aspect)
+                    base.x = base.y * aspect;
                 else
-                    imgSize.y = imgSize.x / aspect;
+                    base.y = base.x / aspect;
 
+                // When zoomed in, expand the image to fill more of the
+                // available panel space (up to the panel edges).
+                float zf = static_cast<float>(state_.overlay_.zoom[viewIndex]);
+                imgSize = base;
+                if (zf > 1.0f)
+                {
+                    imgSize.x = std::min(base.x * zf, avail.x);
+                    imgSize.y = std::min(base.y * zf, avail.y);
+                }
+
+                // Center the image in the panel
                 float padX = (avail.x - imgSize.x) * 0.5f;
+                float padY = (avail.y - imgSize.y) * 0.5f;
                 if (padX > 0)
                     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + padX);
+                if (padY > 0)
+                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + padY);
 
                 imgPos = ImGui::GetCursorScreenPos();
 
-                float zf = state_.overlay_.zoom[viewIndex];
-                float halfU = 0.5f / zf;
-                float halfV = 0.5f / zf;
+                // UV span: fraction of texture visible in each axis
+                float halfU = 0.5f * imgSize.x / (base.x * zf);
+                float halfV = 0.5f * imgSize.y / (base.y * zf);
                 float centerU = state_.overlay_.panU[viewIndex];
                 float centerV = state_.overlay_.panV[viewIndex];
                 ImVec2 uv0(centerU - halfU, centerV - halfV);

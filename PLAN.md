@@ -535,6 +535,51 @@ Streamlined the viewer interface for a cleaner, more responsive layout.
 
 ---
 
+## OpenGL 2 SSH / X2Go Compatibility
+
+Fixed OpenGL 2 backend failing over SSH and X2Go remote display sessions.
+
+### Changes
+- [x] **GLFW error callback** — Added `glfwSetErrorCallback()` in `main.cpp` so window creation failures produce diagnostic messages (error code + description) instead of a silent `nullptr`
+- [x] **Relaxed GL version hints** — Changed `OpenGL2Backend::setWindowHints()` from requesting GL 2.1 (`CONTEXT_VERSION_MAJOR=2, MINOR=1`) to GL 1.0 as minimum. GLFW treats this as a lower bound, so capable systems still get GL 2.1+. Over SSH/X11 indirect rendering, GL 2.1 can fail because the X server may only support GL 1.x indirect contexts. ImGui's OpenGL 2 backend only needs fixed-function GL 1.1 calls.
+- [x] **Unified window-creation fallback** — Previously, `glfwCreateWindow()` failure was a hard exit. Now both window-creation failure and `backend->initialize()` failure fall through to the same backend fallback loop.
+- [x] **EGL fallback for X2Go/nxagent** — X2Go's nxagent only provides GLX 1.2, but GLFW requires GLX 1.3 for any OpenGL context via GLX. Added an intermediate retry: when OpenGL2+GLX fails, retry with `GLFW_CONTEXT_CREATION_API = GLFW_EGL_CONTEXT_API` before falling back to Vulkan. EGL bypasses GLX entirely and works with Mesa's software renderer.
+
+### Fallback Chain
+```
+OpenGL2/GLX → OpenGL2/EGL → Vulkan (llvmpipe) → error
+```
+
+### Files Changed
+| File | Change |
+|---|---|
+| `src/main.cpp` | GLFW error callback, unified fallback loop, EGL retry for OpenGL2 |
+| `src/OpenGL2Backend.cpp` | Relaxed GL version hints from 2.1 to 1.0 minimum |
+
+---
+
+## Zoom-Aware Slice View Expansion
+
+Fixed zoomed-in slice views staying inside the letterboxed box instead of expanding to use all available panel space.
+
+### Problem
+When zoomed in, the displayed image was always letterboxed to the full texture's aspect ratio regardless of zoom level. At zoom=1, a square texture in a wide panel would use only the central square, leaving horizontal padding. At zoom=2, the same padding persisted — the zoomed image used the same pixel area despite the panel having unused space.
+
+### Fix
+The image size now scales with zoom (up to the panel edges). At zoom=1, behavior is identical to before (letterboxed fit). At zoom>1, the image expands toward both edges of the panel, and the UV window widens proportionally to show more zoomed context.
+
+### Changes
+- [x] **`renderSliceView()`** — Compute base letterboxed size, then expand by `min(base * zoom, avail)`. UV half-spans derived as `0.5 * imgSize / (base * zoom)` so the visible texture portion adjusts to the expanded image area.
+- [x] **`renderOverlayView()`** — Same logic applied to the overlay composite view.
+- [x] **Vertical centering** — Added `padY` centering (previously only horizontal centering existed).
+
+### Files Changed
+| File | Change |
+|---|---|
+| `src/Interface.cpp` | Zoom-aware image sizing in `renderSliceView()` and `renderOverlayView()` |
+
+---
+
 ## Architecture Notes
 
 ### Current File Structure
