@@ -369,6 +369,44 @@ int main(int argc, char** argv)
                       << " failed to create window\n";
         }
 
+        // If the chosen backend uses OpenGL and GLX failed, retry with EGL
+        // before falling back to a completely different backend.  X2Go's
+        // nxagent only provides GLX 1.2, but GLFW requires GLX 1.3; EGL
+        // bypasses GLX entirely and works with Mesa's software renderer.
+        if (!initialized && backendType == BackendType::OpenGL2)
+        {
+            std::cerr << "[backend] Retrying opengl2 with EGL context\n";
+            if (window)
+            {
+                glfwDestroyWindow(window);
+                window = nullptr;
+            }
+            backend = GraphicsBackend::create(BackendType::OpenGL2);
+            backend->setWindowHints();
+            glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API);
+            glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
+            windowTitle = "New Register (opengl2-egl)";
+            window = glfwCreateWindow(initW, initH,
+                windowTitle.c_str(), nullptr, nullptr);
+            if (window)
+            {
+                try
+                {
+                    backend->initialize(window);
+                    initialized = true;
+                }
+                catch (const std::exception& e)
+                {
+                    std::cerr << "[backend] opengl2-egl init failed: "
+                              << e.what() << "\n";
+                }
+            }
+            else
+            {
+                std::cerr << "[backend] opengl2-egl failed to create window\n";
+            }
+        }
+
         // Fallback: try every other compiled-in backend
         if (!initialized)
         {
