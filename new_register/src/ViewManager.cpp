@@ -6,6 +6,7 @@
 
 #include "ColourMap.h"
 #include "GraphicsBackend.h"
+#include "Transform.h"
 
 ViewManager::ViewManager(AppState& state, GraphicsBackend& backend)
     : state_(state), backend_(backend) {}
@@ -165,10 +166,15 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
 
     // --- Per-volume precomputed data ---
     // For each volume we precompute:
-    //   combined = vol.worldToVoxel * ref.voxelToWorld  (ref-voxel → target-voxel)
+    //   combined = vol.worldToVoxel * ref.voxelToWorld  (ref-voxel -> target-voxel)
     //   LUT pointer, range params, under/over colours, overlay alpha
+    //
+    // When a valid tag-based transform exists for volume 1 (the second volume),
+    // the transform is inserted into the chain:
+    //   Linear: combined = vol1.worldToVoxel * T^{-1} * ref.voxelToWorld
+    //   TPS:    per-pixel world-space inversion (no scanline optimization)
     struct PerVolInfo {
-        glm::dmat4 combined;         // ref-voxel → target-voxel transform
+        glm::dmat4 combined;         // ref-voxel -> target-voxel transform
         const float* vdata;          // pointer to volume data
         glm::ivec3 dims;             // target volume dimensions
         int dimXY;                   // dims.x * dims.y
@@ -177,11 +183,24 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         uint32_t underColour, overColour;
         bool underTransparent, overTransparent;
         float alpha;
+        bool useTPSInverse = false;  // true if TPS per-pixel inversion needed
+        glm::dmat4 targetWorldToVox; // for TPS path: target vol worldToVoxel
     };
 
     int numMaps = colourMapCount();
     std::vector<PerVolInfo> infos;
     infos.reserve(numVols);
+
+    // Check if a valid tag-based transform is available for volume 1
+    const TransformResult& xfmResult = state_.transformResult_;
+    bool hasTransform = (xfmResult.valid && numVols >= 2);
+    bool hasLinearTransform = hasTransform && (xfmResult.type != TransformType::TPS);
+    bool hasTPSTransform = hasTransform && (xfmResult.type == TransformType::TPS);
+
+    // Precompute the inverse linear matrix when available
+    glm::dmat4 invLinear{1.0};
+    if (hasLinearTransform)
+        invLinear = glm::inverse(xfmResult.linearMatrix);
 
     for (int vi = 0; vi < numVols; ++vi) {
         const Volume& vol = state_.volumes_[vi];
@@ -190,7 +209,26 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
             continue;
 
         PerVolInfo info;
-        info.combined = vol.worldToVoxel * ref.voxelToWorld;
+
+        if (vi == 1 && hasLinearTransform)
+        {
+            // Insert inverse linear transform: ref-voxel -> world -> vol1-world -> vol1-voxel
+            info.combined = vol.worldToVoxel * invLinear * ref.voxelToWorld;
+        }
+        else if (vi == 1 && hasTPSTransform)
+        {
+            // TPS needs per-pixel world-space inversion; combined is not used
+            // for the scanline path.  We still set a combined for the scanline
+            // precomputation, but flag this volume for per-pixel handling.
+            info.combined = vol.worldToVoxel * ref.voxelToWorld;  // unused in pixel loop
+            info.useTPSInverse = true;
+            info.targetWorldToVox = vol.worldToVoxel;
+        }
+        else
+        {
+            info.combined = vol.worldToVoxel * ref.voxelToWorld;
+        }
+
         info.vdata = vol.data.data();
         info.dims = vol.dimensions;
         info.dimXY = vol.dimensions.x * vol.dimensions.y;
@@ -256,6 +294,7 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
     //   targetBase  = combined * (refBase, 1)
     //   targetDpx   = combined * (refDpx, 0)  (direction, no translation)
     //   targetDpy   = combined * (refDpy, 0)
+    // For TPS volumes these are unused; we compute world coords per-pixel.
     struct ScanInfo {
         glm::dvec3 base;   // target-voxel at (px=0, py=0)
         glm::dvec3 dpx;    // target-voxel delta per px++
@@ -263,6 +302,8 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
     };
     std::vector<ScanInfo> scans(infos.size());
     for (size_t i = 0; i < infos.size(); ++i) {
+        if (infos[i].useTPSInverse)
+            continue;  // scanline not used for TPS volumes
         const auto& M = infos[i].combined;
         glm::dvec4 bH = M * glm::dvec4(refBase, 1.0);
         glm::dvec4 dxH = M * glm::dvec4(refDpx, 0.0);
@@ -270,6 +311,29 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         scans[i].base = glm::dvec3(bH);
         scans[i].dpx = glm::dvec3(dxH);
         scans[i].dpy = glm::dvec3(dyH);
+    }
+
+    // For TPS per-pixel path: precompute ref-voxel -> world scanline params
+    // so we can efficiently compute the world coordinate for each pixel.
+    glm::dvec3 worldBase(0.0), worldDpx(0.0), worldDpy(0.0);
+    bool anyTPS = false;
+    for (const auto& info : infos)
+    {
+        if (info.useTPSInverse)
+        {
+            anyTPS = true;
+            break;
+        }
+    }
+    if (anyTPS)
+    {
+        const auto& V2W = ref.voxelToWorld;
+        glm::dvec4 bH  = V2W * glm::dvec4(refBase, 1.0);
+        glm::dvec4 dxH = V2W * glm::dvec4(refDpx, 0.0);
+        glm::dvec4 dyH = V2W * glm::dvec4(refDpy, 0.0);
+        worldBase = glm::dvec3(bH);
+        worldDpx  = glm::dvec3(dxH);
+        worldDpy  = glm::dvec3(dyH);
     }
 
     for (int py = 0; py < h; ++py) {
@@ -281,11 +345,25 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
 
             for (size_t vi = 0; vi < infos.size(); ++vi) {
                 const auto& info = infos[vi];
-                const auto& sc = scans[vi];
 
-                // Target voxel = base + px*dpx + py*dpy
-                glm::dvec3 tv = sc.base + static_cast<double>(px) * sc.dpx
-                                        + static_cast<double>(py) * sc.dpy;
+                glm::dvec3 tv;
+                if (info.useTPSInverse)
+                {
+                    // TPS per-pixel path: ref-voxel -> world -> TPS inverse -> target-world -> target-voxel
+                    glm::dvec3 worldPt = worldBase + static_cast<double>(px) * worldDpx
+                                                   + static_cast<double>(py) * worldDpy;
+                    glm::dvec3 vol1World = xfmResult.inverseTransformPoint(worldPt);
+                    glm::dvec4 vox = info.targetWorldToVox * glm::dvec4(vol1World, 1.0);
+                    tv = glm::dvec3(vox);
+                }
+                else
+                {
+                    // Scanline-optimized path (linear or identity)
+                    const auto& sc = scans[vi];
+                    tv = sc.base + static_cast<double>(px) * sc.dpx
+                                 + static_cast<double>(py) * sc.dpy;
+                }
+
                 int tx = static_cast<int>(std::round(tv.x));
                 int ty = static_cast<int>(std::round(tv.y));
                 int tz = static_cast<int>(std::round(tv.z));

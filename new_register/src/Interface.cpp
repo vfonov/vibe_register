@@ -989,6 +989,7 @@ void Interface::renderTagListWindow() {
                     }
                     state_.selectedTagIndex_ = -1;
                     state_.invalidateTransform();
+                    state_.recomputeTransform();
                 }
             }
             ImGui::SameLine();
@@ -1362,6 +1363,7 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
 
                         state_.selectedTagIndex_ = tagCount;
                         state_.invalidateTransform();
+                        state_.recomputeTransform();
                         for (int v = 0; v < state_.volumeCount(); ++v) {
                             for (int vv = 0; vv < 3; ++vv) {
                                 viewManager_.updateSliceTexture(v, vv);
@@ -1647,8 +1649,8 @@ bool Interface::drawTagsOnSlice(int viewIndex, const ImVec2& imgPos,
         dimV = 1;
     } else if (viewIndex == 1) {
         sliceAxis = 0;
-        dimU = 2;
-        dimV = 1;
+        dimU = 1;
+        dimV = 2;
     } else {
         sliceAxis = 1;
         dimU = 0;

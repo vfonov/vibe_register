@@ -573,6 +573,78 @@ glm::dvec3 TransformResult::transformPoint(const glm::dvec3& pt) const
 }
 
 // ---------------------------------------------------------------------------
+// TransformResult::inverseTransformPoint
+// ---------------------------------------------------------------------------
+
+glm::dvec3 TransformResult::inverseTransformPoint(const glm::dvec3& pt,
+                                                   int maxIter,
+                                                   double tolerance) const
+{
+    if (!valid)
+        return pt;
+
+    if (type != TransformType::TPS || tpsWeights.empty())
+    {
+        // Linear transform: apply inverse matrix
+        glm::dmat4 inv = glm::inverse(linearMatrix);
+        glm::dvec4 h(pt, 1.0);
+        glm::dvec4 r = inv * h;
+        return glm::dvec3(r);
+    }
+
+    // TPS: Newton-Raphson iteration to invert the forward transform.
+    // We want to find q such that transformPoint(q) = pt.
+    // Start with the inverse of the affine part as initial guess.
+    int n = static_cast<int>(tpsSourcePoints.size());
+
+    // Build the 3x3 affine part from tpsWeights[n+1..n+3]
+    // transformPoint includes: result += w[n] + w[n+1]*x + w[n+2]*y + w[n+3]*z
+    // So the linear part is the 3x3 matrix with columns w[n+1], w[n+2], w[n+3]
+    glm::dmat3 A(
+        tpsWeights[n + 1].x, tpsWeights[n + 1].y, tpsWeights[n + 1].z,  // col 0
+        tpsWeights[n + 2].x, tpsWeights[n + 2].y, tpsWeights[n + 2].z,  // col 1
+        tpsWeights[n + 3].x, tpsWeights[n + 3].y, tpsWeights[n + 3].z   // col 2
+    );
+    glm::dvec3 b = tpsWeights[n];  // constant term
+    glm::dmat3 Ainv = glm::inverse(A);
+
+    // Initial guess: invert the affine part only
+    glm::dvec3 q = Ainv * (pt - b);
+
+    double tol2 = tolerance * tolerance;
+
+    for (int iter = 0; iter < maxIter; ++iter)
+    {
+        glm::dvec3 fq = transformPoint(q);
+        glm::dvec3 residual = fq - pt;
+
+        if (glm::dot(residual, residual) < tol2)
+            break;
+
+        // Compute Jacobian numerically (3x3)
+        constexpr double eps = 1e-6;
+        glm::dmat3 J;
+        for (int d = 0; d < 3; ++d)
+        {
+            glm::dvec3 qp = q;
+            glm::dvec3 qm = q;
+            qp[d] += eps;
+            qm[d] -= eps;
+            glm::dvec3 fp = transformPoint(qp);
+            glm::dvec3 fm = transformPoint(qm);
+            glm::dvec3 col = (fp - fm) / (2.0 * eps);
+            J[d] = col;  // glm stores column-major
+        }
+
+        // Newton step: q -= J^{-1} * residual
+        glm::dmat3 Jinv = glm::inverse(J);
+        q -= Jinv * residual;
+    }
+
+    return q;
+}
+
+// ---------------------------------------------------------------------------
 // RMS error computation
 // ---------------------------------------------------------------------------
 

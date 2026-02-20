@@ -63,6 +63,17 @@ struct TransformResult
 
     /// Apply this transform to a point (works for both linear and TPS).
     glm::dvec3 transformPoint(const glm::dvec3& pt) const;
+
+    /// Apply the inverse of this transform to a point.
+    /// For linear types, uses glm::inverse(linearMatrix).
+    /// For TPS, uses Newton-Raphson iteration to invert the forward transform.
+    /// @param pt          Point in vol1 (reference) world space.
+    /// @param maxIter     Maximum Newton iterations (default 20).
+    /// @param tolerance   Convergence tolerance in mm (default 1e-6).
+    /// @return            Corresponding point in vol2 (source) world space.
+    glm::dvec3 inverseTransformPoint(const glm::dvec3& pt,
+                                     int maxIter = 20,
+                                     double tolerance = 1e-6) const;
 };
 
 /// Compute a transform from paired tag points.
