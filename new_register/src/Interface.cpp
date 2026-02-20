@@ -16,6 +16,7 @@
 
 #include "AppConfig.h"
 #include "ColourMap.h"
+#include "Prefetcher.h"
 #include "QCState.h"
 #include "ViewManager.h"
 
@@ -1684,6 +1685,26 @@ void Interface::switchQCRow(int newRow, GraphicsBackend& backend) {
         columnNames_.push_back(qcState_.columnNames[ci]);
 
     scrollToCurrentRow_ = true;
+
+    // Trigger background prefetch of adjacent rows.
+    if (prefetcher_)
+    {
+        std::vector<std::string> prefetchPaths;
+        // Collect paths for the previous row
+        if (newRow > 0)
+        {
+            const auto& prev = qcState_.pathsForRow(newRow - 1);
+            prefetchPaths.insert(prefetchPaths.end(), prev.begin(), prev.end());
+        }
+        // Collect paths for the next row
+        if (newRow + 1 < qcState_.rowCount())
+        {
+            const auto& next = qcState_.pathsForRow(newRow + 1);
+            prefetchPaths.insert(prefetchPaths.end(), next.begin(), next.end());
+        }
+        if (!prefetchPaths.empty())
+            prefetcher_->requestPrefetch(prefetchPaths);
+    }
 }
 
 void Interface::renderQCVerdictPanel(int volumeIndex) {

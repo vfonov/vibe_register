@@ -11,6 +11,7 @@
 // --- VolumeCache implementation ---
 
 Volume* VolumeCache::get(const std::string& path) {
+    std::lock_guard<std::mutex> lk(mutex_);
     auto it = map_.find(path);
     if (it == map_.end())
         return nullptr;
@@ -20,6 +21,7 @@ Volume* VolumeCache::get(const std::string& path) {
 }
 
 void VolumeCache::put(const std::string& path, Volume vol) {
+    std::lock_guard<std::mutex> lk(mutex_);
     // If already cached, update and move to front
     auto it = map_.find(path);
     if (it != map_.end()) {
@@ -38,6 +40,7 @@ void VolumeCache::put(const std::string& path, Volume vol) {
 }
 
 void VolumeCache::clear() {
+    std::lock_guard<std::mutex> lk(mutex_);
     map_.clear();
     lru_.clear();
 }

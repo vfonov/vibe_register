@@ -2,6 +2,7 @@
 
 #include <list>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -49,19 +50,26 @@ public:
     explicit VolumeCache(size_t maxEntries = 8) : maxEntries_(maxEntries) {}
 
     /// Try to retrieve a cached volume.  On hit, moves the entry to the
-    /// front of the LRU list and returns a pointer (valid until the next
-    /// eviction).  On miss, returns nullptr.
+    /// front of the LRU list and returns a copy.  On miss, returns nullptr
+    /// wrapped in std::optional (empty optional).
+    /// Thread-safe: acquires internal mutex.
     Volume* get(const std::string& path);
 
     /// Insert a volume into the cache, evicting the least-recently-used
     /// entry if capacity is exceeded.  The Volume is moved in.
+    /// Thread-safe: acquires internal mutex.
     void put(const std::string& path, Volume vol);
 
     /// Clear all cached volumes and free memory.
+    /// Thread-safe: acquires internal mutex.
     void clear();
 
-    size_t size() const { return map_.size(); }
+    size_t size() const { std::lock_guard<std::mutex> lk(mutex_); return map_.size(); }
     size_t capacity() const { return maxEntries_; }
+
+    /// Expose mutex for external callers that need to hold the lock
+    /// across a get()+copy sequence.
+    std::mutex& mutex() { return mutex_; }
 
 private:
     struct Entry {
@@ -69,6 +77,7 @@ private:
         Volume vol;
     };
     size_t maxEntries_;
+    mutable std::mutex mutex_;
     std::list<Entry> lru_;                           // front = most recent
     std::unordered_map<std::string,
                        std::list<Entry>::iterator> map_;

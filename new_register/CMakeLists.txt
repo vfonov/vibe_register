@@ -27,6 +27,9 @@ endif()
 # 2.5 HDF5 (Required by minc2 headers)
 find_package(HDF5 REQUIRED COMPONENTS C)
 
+# 2.6 Threads (Required for Prefetcher background thread)
+find_package(Threads REQUIRED)
+
 # 3. Dear ImGui (Docking Branch)
 include(FetchContent)
 FetchContent_Declare(
@@ -117,6 +120,7 @@ set(SOURCES
     src/AppConfig.cpp
     src/ColourMap.cpp
     src/Interface.cpp
+    src/Prefetcher.cpp
     src/QCState.cpp
     src/TagWrapper.cpp
     src/ViewManager.cpp
@@ -182,6 +186,7 @@ target_link_libraries(new_register PRIVATE
     ${MINC2_LIB}
     nlohmann_json::nlohmann_json
     glm
+    Threads::Threads
 )
 if(ENABLE_VULKAN)
     target_link_libraries(new_register PRIVATE Vulkan::Vulkan)

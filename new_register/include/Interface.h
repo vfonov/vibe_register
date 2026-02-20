@@ -10,6 +10,7 @@
 
 class ViewManager;
 class QCState;
+class Prefetcher;
 
 class Interface {
 public:
@@ -18,6 +19,9 @@ public:
     void render(GraphicsBackend& backend, GLFWwindow* window);
     void saveScreenshot(GraphicsBackend& backend);
 
+    /// Set the prefetcher instance (optional, only used in QC mode).
+    void setPrefetcher(Prefetcher* prefetcher) { prefetcher_ = prefetcher; }
+
     static uint32_t resolveClampColour(int mode, ColourMapType currentMap, bool isOver);
     static const char* clampColourLabel(int mode);
 
@@ -25,6 +29,7 @@ private:
     AppState& state_;
     ViewManager& viewManager_;
     QCState& qcState_;
+    Prefetcher* prefetcher_ = nullptr;
 
     std::vector<std::string> columnNames_;
     bool scrollToCurrentRow_ = true;

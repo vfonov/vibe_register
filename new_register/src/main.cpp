@@ -20,6 +20,7 @@
 #include "ColourMap.h"
 #include "GraphicsBackend.h"
 #include "Interface.h"
+#include "Prefetcher.h"
 #include "QCState.h"
 #include "Volume.h"
 #include "ViewManager.h"
@@ -464,6 +465,14 @@ int main(int argc, char** argv)
         ViewManager viewManager(state, *backend);
         Interface interface(state, viewManager, qcState);
 
+        // Create background prefetcher for QC mode (optional).
+        std::unique_ptr<Prefetcher> prefetcher;
+        if (qcState.active)
+        {
+            prefetcher = std::make_unique<Prefetcher>(state.volumeCache_);
+            interface.setPrefetcher(prefetcher.get());
+        }
+
         if (qcState.active && qcState.rowCount() > 0)
         {
             const auto& paths = qcState.pathsForRow(qcState.currentRowIndex);
@@ -482,6 +491,25 @@ int main(int argc, char** argv)
                 }
             }
             viewManager.initializeAllTextures();
+
+            // Kick off initial prefetch of adjacent rows.
+            if (prefetcher)
+            {
+                std::vector<std::string> prefetchPaths;
+                int row = qcState.currentRowIndex;
+                if (row > 0)
+                {
+                    const auto& prev = qcState.pathsForRow(row - 1);
+                    prefetchPaths.insert(prefetchPaths.end(), prev.begin(), prev.end());
+                }
+                if (row + 1 < qcState.rowCount())
+                {
+                    const auto& next = qcState.pathsForRow(row + 1);
+                    prefetchPaths.insert(prefetchPaths.end(), next.begin(), next.end());
+                }
+                if (!prefetchPaths.empty())
+                    prefetcher->requestPrefetch(prefetchPaths);
+            }
         }
         else if (!state.volumes_.empty())
         {
@@ -526,6 +554,10 @@ int main(int argc, char** argv)
         }
 
         backend->waitIdle();
+
+        // Shut down prefetcher before destroying GPU resources.
+        if (prefetcher)
+            prefetcher->shutdown();
 
         if (qcState.active)
             qcState.saveOutputCsv();
