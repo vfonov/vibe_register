@@ -57,6 +57,18 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glm)
 
+# 3.8. Eigen3 (Linear algebra: SVD, matrix solvers — used by Transform)
+FetchContent_Declare(
+    eigen
+    GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+    GIT_TAG        3.4.0
+    GIT_SHALLOW    TRUE
+)
+set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(EIGEN_BUILD_PKGCONFIG OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(eigen)
+
 # Create ImGui library target
 add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui.cpp
@@ -123,6 +135,7 @@ set(SOURCES
     src/Prefetcher.cpp
     src/QCState.cpp
     src/TagWrapper.cpp
+    src/Transform.cpp
     src/ViewManager.cpp
     src/Volume.cpp
     src/BackendFactory.cpp
@@ -159,6 +172,7 @@ target_include_directories(new_register PRIVATE
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
     ${glm_SOURCE_DIR}  # GLM is header-only
+    ${eigen_SOURCE_DIR}  # Eigen is header-only
     ${minc2-simple_SOURCE_DIR}/src  # minc2-simple headers
 )
 

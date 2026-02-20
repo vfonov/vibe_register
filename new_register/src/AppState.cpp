@@ -7,6 +7,7 @@
 #include <string_view>
 
 #include "AppConfig.h"
+#include "Transform.h"
 
 // --- VolumeCache implementation ---
 
@@ -252,4 +253,64 @@ void AppState::loadVolumeSet(const std::vector<std::string>& paths) {
     }
 
     initializeViewStates();
+}
+
+// --- Transform computation ---
+
+int AppState::getTagPairs(std::vector<glm::dvec3>& vol1Tags,
+                          std::vector<glm::dvec3>& vol2Tags) const
+{
+    vol1Tags.clear();
+    vol2Tags.clear();
+
+    if (volumes_.size() < 2)
+        return 0;
+
+    const auto& tags0 = volumes_[0].getTagPoints();
+    const auto& tags1 = volumes_[1].getTagPoints();
+
+    // Use the minimum count between the two volumes
+    int n = std::min(static_cast<int>(tags0.size()),
+                     static_cast<int>(tags1.size()));
+
+    for (int i = 0; i < n; ++i)
+    {
+        vol1Tags.push_back(tags0[i]);
+        vol2Tags.push_back(tags1[i]);
+    }
+
+    return n;
+}
+
+void AppState::recomputeTransform()
+{
+    if (!transformOutOfDate_)
+        return;
+
+    transformOutOfDate_ = false;
+
+    std::vector<glm::dvec3> vol1Tags, vol2Tags;
+    int n = getTagPairs(vol1Tags, vol2Tags);
+
+    int minPoints = (transformType_ == TransformType::TPS) ?
+                    kMinPointsTPS : kMinPointsLinear;
+
+    if (n < minPoints)
+    {
+        transformResult_ = TransformResult{};
+        transformResult_.type = transformType_;
+        return;
+    }
+
+    transformResult_ = computeTransform(vol1Tags, vol2Tags, transformType_);
+}
+
+void AppState::setTransformType(TransformType type)
+{
+    if (type != transformType_)
+    {
+        transformType_ = type;
+        transformOutOfDate_ = true;
+        recomputeTransform();
+    }
 }

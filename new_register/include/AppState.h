@@ -11,6 +11,7 @@
 
 #include "ColourMap.h"
 #include "Volume.h"
+#include "Transform.h"
 #include "GraphicsBackend.h"  // for Texture
 
 class AppConfig;
@@ -107,6 +108,11 @@ public:
     int selectedTagIndex_ = -1;
     bool tagListWindowVisible_ = false;
 
+    /// --- Transform state ---
+    TransformType transformType_ = TransformType::LSQ6;
+    TransformResult transformResult_;
+    bool transformOutOfDate_ = true;  ///< Set when tags change
+
     /// LRU volume cache for QC mode row switches.
     VolumeCache volumeCache_;
 
@@ -125,6 +131,22 @@ public:
     void loadTagsForVolume(int index);
     void initializeViewStates();
     void applyConfig(const AppConfig& cfg, int defaultWindowWidth, int defaultWindowHeight);
+
+    /// Recompute the transform from tag point pairs (vol 0 -> vol 1).
+    /// Only recomputes if transformOutOfDate_ is true.
+    /// Requires at least 2 volumes with matching tag counts >= kMinPointsLinear.
+    void recomputeTransform();
+
+    /// Mark transform as needing recomputation (call after any tag change).
+    void invalidateTransform() { transformOutOfDate_ = true; }
+
+    /// Set the transform type and recompute.
+    void setTransformType(TransformType type);
+
+    /// Get tag point pairs from volumes 0 and 1.
+    /// Returns the number of valid pairs found.
+    int getTagPairs(std::vector<glm::dvec3>& vol1Tags,
+                    std::vector<glm::dvec3>& vol2Tags) const;
 
     /// Clear all volumes, view states, and overlay textures.
     /// GPU resources are released via Texture destructor.

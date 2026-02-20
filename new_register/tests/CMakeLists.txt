@@ -133,6 +133,17 @@ add_nr_test(test_qc_csv
 )
 add_test(NAME QCCsvTest COMMAND test_qc_csv)
 
+# ------------------------------------------------------------------
+# Transform computation test (Eigen, GLM, no MINC)
+# ------------------------------------------------------------------
+
+add_nr_test(test_transform
+    SOURCES   Transform.cpp
+    INCLUDES  ${INC_DIR} ${glm_SOURCE_DIR} ${eigen_SOURCE_DIR}
+    LINKS     glm
+)
+add_test(NAME TransformTest COMMAND test_transform)
+
 # --- GCC < 10 needs -lstdc++fs for std::filesystem ---
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 10)
     foreach(_tgt test_qc_csv test_matrix_debug test_world_to_voxel test_coordinate_sync)
