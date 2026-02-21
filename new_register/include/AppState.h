@@ -136,7 +136,9 @@ public:
     /// Recompute the transform from tag point pairs (vol 0 -> vol 1).
     /// Only recomputes if transformOutOfDate_ is true.
     /// Requires at least 2 volumes with matching tag counts >= kMinPointsLinear.
-    void recomputeTransform();
+    /// @return true if the transform was actually recomputed (caller should
+    ///         rebuild overlay textures), false if it was already up to date.
+    bool recomputeTransform();
 
     /// Mark transform as needing recomputation (call after any tag change).
     void invalidateTransform() { transformOutOfDate_ = true; }

@@ -118,6 +118,17 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan/OpenGL 2,
 - [x] Save `.tag` button alongside Save `.xfm`
 - [x] 11 transform subtests passing (identity, translation, rotation, scaling, mixed, all LSQ types, TPS, XFM I/O)
 
+### Overlay Transform Visualization
+- [x] When a valid tag-based transform exists, vol1 overlay is resampled through the computed registration
+- [x] Linear transforms: inverse matrix inserted into combined scanline transform (zero per-pixel overhead)
+- [x] TPS transforms: per-pixel Newton-Raphson inversion via `inverseTransformPoint()` on `TransformResult`
+- [x] Falls back to original (identity) overlay compositing when no transform is available
+- [x] Transform recomputed immediately when tags are created or deleted (timing fix)
+
+### Bug Fixes
+- [x] Sagittal view tag placement: `drawTagsOnSlice()` had `dimU`/`dimV` swapped for viewIndex==1 (was U=Z,V=Y; corrected to U=Y,V=Z)
+- [x] Overlay transform timing: moved `recomputeTransform()` to the top of the render loop so the transform is always up-to-date before overlay textures are built; also rebuilds overlays after transform type radio button changes and tag deletion
+
 ---
 
 ## Not Yet Implemented

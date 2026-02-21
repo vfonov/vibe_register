@@ -128,6 +128,16 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
         renderToolsPanel(backend, window);
     }
 
+    // Recompute the tag-based transform before any overlay textures are built.
+    // This must happen before renderVolumeColumn / renderOverlayPanel so that
+    // overlay textures always use the current transform.
+    if (state_.volumeCount() >= 2)
+    {
+        bool transformChanged = state_.recomputeTransform();
+        if (transformChanged && state_.hasOverlay())
+            viewManager_.updateAllOverlayTextures();
+    }
+
     if (!ImGui::GetIO().WantTextInput) {
         if (ImGui::IsKeyPressed(ImGuiKey_R)) {
             viewManager_.resetViews();
@@ -925,10 +935,10 @@ void Interface::renderTagListWindow() {
             
             if (currentType != static_cast<int>(state_.transformType_)) {
                 state_.setTransformType(static_cast<TransformType>(currentType));
+                if (state_.hasOverlay())
+                    viewManager_.updateAllOverlayTextures();
             }
 
-            // Compute/recompute transform
-            state_.recomputeTransform();
             const TransformResult& result = state_.transformResult_;
 
             if (result.valid) {
@@ -990,6 +1000,8 @@ void Interface::renderTagListWindow() {
                     state_.selectedTagIndex_ = -1;
                     state_.invalidateTransform();
                     state_.recomputeTransform();
+                    if (state_.hasOverlay())
+                        viewManager_.updateAllOverlayTextures();
                 }
             }
             ImGui::SameLine();

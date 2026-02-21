@@ -282,10 +282,10 @@ int AppState::getTagPairs(std::vector<glm::dvec3>& vol1Tags,
     return n;
 }
 
-void AppState::recomputeTransform()
+bool AppState::recomputeTransform()
 {
     if (!transformOutOfDate_)
-        return;
+        return false;
 
     transformOutOfDate_ = false;
 
@@ -299,10 +299,11 @@ void AppState::recomputeTransform()
     {
         transformResult_ = TransformResult{};
         transformResult_.type = transformType_;
-        return;
+        return true;
     }
 
     transformResult_ = computeTransform(vol1Tags, vol2Tags, transformType_);
+    return true;
 }
 
 void AppState::setTransformType(TransformType type)
