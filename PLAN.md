@@ -111,7 +111,7 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan/OpenGL 2,
 - [x] Average and per-tag RMS error display in Tags panel
 - [x] Per-tag RMS shown as column in tag table
 - [x] Transform auto-recomputed when tags change (dirty flag)
-- [x] Radio buttons for transform type selection
+- [x] Dropdown (Combo) for transform type selection
 - [x] Save `.xfm` files via minc2-simple API (linear) and hand-written (TPS)
 - [x] Read `.xfm` files via minc2-simple API
 - [x] User-editable `.xfm` output filename (InputText)
@@ -131,13 +131,100 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan/OpenGL 2,
 
 ---
 
+## Test Coverage Gaps
+
+Audit of all unit-testable public functions across source modules (excluding pure UI/GPU code).
+12 test suites currently pass. Approximate overall coverage of unit-testable functions: **~30%**.
+
+### Quantitative Summary
+
+| Module | Public Functions | Tested | Not Tested | Coverage |
+|---|---|---|---|---|
+| **Volume** | 18 | 8 | 10 | 44% |
+| **TagWrapper** | 18 | 10 | 8 | 56% |
+| **Transform** | 6 | 5 | 1 | 83% |
+| **ColourMap** | 5 | 3 | 2 | 60% |
+| **AppConfig** | 10 | 0 | 10 | **0%** |
+| **AppState** | 25 | 0 | 25 | **0%** |
+| **QCState** | 8 | 7 | 1 | 88% |
+
+### HIGH Priority
+
+Core logic, easily testable without GPU, high impact if broken.
+
+#### AppConfig (0% — completely untested)
+- [ ] `loadConfig()` — missing file returns default, valid JSON round-trip, malformed JSON throws
+- [ ] `saveConfig()` — write + re-read round-trip
+- [ ] `to_json` / `from_json` for `VolumeConfig`, `GlobalConfig`, `QCColumnConfig`, `AppConfig` — optional fields, all fields populated vs minimal
+
+#### AppState::VolumeCache (0% — completely untested)
+- [ ] `get()` / `put()` — cache hit, cache miss, LRU eviction order
+- [ ] `clear()` — empties cache, `size()` returns 0
+- [ ] Thread safety — concurrent `get`/`put` from multiple threads
+
+#### AppState (0% — completely untested)
+- [ ] `getTagPairs()` — extraction of paired tags from volumes 0 and 1
+- [ ] `applyConfig()` — config → view state mapping (colour maps, value ranges, slice indices, zoom, pan)
+- [ ] `initializeViewStates()` — midpoint slice index calculation, value range from volume min/max
+- [ ] `saveTags()` — routing logic: combined path set → two-volume save; empty → per-volume save
+- [ ] `loadCombinedTags()` — two-volume .tag file distribution to volumes 0 and 1
+- [ ] `saveCombinedTags()` — assemble two-volume tag data from volumes 0 and 1
+
+#### Transform
+- [ ] `inverseTransformPoint()` — linear path (glm::inverse), TPS path (Newton-Raphson convergence)
+- [ ] LSQ10 — no dedicated test (LSQ6/7/9/12/TPS all have specific tests)
+
+#### ColourMap
+- [ ] `colourMapByName()` — valid name lookup, invalid name returns nullopt, case sensitivity
+
+#### TagWrapper
+- [ ] `removeTag()` — index shifting, `points2_` synchronization for two-volume data
+- [ ] `updateTag()` — position + label update at given index
+- [ ] `clear()` — resets points, points2, labels, volume count
+
+### MEDIUM Priority
+
+Utility functions, static helpers, secondary paths.
+
+#### Volume
+- [ ] `get()` — bounds-checked voxel access, out-of-bounds returns 0
+- [ ] `worldExtent()` — physical extent computation from step × dimensions
+- [ ] `slicePixelAspect()` — pixel aspect ratio for non-isotropic voxels
+- [ ] `generate_test_data()` — produces valid dimensions, data, and matrices
+- [ ] `clearTags()` — resets tag state
+
+#### ColourMap
+- [ ] `colourMapRepresentative()` — returns valid RGBA floats in [0,1] for all map types
+
+#### BackendFactory (static utilities only)
+- [ ] `backendName()` — enum-to-string for all backend types
+- [ ] `parseBackendName()` — string-to-enum including aliases ("vk", "gl2", "gl", "mtl", "auto")
+
+#### AppState (secondary)
+- [ ] `getMaxTagCount()` — max tag count across all loaded volumes
+- [ ] `anyVolumeHasTags()` — true if any volume has tags
+- [ ] `setSelectedTag()` — updates cursor position in all volumes from selected tag
+- [ ] `recomputeTransform()` — dirty-flag gating, integration with `computeTransform()`
+
+### LOW Priority
+
+Copy/move semantics, threading, trivial accessors.
+
+- [ ] **Volume** — copy/move constructors and assignment operators
+- [ ] **TagWrapper** — copy/move constructors and assignment operators
+- [ ] **Prefetcher** — `requestPrefetch()`, `cancelPending()`, `shutdown()` (integration test)
+- [ ] **AppState** — `clearAllVolumes()`, `loadVolumeSet()` (needs MINC test data)
+- [ ] **QCState** — `pathsForRow()` (trivial accessor)
+
+---
+
 ## Not Yet Implemented
 
 ### Tag Points (remaining)
 - [ ] Edit tag labels in table
 - [ ] Tag markers displayed on slices (inside/outside colours, active/inactive colours)
 - [ ] Up/Down arrow keys to navigate between tags
-- [ ] Load tags from command line
+- [x] Load tags from command line (`--tags`/`-t` CLI argument, combined two-volume .tag support)
 
 ### Resampling
 - [ ] Resample volume 2 into volume 1's space using computed transform
