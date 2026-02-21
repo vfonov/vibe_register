@@ -921,19 +921,14 @@ void Interface::renderTagListWindow() {
 
         // --- Transform section ---
         if (numVolumes >= 2) {
-            ImGui::Text("Transform Type:");
-            
             int currentType = static_cast<int>(state_.transformType_);
-            
-            // Radio buttons for transform type
-            ImGui::RadioButton("LSQ6 (Rigid)", &currentType, 0); ImGui::SameLine();
-            ImGui::RadioButton("LSQ7 (Similarity)", &currentType, 1); ImGui::SameLine();
-            ImGui::RadioButton("LSQ9", &currentType, 2);
-            ImGui::RadioButton("LSQ10", &currentType, 3); ImGui::SameLine();
-            ImGui::RadioButton("LSQ12", &currentType, 4); ImGui::SameLine();
-            ImGui::RadioButton("TPS", &currentType, 5);
-            
-            if (currentType != static_cast<int>(state_.transformType_)) {
+
+            // Drop-down for transform type
+            static const char* transformLabels[] = {
+                "LSQ6 (Rigid)", "LSQ7 (Similarity)", "LSQ9", "LSQ10", "LSQ12", "TPS"
+            };
+            ImGui::SetNextItemWidth(180.0f * state_.dpiScale_);
+            if (ImGui::Combo("Transform", &currentType, transformLabels, IM_ARRAYSIZE(transformLabels))) {
                 state_.setTransformType(static_cast<TransformType>(currentType));
                 if (state_.hasOverlay())
                     viewManager_.updateAllOverlayTextures();
@@ -959,15 +954,22 @@ void Interface::renderTagListWindow() {
                 }
                 ImGui::SameLine();
                 if (ImGui::Button("Save .tag", ImVec2(btnWidth, 0))) {
-                    for (int vi = 0; vi < numVolumes; ++vi) {
-                        std::filesystem::path tagPath(state_.volumePaths_[vi]);
-                        tagPath.replace_extension(".tag");
-                        try {
-                            state_.volumes_[vi].saveTags(tagPath.string());
-                            std::cout << "Saved tags to " << tagPath << "\n";
-                        } catch (const std::exception& e) {
-                            std::cerr << "Failed to save tags: " << e.what() << "\n";
-                        }
+                    state_.saveTags();
+                }
+
+                // Combined .tag file path (InputText + Load button)
+                ImGui::SetNextItemWidth(200.0f * state_.dpiScale_);
+                ImGui::InputText("##tag_path", state_.combinedTagPath_, sizeof(state_.combinedTagPath_));
+                ImGui::SameLine();
+                if (ImGui::Button("Load .tag", ImVec2(btnWidth, 0))) {
+                    std::string tp(state_.combinedTagPath_);
+                    if (!tp.empty() && state_.loadCombinedTags(tp)) {
+                        state_.recomputeTransform();
+                        for (int v = 0; v < state_.volumeCount(); ++v)
+                            for (int vv = 0; vv < 3; ++vv)
+                                viewManager_.updateSliceTexture(v, vv);
+                        if (state_.hasOverlay())
+                            viewManager_.updateAllOverlayTextures();
                     }
                 }
             } else {
@@ -988,15 +990,9 @@ void Interface::renderTagListWindow() {
                     for (int vi = 0; vi < numVolumes; ++vi) {
                         if (state_.selectedTagIndex_ < state_.volumes_[vi].getTagCount()) {
                             state_.volumes_[vi].tags.removeTag(state_.selectedTagIndex_);
-                            std::filesystem::path tagPath(state_.volumePaths_[vi]);
-                            tagPath.replace_extension(".tag");
-                            try {
-                                state_.volumes_[vi].saveTags(tagPath.string());
-                            } catch (const std::exception& e) {
-                                std::cerr << "Failed to save tags: " << e.what() << "\n";
-                            }
                         }
                     }
+                    state_.saveTags();
                     state_.selectedTagIndex_ = -1;
                     state_.invalidateTransform();
                     state_.recomputeTransform();
@@ -1363,16 +1359,9 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                             newLabels.push_back(newLabel);
                             curVol.tags.setPoints(newPoints);
                             curVol.tags.setLabels(newLabels);
-
-                            std::filesystem::path tagPath(state_.volumePaths_[v]);
-                            tagPath.replace_extension(".tag");
-                            try {
-                                curVol.saveTags(tagPath.string());
-                            } catch (const std::exception& e) {
-                                std::cerr << "Failed to save tags: " << e.what() << "\n";
-                            }
                         }
 
+                        state_.saveTags();
                         state_.selectedTagIndex_ = tagCount;
                         state_.invalidateTransform();
                         state_.recomputeTransform();

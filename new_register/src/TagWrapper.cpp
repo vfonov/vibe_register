@@ -23,6 +23,7 @@ void TagWrapper::clear() {
         tags_ = nullptr;
     }
     points_.clear();
+    points2_.clear();
     labels_.clear();
     n_volumes_ = 0;
 }
@@ -31,6 +32,7 @@ TagWrapper::TagWrapper(TagWrapper&& other) noexcept
     : tags_(other.tags_),
       n_volumes_(other.n_volumes_),
       points_(std::move(other.points_)),
+      points2_(std::move(other.points2_)),
       labels_(std::move(other.labels_))
 {
     other.tags_ = nullptr;
@@ -45,6 +47,7 @@ TagWrapper& TagWrapper::operator=(TagWrapper&& other) noexcept {
         tags_ = other.tags_;
         n_volumes_ = other.n_volumes_;
         points_ = std::move(other.points_);
+        points2_ = std::move(other.points2_);
         labels_ = std::move(other.labels_);
         
         other.tags_ = nullptr;
@@ -57,6 +60,7 @@ TagWrapper::TagWrapper(const TagWrapper& other)
     : tags_(nullptr),
       n_volumes_(other.n_volumes_),
       points_(other.points_),
+      points2_(other.points2_),
       labels_(other.labels_)
 {
     // We only copy the high-level points/labels, not the raw C minc2_tags
@@ -72,6 +76,7 @@ TagWrapper& TagWrapper::operator=(const TagWrapper& other) {
         }
         n_volumes_ = other.n_volumes_;
         points_ = other.points_;
+        points2_ = other.points2_;
         labels_ = other.labels_;
     }
     return *this;
@@ -105,6 +110,15 @@ void TagWrapper::load(const std::string& path) {
         points_.push_back(glm::dvec3(vol1[i * 3 + 0], vol1[i * 3 + 1], vol1[i * 3 + 2]));
     }
 
+    // Copy points for the second volume if present (two-volume tag file).
+    if (n_volumes_ >= 2 && tags_->tags_volume2) {
+        points2_.reserve(count);
+        const double* vol2 = tags_->tags_volume2;
+        for (int i = 0; i < count; ++i) {
+            points2_.push_back(glm::dvec3(vol2[i * 3 + 0], vol2[i * 3 + 1], vol2[i * 3 + 2]));
+        }
+    }
+
     // Copy labels if present. The C struct has a char** labels pointer.
     // It may be NULL or individual entries may be NULL. We store empty strings for missing labels.
     labels_.reserve(count);
@@ -136,14 +150,33 @@ void TagWrapper::save(const std::string& path) {
     }
 
     int count = static_cast<int>(points_.size());
-    if (minc2_tags_init(tags_, count, 1, 0, 0, 0, 1) != MINC2_SUCCESS) {
+    int nVols = points2_.empty() ? 1 : 2;
+
+    if (minc2_tags_init(tags_, count, nVols, 0, 0, 0, 1) != MINC2_SUCCESS) {
         throw std::runtime_error("Failed to initialize tag structure");
     }
 
+    // Write volume 1 points
     for (int i = 0; i < count; ++i) {
         tags_->tags_volume1[i * 3 + 0] = points_[i].x;
         tags_->tags_volume1[i * 3 + 1] = points_[i].y;
         tags_->tags_volume1[i * 3 + 2] = points_[i].z;
+    }
+
+    // Write volume 2 points if present
+    if (nVols == 2 && tags_->tags_volume2) {
+        for (int i = 0; i < count; ++i) {
+            // If points2_ is shorter than points_, pad with zeros
+            if (i < static_cast<int>(points2_.size())) {
+                tags_->tags_volume2[i * 3 + 0] = points2_[i].x;
+                tags_->tags_volume2[i * 3 + 1] = points2_[i].y;
+                tags_->tags_volume2[i * 3 + 2] = points2_[i].z;
+            } else {
+                tags_->tags_volume2[i * 3 + 0] = 0.0;
+                tags_->tags_volume2[i * 3 + 1] = 0.0;
+                tags_->tags_volume2[i * 3 + 2] = 0.0;
+            }
+        }
     }
 
     if (!labels_.empty() && labels_.size() == static_cast<size_t>(count)) {
@@ -167,6 +200,14 @@ void TagWrapper::setPoints(const std::vector<glm::dvec3>& points) {
     }
 }
 
+void TagWrapper::setPoints2(const std::vector<glm::dvec3>& points) {
+    points2_.clear();
+    points2_.reserve(points.size());
+    for (const auto& p : points) {
+        points2_.push_back(p);
+    }
+}
+
 void TagWrapper::setLabels(const std::vector<std::string>& labels) {
     labels_ = labels;
 }
@@ -175,6 +216,8 @@ void TagWrapper::removeTag(int index) {
     if (index < 0 || index >= static_cast<int>(points_.size()))
         return;
     points_.erase(points_.begin() + index);
+    if (index < static_cast<int>(points2_.size()))
+        points2_.erase(points2_.begin() + index);
     if (index < static_cast<int>(labels_.size()))
         labels_.erase(labels_.begin() + index);
 }

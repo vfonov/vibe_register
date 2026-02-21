@@ -114,6 +114,11 @@ public:
     bool transformOutOfDate_ = true;  ///< Set when tags change
     char xfmFilePath_[256] = "transform.xfm";  ///< User-editable .xfm output path
 
+    /// --- Combined tag file path ---
+    /// When non-empty, tags are saved/loaded as a single two-volume .tag file
+    /// instead of separate per-volume files.  Set via --tags CLI or UI InputText.
+    char combinedTagPath_[512] = "";
+
     /// LRU volume cache for QC mode row switches.
     VolumeCache volumeCache_;
 
@@ -131,6 +136,20 @@ public:
     void loadVolume(const std::string& path);
     void loadTagsForVolume(int index);
     void initializeViewStates();
+
+    /// Save both volumes' tags into a single two-volume .tag file at combinedTagPath_.
+    /// Requires at least 2 loaded volumes.  Uses volume 0's labels.
+    /// @return true on success, false on failure.
+    bool saveCombinedTags();
+
+    /// Load a two-volume .tag file and distribute points to volumes 0 and 1.
+    /// @param path Path to the .tag file.
+    /// @return true if the file was a two-volume file and loaded successfully.
+    bool loadCombinedTags(const std::string& path);
+
+    /// Save tags using the appropriate strategy: combined if combinedTagPath_
+    /// is set and we have 2+ volumes, otherwise per-volume.
+    void saveTags();
     void applyConfig(const AppConfig& cfg, int defaultWindowWidth, int defaultWindowHeight);
 
     /// Recompute the transform from tag point pairs (vol 0 -> vol 1).

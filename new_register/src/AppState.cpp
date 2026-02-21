@@ -68,8 +68,101 @@ void AppState::loadTagsForVolume(int index) {
     if (std::filesystem::exists(tagPath)) {
         try {
             volumes_[index].loadTags(tagPath.string());
+
+            // If this is volume 0 and we have 2+ volumes and the file
+            // turned out to be a two-volume tag file, distribute vol2
+            // points to volume 1.
+            if (index == 0 && volumes_.size() >= 2 &&
+                volumes_[0].tags.hasTwoVolumes())
+            {
+                const auto& pts2 = volumes_[0].tags.points2();
+                const auto& labels = volumes_[0].tags.labels();
+                volumes_[1].tags.setPoints(pts2);
+                volumes_[1].tags.setLabels(labels);
+                std::cerr << "Loaded two-volume tag file: "
+                          << tagPath << " (" << pts2.size() << " tags)\n";
+            }
         } catch (const std::exception& e) {
             std::cerr << "Exception loading tag file: " << e.what() << "\n";
+        }
+    }
+}
+
+bool AppState::saveCombinedTags() {
+    if (volumes_.size() < 2)
+        return false;
+
+    std::string path(combinedTagPath_);
+    if (path.empty())
+        return false;
+
+    try {
+        TagWrapper tw;
+        tw.setPoints(volumes_[0].getTagPoints());
+        tw.setPoints2(volumes_[1].getTagPoints());
+        tw.setLabels(volumes_[0].getTagLabels());
+        tw.save(path);
+        std::cerr << "Saved combined tags to " << path << "\n";
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to save combined tags: " << e.what() << "\n";
+        return false;
+    }
+}
+
+bool AppState::loadCombinedTags(const std::string& path) {
+    if (volumes_.size() < 2)
+        return false;
+
+    try {
+        TagWrapper tw;
+        tw.load(path);
+
+        // Always load volume 1 points
+        volumes_[0].tags.setPoints(tw.points());
+        volumes_[0].tags.setLabels(tw.labels());
+
+        if (tw.hasTwoVolumes()) {
+            // Distribute volume 2 points
+            volumes_[1].tags.setPoints(tw.points2());
+            volumes_[1].tags.setLabels(tw.labels());
+            std::cerr << "Loaded two-volume tag file: "
+                      << path << " (" << tw.points().size() << " tags)\n";
+        } else {
+            // Single-volume file — only first volume gets tags
+            std::cerr << "Loaded single-volume tag file: "
+                      << path << " (" << tw.points().size() << " tags)\n";
+        }
+
+        // Store the path for future saves
+        std::snprintf(combinedTagPath_, sizeof(combinedTagPath_),
+                      "%s", path.c_str());
+
+        invalidateTransform();
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to load combined tags: " << e.what() << "\n";
+        return false;
+    }
+}
+
+void AppState::saveTags() {
+    // If combined tag path is set and we have 2+ volumes, save combined
+    if (combinedTagPath_[0] != '\0' && volumes_.size() >= 2) {
+        saveCombinedTags();
+    } else {
+        // Fall back to per-volume saving
+        for (int vi = 0; vi < static_cast<int>(volumes_.size()); ++vi) {
+            if (volumePaths_[vi].empty())
+                continue;
+            std::filesystem::path tagPath(volumePaths_[vi]);
+            tagPath.replace_extension(".tag");
+            try {
+                volumes_[vi].saveTags(tagPath.string());
+                std::cerr << "Saved tags to " << tagPath << "\n";
+            } catch (const std::exception& e) {
+                std::cerr << "Failed to save tags: " << e.what() << "\n";
+            }
         }
     }
 }

@@ -50,6 +50,7 @@ int main(int argc, char** argv)
         std::optional<std::string> pendingLut;
         std::string qcInputPath;
         std::string qcOutputPath;
+        std::string cliTagPath;
         bool useTestData = false;
 
         static const std::array<std::pair<std::string_view, std::string_view>, 12> lutFlags = {{
@@ -83,6 +84,7 @@ int main(int argc, char** argv)
                           << "\nOptions:\n"
                           << "  -c, --config <path>   Load config from <path>\n"
                           << "  -B, --backend <name>  Graphics backend: auto, vulkan, opengl2 (default: auto)\n"
+                          << "  -t, --tags <path>     Load combined two-volume .tag file\n"
                           << "  -h, --help            Show this help message\n"
                           << "      --test            Launch with a generated test volume\n"
                           << "      --lut <name>      Set colour map for the next volume\n"
@@ -128,6 +130,12 @@ int main(int argc, char** argv)
                     return 1;
                 }
                 pendingLut = std::move(lutName);
+                continue;
+            }
+
+            if ((arg == "--tags" || arg == "-t") && i + 1 < argc)
+            {
+                cliTagPath = argv[++i];
                 continue;
             }
 
@@ -273,8 +281,17 @@ int main(int argc, char** argv)
                 }
             }
 
-            for (size_t volIdx = 0; volIdx < state.volumeCount(); ++volIdx) {
-                state.loadTagsForVolume(static_cast<int>(volIdx));
+            // Load tags: if --tags was specified, use combined tag file;
+            // otherwise fall back to per-volume auto-discovery.
+            if (!cliTagPath.empty()) {
+                std::snprintf(state.combinedTagPath_,
+                              sizeof(state.combinedTagPath_),
+                              "%s", cliTagPath.c_str());
+                state.loadCombinedTags(cliTagPath);
+            } else {
+                for (size_t volIdx = 0; volIdx < state.volumeCount(); ++volIdx) {
+                    state.loadTagsForVolume(static_cast<int>(volIdx));
+                }
             }
         }
         else if (!qcState.active && useTestData)

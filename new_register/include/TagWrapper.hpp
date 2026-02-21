@@ -39,6 +39,21 @@ public:
      */
     const std::vector<std::string>& labels() const { return labels_; }
 
+    /** Get the loaded points for the second volume (empty if single-volume file).
+     * @return Vector of glm::dvec3 representing volume 2 tag coordinates.
+     */
+    const std::vector<glm::dvec3>& points2() const { return points2_; }
+
+    /** Set tag points for the second volume.
+     * @param points Vector of glm::dvec3 world coordinates for volume 2.
+     */
+    void setPoints2(const std::vector<glm::dvec3>& points);
+
+    /** Check if this tag set contains two-volume data.
+     * @return true if points2_ is non-empty.
+     */
+    bool hasTwoVolumes() const { return !points2_.empty(); }
+
     /** Number of volumes indicated in the tag file (usually 1).
      */
     int volumeCount() const { return n_volumes_; }
@@ -94,6 +109,7 @@ private:
     minc2_tags* tags_;                // Raw C structure allocated by minc2_simple
     int n_volumes_;                   // Number of volumes stored in the tag file
     std::vector<glm::dvec3> points_;   // Tag coordinates (first volume)
+    std::vector<glm::dvec3> points2_;  // Tag coordinates (second volume, empty if single-volume)
     std::vector<std::string> labels_; // Optional labels (may be empty strings)
 };
 
