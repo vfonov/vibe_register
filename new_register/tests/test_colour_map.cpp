@@ -156,6 +156,42 @@ int main()
         CHECK(&a == &b, "colourMapLut should return cached reference");
     }
 
+    // 12. colourMapByName: specific valid lookups.
+    {
+        auto gray = colourMapByName("Gray");
+        CHECK(gray.has_value() && *gray == ColourMapType::GrayScale,
+              "colourMapByName(\"Gray\") should return GrayScale");
+
+        auto hot = colourMapByName("Hot Metal");
+        CHECK(hot.has_value() && *hot == ColourMapType::HotMetal,
+              "colourMapByName(\"Hot Metal\") should return HotMetal");
+
+        auto spec = colourMapByName("Spectral");
+        CHECK(spec.has_value() && *spec == ColourMapType::Spectral,
+              "colourMapByName(\"Spectral\") should return Spectral");
+    }
+
+    // 13. colourMapByName: invalid names return nullopt.
+    {
+        auto bad = colourMapByName("NonExistent");
+        CHECK(!bad.has_value(), "colourMapByName(\"NonExistent\") should be nullopt");
+
+        auto empty = colourMapByName("");
+        CHECK(!empty.has_value(), "colourMapByName(\"\") should be nullopt");
+    }
+
+    // 14. colourMapByName round-trip: name -> type -> name for all 21 types.
+    {
+        for (int i = 0; i < colourMapCount(); ++i)
+        {
+            auto type = static_cast<ColourMapType>(i);
+            auto name = colourMapName(type);
+            auto lookup = colourMapByName(name);
+            CHECK(lookup.has_value() && *lookup == type,
+                  "colourMapByName(colourMapName(type)) should recover original type");
+        }
+    }
+
     if (failures == 0)
     {
         std::printf("All colour map tests passed.\n");

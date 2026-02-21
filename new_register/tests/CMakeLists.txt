@@ -94,7 +94,7 @@ add_nr_test(test_tag_load
     LINKS    minc2-simple-static minc2 glm
 )
 add_test(NAME TagLoadTest COMMAND test_tag_load
-    ${TEST_DATA_DIR}/mni_icbm152_t1_tal_nlin_sym_09c.tag
+    ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 # ------------------------------------------------------------------
@@ -134,6 +134,17 @@ add_nr_test(test_qc_csv
 add_test(NAME QCCsvTest COMMAND test_qc_csv)
 
 # ------------------------------------------------------------------
+# AppConfig JSON round-trip test
+# ------------------------------------------------------------------
+
+add_nr_test(test_app_config
+    SOURCES   AppConfig.cpp
+    INCLUDES  ${INC_DIR}
+    LINKS     nlohmann_json::nlohmann_json
+)
+add_test(NAME AppConfigTest COMMAND test_app_config)
+
+# ------------------------------------------------------------------
 # Transform computation test (Eigen, GLM, no MINC)
 # ------------------------------------------------------------------
 
@@ -146,7 +157,7 @@ add_test(NAME TransformTest COMMAND test_transform)
 
 # --- GCC < 10 needs -lstdc++fs for std::filesystem ---
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 10)
-    foreach(_tgt test_qc_csv test_matrix_debug test_world_to_voxel test_coordinate_sync)
+    foreach(_tgt test_qc_csv test_app_config test_matrix_debug test_world_to_voxel test_coordinate_sync)
         target_link_libraries(${_tgt} PRIVATE stdc++fs)
     endforeach()
 endif()
