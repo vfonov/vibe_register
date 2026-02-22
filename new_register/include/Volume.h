@@ -3,11 +3,18 @@
 #include <vector>
 #include <string>
 #include <array>
+#include <unordered_map>
 #include <stdexcept>
 
 #include <glm/glm.hpp>
 
 #include "TagWrapper.hpp"
+
+struct LabelInfo {
+    uint8_t r = 0, g = 0, b = 0, a = 255;
+    bool visible = true;
+    std::string name;
+};
 
 class Volume {
 public:
@@ -88,4 +95,19 @@ public:
     bool hasTags() const { return tags.hasTags(); }
 
     TagWrapper tags;
+
+    bool isLabelVolume() const { return isLabelVolume_; }
+    void setLabelVolume(bool val) { isLabelVolume_ = val; }
+    void setLabelDescriptionFile(const std::string& path);
+    const std::unordered_map<int, LabelInfo>& getLabelLUT() const { return labelLUT_; }
+    const LabelInfo* getLabelInfo(int labelId) const;
+    std::string getLabelNameAtVoxel(int x, int y, int z) const;
+
+private:
+    bool isLabelVolume_ = false;
+    std::string labelDescriptionFile_;
+    std::unordered_map<int, LabelInfo> labelLUT_;
+
+public:
+    void loadLabelDescriptionFile(const std::string& path);
 };

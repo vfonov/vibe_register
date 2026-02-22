@@ -7,6 +7,7 @@
 #include "ColourMap.h"
 #include "GraphicsBackend.h"
 #include "Transform.h"
+#include "Volume.h"
 
 ViewManager::ViewManager(AppState& state, GraphicsBackend& backend)
     : state_(state), backend_(backend) {}
@@ -65,6 +66,34 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
     }
 
     auto voxelToColour = [&](float val) -> uint32_t {
+        // Handle label volumes: use label LUT instead of colour map
+        if (vol.isLabelVolume()) {
+            int labelId = static_cast<int>(val);
+            if (labelId == 0) {
+                return 0x00000000;  // transparent background
+            }
+            const auto& labelLUT = vol.getLabelLUT();
+            auto it = labelLUT.find(labelId);
+            if (it != labelLUT.end()) {
+                const LabelInfo& info = it->second;
+                if (!info.visible) {
+                    return 0x00000000;  // invisible label
+                }
+                // Pack RGBA: R in bits 0-7, G in 8-15, B in 16-23, A in 24-31
+                return static_cast<uint32_t>(info.r) |
+                       (static_cast<uint32_t>(info.g) << 8) |
+                       (static_cast<uint32_t>(info.b) << 16) |
+                       (static_cast<uint32_t>(info.a) << 24);
+            }
+            // Label not in LUT: use grayscale based on label ID
+            int gray = (labelId * 17) % 256;
+            return static_cast<uint32_t>(gray) |
+                   (static_cast<uint32_t>(gray) << 8) |
+                   (static_cast<uint32_t>(gray) << 16) |
+                   0xFF000000;  // fully opaque
+        }
+
+        // Regular volume: use colour map
         if (val < rangeMin)
             return underTransparent ? 0x00000000 : underColour;
         if (val > rangeMax)
@@ -185,6 +214,8 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         float alpha;
         bool useTPSInverse = false;  // true if TPS per-pixel inversion needed
         glm::dmat4 targetWorldToVox; // for TPS path: target vol worldToVoxel
+        bool isLabelVolume = false;  // true if this is a label/segmentation volume
+        const std::unordered_map<int, LabelInfo>* labelLUT = nullptr;  // label colour lookup
     };
 
     int numMaps = colourMapCount();
@@ -259,6 +290,12 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
             if (overMode >= 0 && overMode < numMaps)
                 overMap = static_cast<ColourMapType>(overMode);
             info.overColour = colourMapLut(overMap).table[255];
+        }
+
+        // Label volume support
+        info.isLabelVolume = vol.isLabelVolume();
+        if (info.isLabelVolume) {
+            info.labelLUT = &vol.getLabelLUT();
         }
 
         infos.push_back(info);
@@ -377,7 +414,31 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
                 float raw = info.vdata[tz * info.dimXY + ty * info.dims.x + tx];
 
                 uint32_t packed;
-                if (raw < info.rangeMin) {
+                if (info.isLabelVolume && info.labelLUT) {
+                    int labelId = static_cast<int>(raw);
+                    if (labelId == 0) {
+                        continue;  // transparent background
+                    }
+                    auto it = info.labelLUT->find(labelId);
+                    if (it != info.labelLUT->end()) {
+                        const LabelInfo& lbl = it->second;
+                        if (!lbl.visible) {
+                            continue;  // invisible label
+                        }
+                        packed = static_cast<uint32_t>(lbl.r) |
+                                 (static_cast<uint32_t>(lbl.g) << 8) |
+                                 (static_cast<uint32_t>(lbl.b) << 16) |
+                                 (static_cast<uint32_t>(lbl.a) << 24);
+                        if (lbl.a == 0) continue;
+                    } else {
+                        // Label not in LUT: use grayscale based on label ID
+                        int gray = (labelId * 17) % 256;
+                        packed = static_cast<uint32_t>(gray) |
+                                 (static_cast<uint32_t>(gray) << 8) |
+                                 (static_cast<uint32_t>(gray) << 16) |
+                                 0xFF000000;
+                    }
+                } else if (raw < info.rangeMin) {
                     if (info.underTransparent) continue;
                     packed = info.underColour;
                 } else if (raw > info.rangeMax) {

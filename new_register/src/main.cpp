@@ -52,6 +52,10 @@ int main(int argc, char** argv)
         std::string qcOutputPath;
         std::string cliTagPath;
         bool useTestData = false;
+        std::vector<bool> cliLabelVolumePerVolume;
+        bool pendingLabelVolume = false;
+        std::vector<std::optional<std::string>> cliLabelDescPerVolume;
+        std::optional<std::string> pendingLabelDesc;
 
         static const std::array<std::pair<std::string_view, std::string_view>, 12> lutFlags = {{
             {"--gray",     "GrayScale"},
@@ -94,6 +98,8 @@ int main(int argc, char** argv)
                           << "  -G, --gray            Set GrayScale colour map for the next volume\n"
                           << "  -H, --hot             Set HotMetal colour map for the next volume\n"
                           << "  -S, --spectral        Set Spectral colour map for the next volume\n"
+                          << "  -l, --label           Mark next volume as label/segmentation volume\n"
+                          << "  -L, --labels <file>   Load label description file for next volume\n"
                           << "      --qc <input.csv>  Enable QC mode with input CSV\n"
                           << "      --qc-output <out> Output CSV for QC verdicts (required with --qc)\n"
                           << "\nBackends:\n"
@@ -139,6 +145,18 @@ int main(int argc, char** argv)
                 continue;
             }
 
+            if (arg == "--label" || arg == "-l")
+            {
+                pendingLabelVolume = true;
+                continue;
+            }
+
+            if ((arg == "--labels" || arg == "-L") && i + 1 < argc)
+            {
+                pendingLabelDesc = argv[++i];
+                continue;
+            }
+
             if (arg == "--qc" && i + 1 < argc)
             {
                 qcInputPath = argv[++i];
@@ -165,12 +183,26 @@ int main(int argc, char** argv)
 
             volumeFiles.push_back(std::string(arg));
             cliLutPerVolume.push_back(pendingLut);
+            cliLabelVolumePerVolume.push_back(pendingLabelVolume);
+            cliLabelDescPerVolume.push_back(pendingLabelDesc);
             pendingLut.reset();
+            pendingLabelVolume = false;
+            pendingLabelDesc.reset();
         }
 
         if (pendingLut.has_value())
         {
             std::cerr << "Warning: LUT flag at end of arguments has no volume to apply to\n";
+        }
+
+        if (pendingLabelVolume)
+        {
+            std::cerr << "Warning: --label flag at end of arguments has no volume to apply to\n";
+        }
+
+        if (pendingLabelDesc)
+        {
+            std::cerr << "Warning: --labels flag at end of arguments has no volume to apply to\n";
         }
 
         if (!qcInputPath.empty() && qcOutputPath.empty())
@@ -541,6 +573,19 @@ int main(int argc, char** argv)
                     auto cmOpt = colourMapByName(*cliLutPerVolume[vi]);
                     if (cmOpt)
                         state.viewStates_[vi].colourMap = *cmOpt;
+                }
+            }
+
+            // CLI label flags: mark volumes as label volumes and load LUTs.
+            for (size_t vi = 0; vi < cliLabelVolumePerVolume.size() && vi < static_cast<size_t>(state.volumeCount()); ++vi)
+            {
+                if (cliLabelVolumePerVolume[vi])
+                {
+                    state.volumes_[vi].setLabelVolume(true);
+                }
+                if (cliLabelDescPerVolume[vi].has_value())
+                {
+                    state.volumes_[vi].loadLabelDescriptionFile(*cliLabelDescPerVolume[vi]);
                 }
             }
 

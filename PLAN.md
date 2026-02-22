@@ -96,6 +96,17 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan/OpenGL 2,
 - [x] **Load/Save**: Load Tags and Save Tags buttons with ImGui file dialog for .tag file selection
 - [x] Load tags from command line (`--tags`/`-t` CLI argument, combined two-volume .tag support)
 
+### Label Volume Support
+- [x] **Label flag**: CLI options `--label` / `-l` to mark volume as label/segmentation
+- [x] **Label description file**: CLI options `--labels` / `-L` to specify label colour LUT file
+- [x] **Label LUT format**: Tab or space-separated file with columns: label_id, R, G, B, A, visibility, mesh, name
+- [x] **Parser**: Handles both tabs and spaces, multiple spaces between values, comment lines (#)
+- [x] **Internal storage**: Voxels remain as doubles (no change to internal representation)
+- [x] **Rendering**: Use label colour LUT instead of colour map when label volume flag is set
+- [x] **Overlay rendering**: Label colours also used in overlay composite view
+- [x] **UI panel**: "Label Volume" checkbox in volume controls; displays label name at cursor position
+- [x] **Default LUT**: If no label description file, generates grayscale based on label ID
+
 ### Screenshot
 - [x] Capture entire window to PNG via `P` key or button
 - [x] Auto-incrementing filenames, never overwrites

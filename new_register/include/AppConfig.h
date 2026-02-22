@@ -25,6 +25,8 @@ struct VolumeConfig
     std::array<double, 3> zoom = {1.0, 1.0, 1.0};
     std::array<double, 3> panU = {0.5, 0.5, 0.5};
     std::array<double, 3> panV = {0.5, 0.5, 0.5};
+    bool isLabelVolume = false;                  // Volume contains label/segmentation data
+    std::optional<std::string> labelDescriptionFile;  // Path to label colour/name lookup table
 };
 
 /// Global application defaults.

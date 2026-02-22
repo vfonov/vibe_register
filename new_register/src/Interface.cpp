@@ -805,6 +805,28 @@ int Interface::renderVolumeColumn(int vi) {
                         state.panV[v] = 0.5f;
                     }
                 }
+
+                ImGui::Separator();
+
+                // Label volume controls
+                bool isLabel = vol.isLabelVolume();
+                if (ImGui::Checkbox("Label Volume", &isLabel)) {
+                    state_.volumes_[vi].setLabelVolume(isLabel);
+                    viewManager_.updateSliceTexture(vi, 0);
+                    viewManager_.updateSliceTexture(vi, 1);
+                    viewManager_.updateSliceTexture(vi, 2);
+                    if (state_.hasOverlay())
+                        viewManager_.updateAllOverlayTextures();
+                }
+
+                // Show current label name at cursor position
+                if (isLabel) {
+                    std::string labelName = vol.getLabelNameAtVoxel(
+                        state.sliceIndices.x, state.sliceIndices.y, state.sliceIndices.z);
+                    if (!labelName.empty()) {
+                        ImGui::Text("Label: %s", labelName.c_str());
+                    }
+                }
             }
             ImGui::EndChild();
         }

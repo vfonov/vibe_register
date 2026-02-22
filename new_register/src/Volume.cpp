@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <sstream>
 #include <iostream>
+#include <fstream>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
@@ -354,4 +355,97 @@ void Volume::saveTags(const std::string& path) {
 
 void Volume::clearTags() {
     tags.clear();
+}
+
+void Volume::loadLabelDescriptionFile(const std::string& path) {
+    labelDescriptionFile_ = path;
+    labelLUT_.clear();
+
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        std::cerr << "Warning: Could not open label description file: " << path << "\n";
+        return;
+    }
+
+    std::string line;
+    int lineNum = 0;
+    while (std::getline(file, line)) {
+        ++lineNum;
+        if (line.empty()) continue;
+
+        // Skip comment lines
+        size_t firstNonSpace = line.find_first_not_of(" \t");
+        if (firstNonSpace == std::string::npos) continue;
+        if (line[firstNonSpace] == '#') continue;
+
+        // Parse line: split by both tabs and spaces, skip empty tokens
+        std::istringstream iss(line);
+        std::string token;
+        std::vector<std::string> tokens;
+        while (iss >> token) {
+            tokens.push_back(token);
+        }
+
+        if (tokens.size() < 5) {
+            std::cerr << "Warning: Line " << lineNum << " in " << path << " has fewer than 5 columns, skipping\n";
+            continue;
+        }
+
+        try {
+            int labelId = std::stoi(tokens[0]);
+            LabelInfo info;
+            info.r = static_cast<uint8_t>(std::stoi(tokens[1]));
+            info.g = static_cast<uint8_t>(std::stoi(tokens[2]));
+            info.b = static_cast<uint8_t>(std::stoi(tokens[3]));
+            info.a = static_cast<uint8_t>(std::stoi(tokens[4]));
+
+            if (tokens.size() >= 6) {
+                info.visible = (std::stoi(tokens[5]) != 0);
+            }
+
+            if (tokens.size() >= 8) {
+                info.name = tokens[7];
+            } else if (tokens.size() >= 7) {
+                // mesh visibility column exists but we don't use it
+            }
+
+            labelLUT_[labelId] = info;
+        } catch (const std::exception& e) {
+            std::cerr << "Warning: Line " << lineNum << " in " << path << " parse error: " << e.what() << "\n";
+        }
+    }
+
+    file.close();
+    std::cout << "Loaded " << labelLUT_.size() << " label definitions from " << path << "\n";
+}
+
+void Volume::setLabelDescriptionFile(const std::string& path) {
+    if (!path.empty()) {
+        loadLabelDescriptionFile(path);
+    }
+}
+
+const LabelInfo* Volume::getLabelInfo(int labelId) const {
+    auto it = labelLUT_.find(labelId);
+    if (it != labelLUT_.end()) {
+        return &it->second;
+    }
+    return nullptr;
+}
+
+std::string Volume::getLabelNameAtVoxel(int x, int y, int z) const {
+    if (!isLabelVolume_ || dimensions.x == 0) {
+        return "";
+    }
+
+    if (x < 0 || x >= dimensions.x || y < 0 || y >= dimensions.y || z < 0 || z >= dimensions.z) {
+        return "";
+    }
+
+    int labelId = static_cast<int>(getUnchecked(x, y, z));
+    const LabelInfo* info = getLabelInfo(labelId);
+    if (info && !info->name.empty()) {
+        return info->name;
+    }
+    return "";
 }
