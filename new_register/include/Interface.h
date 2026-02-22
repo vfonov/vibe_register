@@ -36,6 +36,16 @@ private:
     bool autosave_ = true;
     ImVec2 lastViewportSize_{0.0f, 0.0f};
 
+    bool tagFileDialogOpen_ = false;
+    bool tagFileDialogIsSave_ = false;
+    std::string tagFileDialogPath_;
+    std::vector<std::string> tagFileDialogEntries_;
+    std::string tagFileDialogCurrentPath_;
+    std::string tagFileDialogFilename_;
+
+    void renderTagFileDialog();
+    void updateTagFileDialogEntries();
+
     void setupLayout(int numVolumes);
     void renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window);
     int renderVolumeColumn(int vi);
@@ -47,5 +57,6 @@ private:
     int renderOverlayView(int viewIndex, const ImVec2& childSize);
     bool drawTagsOnSlice(int viewIndex, const ImVec2& imgPos,
                          const ImVec2& imgSize, const ImVec2& uv0, const ImVec2& uv1,
-                         const Volume& vol, const glm::ivec3& currentSlice);
+                         const Volume& vol, const glm::ivec3& currentSlice,
+                         int selectedTagIndex);
 };

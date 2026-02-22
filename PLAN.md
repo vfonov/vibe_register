@@ -41,6 +41,7 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan/OpenGL 2,
 - [x] "More..." dropdown for all 21 maps
 - [x] Per-volume colour map selection
 - [x] Configurable under/over range colours (Current, Transparent, or any colour map)
+- [x] `colourMapByName()` — valid name lookup, invalid name returns nullopt
 
 ### Overlay / Merged View
 - [x] Alpha-blended composite of all volumes (when >1 volume loaded)
@@ -82,7 +83,6 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan/OpenGL 2,
 - [x] `Q` — Quit
 - [x] `C` — Toggle clean mode
 - [x] `P` — Screenshot (save window as PNG)
-- [x] `T` — Toggle tag list window
 - [x] `+`/`-` — Step through axial (Z) slice
 
 ### Tag Points
@@ -91,7 +91,10 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan/OpenGL 2,
 - [x] Tag selection updates cursor position in all volumes
 - [x] Right-click on slice to create new tag
 - [x] Delete selected tag button
-- [x] Tags window docked below Tools panel in left panel
+- [x] Tags window always visible (unless in QC or Clean mode), docked below Tools panel
+- [x] **Tag Editing**: Selected tag shown with larger circle (8 voxels vs 5); Right-click in Edit mode moves selected tag to cursor position; Tag Mode toggle (Add/Edit)
+- [x] **Load/Save**: Load Tags and Save Tags buttons with ImGui file dialog for .tag file selection
+- [x] Load tags from command line (`--tags`/`-t` CLI argument, combined two-volume .tag support)
 
 ### Screenshot
 - [x] Capture entire window to PNG via `P` key or button
@@ -100,6 +103,7 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan/OpenGL 2,
 
 ### Tests
 - [x] 12 test suites (volume loading, colour maps, transforms, coordinate sync, tags, QC CSV, etc.)
+- [x] 13 test suites (added test_app_config for AppConfig JSON round-trips)
 
 ### Transform Computation
 - [x] Compute transform from tag point pairs (volumes 0 and 1)
@@ -134,7 +138,7 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan/OpenGL 2,
 ## Test Coverage Gaps
 
 Audit of all unit-testable public functions across source modules (excluding pure UI/GPU code).
-12 test suites currently pass. Approximate overall coverage of unit-testable functions: **~30%**.
+13 test suites currently pass. Approximate overall coverage of unit-testable functions: **~30%**.
 
 ### Quantitative Summary
 
@@ -144,7 +148,7 @@ Audit of all unit-testable public functions across source modules (excluding pur
 | **TagWrapper** | 18 | 10 | 8 | 56% |
 | **Transform** | 6 | 5 | 1 | 83% |
 | **ColourMap** | 5 | 3 | 2 | 60% |
-| **AppConfig** | 10 | 0 | 10 | **0%** |
+| **AppConfig** | 10 | 10 | 0 | **100%** |
 | **AppState** | 25 | 0 | 25 | **0%** |
 | **QCState** | 8 | 7 | 1 | 88% |
 
@@ -152,10 +156,10 @@ Audit of all unit-testable public functions across source modules (excluding pur
 
 Core logic, easily testable without GPU, high impact if broken.
 
-#### AppConfig (0% — completely untested)
-- [ ] `loadConfig()` — missing file returns default, valid JSON round-trip, malformed JSON throws
-- [ ] `saveConfig()` — write + re-read round-trip
-- [ ] `to_json` / `from_json` for `VolumeConfig`, `GlobalConfig`, `QCColumnConfig`, `AppConfig` — optional fields, all fields populated vs minimal
+#### AppConfig (100% — fully tested)
+- [x] `loadConfig()` — missing file returns default, valid JSON round-trip, malformed JSON throws
+- [x] `saveConfig()` — write + re-read round-trip
+- [x] `to_json` / `from_json` for `VolumeConfig`, `GlobalConfig`, `QCColumnConfig`, `AppConfig` — optional fields, all fields populated vs minimal
 
 #### AppState::VolumeCache (0% — completely untested)
 - [ ] `get()` / `put()` — cache hit, cache miss, LRU eviction order
@@ -171,11 +175,8 @@ Core logic, easily testable without GPU, high impact if broken.
 - [ ] `saveCombinedTags()` — assemble two-volume tag data from volumes 0 and 1
 
 #### Transform
-- [ ] `inverseTransformPoint()` — linear path (glm::inverse), TPS path (Newton-Raphson convergence)
+- [x] `inverseTransformPoint()` — linear path (glm::inverse), TPS path (Newton-Raphson convergence)
 - [ ] LSQ10 — no dedicated test (LSQ6/7/9/12/TPS all have specific tests)
-
-#### ColourMap
-- [ ] `colourMapByName()` — valid name lookup, invalid name returns nullopt, case sensitivity
 
 #### TagWrapper
 - [ ] `removeTag()` — index shifting, `points2_` synchronization for two-volume data
@@ -224,7 +225,6 @@ Copy/move semantics, threading, trivial accessors.
 - [ ] Edit tag labels in table
 - [ ] Tag markers displayed on slices (inside/outside colours, active/inactive colours)
 - [ ] Up/Down arrow keys to navigate between tags
-- [x] Load tags from command line (`--tags`/`-t` CLI argument, combined two-volume .tag support)
 
 ### Resampling
 - [ ] Resample volume 2 into volume 1's space using computed transform
@@ -396,7 +396,8 @@ new_register/
     ├── test_thick_slices_com.cpp
     ├── test_center_of_mass.cpp
     ├── test_qc_csv.cpp
-    └── test_transform.cpp
+    ├── test_transform.cpp
+    └── test_app_config.cpp
 ```
 
 ### Component Design

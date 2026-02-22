@@ -153,11 +153,7 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
         if (ImGui::IsKeyPressed(ImGuiKey_P)) {
             saveScreenshot(backend);
         }
-        if (!qcState_.active && ImGui::IsKeyPressed(ImGuiKey_T)) {
-            if (state_.volumeCount() > 0) {
-                state_.tagListWindowVisible_ = !state_.tagListWindowVisible_;
-            }
-        }
+
         if (qcState_.active) {
             if (ImGui::IsKeyPressed(ImGuiKey_RightBracket))
                 switchQCRow(qcState_.currentRowIndex + 1, backend);
@@ -214,9 +210,12 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
             renderOverlayPanel();
     }
 
-    if (!qcState_.active && state_.tagListWindowVisible_ && state_.volumeCount() > 0) {
+    if (!qcState_.active && !state_.cleanMode_ && state_.volumeCount() > 0) {
+        state_.tagListWindowVisible_ = true;
         renderTagListWindow();
     }
+
+    renderTagFileDialog();
 
     if (state_.syncCursors_ && state_.cursorSyncDirty_) {
         viewManager_.syncCursors();
@@ -342,10 +341,9 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
         }
 
         if (!qcState_.active) {
-            if (ImGui::Checkbox("Tag List##taglist_tl", &state_.tagListWindowVisible_)) {
-            }
+            ImGui::Text("Tags");
             ImGui::SameLine();
-            ImGui::TextDisabled("(T)");
+            ImGui::TextDisabled("(always visible)");
         }
 
         if (!qcState_.active) {
@@ -918,16 +916,54 @@ void Interface::renderTagListWindow() {
         }
 
         int maxTags = state_.getMaxTagCount();
+        float w = ImGui::GetContentRegionAvail().x;
+        float btnW = (w - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
 
-        // --- Transform section ---
+        // --- Tag Mode toggle ---
+        {
+            bool isEditMode = (state_.selectedTagIndex_ >= 0);
+            if (isEditMode) {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
+                if (ImGui::Button("Edit Mode (right-click to move)", ImVec2(w, 0))) {
+                    state_.selectedTagIndex_ = -1;
+                }
+                ImGui::PopStyleColor();
+            } else {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.2f, 1.0f));
+                if (ImGui::Button("Add Mode (right-click to add)", ImVec2(w, 0))) {
+                }
+                ImGui::PopStyleColor();
+            }
+        }
+
+        ImGui::Spacing();
+
+        // --- Tag file Load/Save buttons ---
+        if (ImGui::Button("Load Tags", ImVec2(w * 0.5f - 4.0f, 0))) {
+            tagFileDialogOpen_ = true;
+            tagFileDialogIsSave_ = false;
+            tagFileDialogCurrentPath_ = std::filesystem::current_path().string();
+            tagFileDialogFilename_.clear();
+            updateTagFileDialogEntries();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Save Tags", ImVec2(w * 0.5f - 4.0f, 0))) {
+            tagFileDialogOpen_ = true;
+            tagFileDialogIsSave_ = true;
+            tagFileDialogCurrentPath_ = std::filesystem::current_path().string();
+            tagFileDialogFilename_ = "output.tag";
+            updateTagFileDialogEntries();
+        }
+
+        // --- Transform section (only with 2+ volumes) ---
         if (numVolumes >= 2) {
-            int currentType = static_cast<int>(state_.transformType_);
+            ImGui::Separator();
 
-            // Drop-down for transform type
+            int currentType = static_cast<int>(state_.transformType_);
             static const char* transformLabels[] = {
                 "LSQ6 (Rigid)", "LSQ7 (Similarity)", "LSQ9", "LSQ10", "LSQ12", "TPS"
             };
-            ImGui::SetNextItemWidth(180.0f * state_.dpiScale_);
+            ImGui::SetNextItemWidth(w);
             if (ImGui::Combo("Transform", &currentType, transformLabels, IM_ARRAYSIZE(transformLabels))) {
                 state_.setTransformType(static_cast<TransformType>(currentType));
                 if (state_.hasOverlay())
@@ -939,53 +975,31 @@ void Interface::renderTagListWindow() {
             if (result.valid) {
                 ImGui::Text("Avg RMS: %.6f", result.avgRMS);
 
-                // Save .xfm and .tag buttons
-                ImGui::Separator();
-                ImGui::SetNextItemWidth(200.0f * state_.dpiScale_);
+                // Save .xfm path
+                ImGui::SetNextItemWidth(w - 70.0f * state_.dpiScale_);
                 ImGui::InputText("##xfm_path", state_.xfmFilePath_, sizeof(state_.xfmFilePath_));
                 ImGui::SameLine();
-                float btnWidth = 80.0f * state_.dpiScale_;
-                if (ImGui::Button("Save .xfm", ImVec2(btnWidth, 0))) {
+                if (ImGui::Button("Save XFM", ImVec2(70.0f * state_.dpiScale_, 0))) {
                     if (writeXfmFile(state_.xfmFilePath_, result)) {
                         std::cout << "Saved transform to " << state_.xfmFilePath_ << "\n";
                     } else {
                         std::cerr << "Failed to save transform\n";
                     }
                 }
-                ImGui::SameLine();
-                if (ImGui::Button("Save .tag", ImVec2(btnWidth, 0))) {
-                    state_.saveTags();
-                }
-
-                // Combined .tag file path (InputText + Load button)
-                ImGui::SetNextItemWidth(200.0f * state_.dpiScale_);
-                ImGui::InputText("##tag_path", state_.combinedTagPath_, sizeof(state_.combinedTagPath_));
-                ImGui::SameLine();
-                if (ImGui::Button("Load .tag", ImVec2(btnWidth, 0))) {
-                    std::string tp(state_.combinedTagPath_);
-                    if (!tp.empty() && state_.loadCombinedTags(tp)) {
-                        state_.recomputeTransform();
-                        for (int v = 0; v < state_.volumeCount(); ++v)
-                            for (int vv = 0; vv < 3; ++vv)
-                                viewManager_.updateSliceTexture(v, vv);
-                        if (state_.hasOverlay())
-                            viewManager_.updateAllOverlayTextures();
-                    }
-                }
             } else {
                 ImGui::TextColored(ImVec4(1,0.5,0,1), "Need %d+ tag pairs",
                     state_.transformType_ == TransformType::TPS ? kMinPointsTPS : kMinPointsLinear);
             }
-
-            ImGui::Separator();
         }
-        // --- End transform section ---
 
+        ImGui::Separator();
+
+        // --- Tag list or status ---
         if (maxTags == 0) {
             ImGui::Text("No tags loaded");
         } else {
-            float btnWidth = 120.0f * state_.dpiScale_;
-            if (ImGui::Button("Delete Selected", ImVec2(btnWidth, 0))) {
+            // Delete button
+            if (ImGui::Button("Delete Selected", ImVec2(w, 0))) {
                 if (state_.selectedTagIndex_ >= 0 && state_.selectedTagIndex_ < maxTags) {
                     for (int vi = 0; vi < numVolumes; ++vi) {
                         if (state_.selectedTagIndex_ < state_.volumes_[vi].getTagCount()) {
@@ -1000,12 +1014,8 @@ void Interface::renderTagListWindow() {
                         viewManager_.updateAllOverlayTextures();
                 }
             }
-            ImGui::SameLine();
-            if (ImGui::Button("Close", ImVec2(btnWidth, 0))) {
-                state_.tagListWindowVisible_ = false;
-            }
 
-            ImGui::Separator();
+            ImGui::Spacing();
 
             bool hasRMS = (numVolumes >= 2 && state_.transformResult_.valid &&
                            !state_.transformResult_.perTagRMS.empty());
@@ -1201,7 +1211,7 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                     dl->PopClipRect();
                 }
 
-                drawTagsOnSlice(viewIndex, imgPos, imgSize, uv0, uv1, vol, state.sliceIndices);
+                drawTagsOnSlice(viewIndex, imgPos, imgSize, uv0, uv1, vol, state.sliceIndices, state_.selectedTagIndex_);
 
                 bool imageHovered = ImGui::IsItemHovered();
                 bool shiftHeld = ImGui::GetIO().KeyShift;
@@ -1344,34 +1354,66 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                     }
 
                     if (!qcState_.active && imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-                        int tagCount = state_.volumes_[0].getTagCount();
-                        std::string newLabel = "Point" + std::to_string(tagCount + 1);
+                        Volume& curVol = state_.volumes_[vi];
+                        glm::ivec3 volCursorPos = state_.viewStates_[vi].sliceIndices;
+                        glm::dvec3 volWorldPos;
+                        curVol.transformVoxelToWorld(volCursorPos, volWorldPos);
 
-                        for (int v = 0; v < state_.volumeCount(); ++v) {
-                            Volume& curVol = state_.volumes_[v];
-                            glm::ivec3 volCursorPos = state_.viewStates_[v].sliceIndices;
-                            glm::dvec3 volWorldPos;
-                            curVol.transformVoxelToWorld(volCursorPos, volWorldPos);
-
-                            std::vector<glm::dvec3> newPoints = curVol.getTagPoints();
-                            std::vector<std::string> newLabels = curVol.getTagLabels();
-                            newPoints.push_back(volWorldPos);
-                            newLabels.push_back(newLabel);
-                            curVol.tags.setPoints(newPoints);
-                            curVol.tags.setLabels(newLabels);
-                        }
-
-                        state_.saveTags();
-                        state_.selectedTagIndex_ = tagCount;
-                        state_.invalidateTransform();
-                        state_.recomputeTransform();
-                        for (int v = 0; v < state_.volumeCount(); ++v) {
-                            for (int vv = 0; vv < 3; ++vv) {
-                                viewManager_.updateSliceTexture(v, vv);
+                        if (state_.selectedTagIndex_ >= 0) {
+                            // EDIT mode: update selected tag position
+                            if (state_.selectedTagIndex_ < curVol.getTagCount()) {
+                                // Tag exists at this index - update position
+                                curVol.tags.updateTag(state_.selectedTagIndex_, volWorldPos, "");
+                            } else {
+                                // Tag doesn't exist in this volume - create new tag at cursor
+                                auto pts = curVol.getTagPoints();
+                                auto lbls = curVol.getTagLabels();
+                                std::string newLabel = "Point" + std::to_string(state_.selectedTagIndex_ + 1);
+                                pts.push_back(volWorldPos);
+                                lbls.push_back(newLabel);
+                                curVol.tags.setPoints(pts);
+                                curVol.tags.setLabels(lbls);
                             }
-                        }
-                        if (state_.hasOverlay()) {
-                            viewManager_.updateAllOverlayTextures();
+                            state_.invalidateTransform();
+                            state_.recomputeTransform();
+                            state_.saveTags();
+                            for (int vv = 0; vv < 3; ++vv) {
+                                viewManager_.updateSliceTexture(vi, vv);
+                            }
+                            if (state_.hasOverlay()) {
+                                viewManager_.updateAllOverlayTextures();
+                            }
+                        } else {
+                            // CREATE mode (existing behavior): create new tag for all volumes
+                            int tagCount = state_.volumes_[0].getTagCount();
+                            std::string newLabel = "Point" + std::to_string(tagCount + 1);
+
+                            for (int v = 0; v < state_.volumeCount(); ++v) {
+                                Volume& vol = state_.volumes_[v];
+                                glm::ivec3 cursorPos = state_.viewStates_[v].sliceIndices;
+                                glm::dvec3 worldPos;
+                                vol.transformVoxelToWorld(cursorPos, worldPos);
+
+                                auto pts = vol.getTagPoints();
+                                auto lbls = vol.getTagLabels();
+                                pts.push_back(worldPos);
+                                lbls.push_back(newLabel);
+                                vol.tags.setPoints(pts);
+                                vol.tags.setLabels(lbls);
+                            }
+
+                            state_.saveTags();
+                            state_.selectedTagIndex_ = tagCount;
+                            state_.invalidateTransform();
+                            state_.recomputeTransform();
+                            for (int v = 0; v < state_.volumeCount(); ++v) {
+                                for (int vv = 0; vv < 3; ++vv) {
+                                    viewManager_.updateSliceTexture(v, vv);
+                                }
+                            }
+                            if (state_.hasOverlay()) {
+                                viewManager_.updateAllOverlayTextures();
+                            }
                         }
                     }
                 }
@@ -1632,7 +1674,8 @@ int Interface::renderOverlayView(int viewIndex, const ImVec2& childSize) {
 
 bool Interface::drawTagsOnSlice(int viewIndex, const ImVec2& imgPos,
                                 const ImVec2& imgSize, const ImVec2& uv0, const ImVec2& uv1,
-                                const Volume& vol, const glm::ivec3& currentSlice) {
+                                const Volume& vol, const glm::ivec3& currentSlice,
+                                int selectedTagIndex) {
     if (!state_.tagsVisible_ || !vol.hasTags()) {
         return false;
     }
@@ -1664,6 +1707,7 @@ bool Interface::drawTagsOnSlice(int viewIndex, const ImVec2& imgPos,
     float uvSpanV = uv1.y - uv0.y;
 
     const auto& tagPoints = vol.getTagPoints();
+    int tagIdx = 0;
     for (const auto& tagPos : tagPoints) {
         glm::ivec3 voxel;
         vol.transformWorldToVoxel(tagPos, voxel);
@@ -1672,15 +1716,17 @@ bool Interface::drawTagsOnSlice(int viewIndex, const ImVec2& imgPos,
         int sliceDistance = std::abs(tagSlicePos - currentSlicePos);
 
         if (sliceDistance > 4) {
+            ++tagIdx;
             continue;
         }
 
-        int diameterVoxels = 5;
+        int diameterVoxels = (tagIdx == selectedTagIndex) ? 8 : 5;
         if (sliceDistance == 1) {
-            diameterVoxels = 3;
+            diameterVoxels = (tagIdx == selectedTagIndex) ? 6 : 3;
         } else if (sliceDistance >= 2) {
             diameterVoxels = 1;
         }
+        ++tagIdx;
 
         float pixelsPerVoxelU = imgSize.x / static_cast<float>(std::max(vol.dimensions[dimU] - 1, 1));
         float pixelsPerVoxelV = imgSize.y / static_cast<float>(std::max(vol.dimensions[dimV] - 1, 1));
@@ -1836,4 +1882,119 @@ void Interface::renderQCVerdictPanel(int volumeIndex) {
         qcState_.saveOutputCsv();
 
     ImGui::PopID();
+}
+
+void Interface::updateTagFileDialogEntries() {
+    namespace fs = std::filesystem;
+    tagFileDialogEntries_.clear();
+
+    try {
+        fs::path p(tagFileDialogCurrentPath_);
+        if (!fs::exists(p) || !fs::is_directory(p))
+            p = ".";
+
+        for (const auto& entry : fs::directory_iterator(p)) {
+            std::string name = entry.path().filename().string();
+            if (entry.is_directory()) {
+                name += "/";
+            } else {
+                std::string ext = entry.path().extension().string();
+                if (ext == ".tag" || ext == ".txt" || ext.empty())
+                    tagFileDialogEntries_.push_back(name);
+            }
+        }
+        std::sort(tagFileDialogEntries_.begin(), tagFileDialogEntries_.end());
+    } catch (...) {
+    }
+}
+
+void Interface::renderTagFileDialog() {
+    if (!tagFileDialogOpen_)
+        return;
+
+    ImGui::SetNextWindowSize(ImVec2(500.0f * state_.dpiScale_, 400.0f * state_.dpiScale_));
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    std::string title = tagFileDialogIsSave_ ? "Save Tag File" : "Load Tag File";
+    if (ImGui::Begin(title.c_str(), &tagFileDialogOpen_)) {
+        float w = ImGui::GetContentRegionAvail().x;
+        float btnH = 20.0f * state_.dpiScale_;
+
+        // Current path display and navigation
+        ImGui::Text("%s", tagFileDialogCurrentPath_.c_str());
+        ImVec2 pathAvail = ImGui::GetContentRegionAvail();
+
+        // Parent directory button
+        if (ImGui::Button("..", ImVec2(40, btnH))) {
+            std::filesystem::path p(tagFileDialogCurrentPath_);
+            if (p.has_parent_path())
+                tagFileDialogCurrentPath_ = p.parent_path().string();
+            updateTagFileDialogEntries();
+        }
+        ImGui::SameLine();
+
+        // Path input
+        ImGui::SetNextItemWidth(pathAvail.x - 50.0f * state_.dpiScale_);
+        char pathBuf[512];
+        std::snprintf(pathBuf, sizeof(pathBuf), "%s", tagFileDialogCurrentPath_.c_str());
+        if (ImGui::InputText("##dialogpath", pathBuf, sizeof(pathBuf))) {
+            tagFileDialogCurrentPath_ = pathBuf;
+            updateTagFileDialogEntries();
+        }
+
+        ImGui::Separator();
+
+        // File list
+        if (ImGui::BeginChild("##filelist", ImVec2(0, -btnH * 3), true)) {
+            for (const auto& name : tagFileDialogEntries_) {
+                bool isDir = !name.empty() && name.back() == '/';
+                if (ImGui::Selectable(name.c_str(), false, isDir ? ImGuiSelectableFlags_DontClosePopups : 0)) {
+                    if (isDir) {
+                        tagFileDialogCurrentPath_ = std::filesystem::path(tagFileDialogCurrentPath_) / name.substr(0, name.size() - 1);
+                        updateTagFileDialogEntries();
+                    } else {
+                        if (tagFileDialogIsSave_) {
+                            tagFileDialogFilename_ = name;
+                        } else {
+                            std::string fullPath = std::filesystem::path(tagFileDialogCurrentPath_) / name;
+                            std::snprintf(state_.combinedTagPath_, sizeof(state_.combinedTagPath_), "%s", fullPath.c_str());
+                            if (state_.loadCombinedTags(fullPath)) {
+                                state_.recomputeTransform();
+                                for (int v = 0; v < state_.volumeCount(); ++v)
+                                    for (int vv = 0; vv < 3; ++vv)
+                                        viewManager_.updateSliceTexture(v, vv);
+                                if (state_.hasOverlay())
+                                    viewManager_.updateAllOverlayTextures();
+                            }
+                            tagFileDialogOpen_ = false;
+                        }
+                    }
+                }
+            }
+        }
+        ImGui::EndChild();
+
+        // Filename input (for save mode)
+        if (tagFileDialogIsSave_) {
+            ImGui::SetNextItemWidth(w - 100.0f * state_.dpiScale_);
+            char nameBuf[256];
+            std::snprintf(nameBuf, sizeof(nameBuf), "%s", tagFileDialogFilename_.c_str());
+            if (ImGui::InputText("##filename", nameBuf, sizeof(nameBuf))) {
+                tagFileDialogFilename_ = nameBuf;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Save", ImVec2(80, btnH))) {
+                if (!tagFileDialogFilename_.empty()) {
+                    std::string fullPath = std::filesystem::path(tagFileDialogCurrentPath_) / tagFileDialogFilename_;
+                    std::snprintf(state_.combinedTagPath_, sizeof(state_.combinedTagPath_), "%s", fullPath.c_str());
+                    state_.saveTags();
+                    tagFileDialogOpen_ = false;
+                }
+            }
+        } else {
+            if (ImGui::Button("Cancel", ImVec2(w, btnH))) {
+                tagFileDialogOpen_ = false;
+            }
+        }
+    }
+    ImGui::End();
 }
