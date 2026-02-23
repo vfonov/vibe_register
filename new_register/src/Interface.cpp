@@ -25,6 +25,7 @@ Interface::Interface(AppState& state, ViewManager& viewManager, QCState& qcState
     : state_(state), viewManager_(viewManager), qcState_(qcState) {}
 
 void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
+    interfaceWindow_ = window;
     int numVolumes = state_.volumeCount();
     bool hasOverlay = state_.hasOverlay();
 
@@ -216,6 +217,7 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
     }
 
     renderTagFileDialog();
+    renderConfigFileDialog();
 
     if (state_.syncCursors_ && state_.cursorSyncDirty_) {
         viewManager_.syncCursors();
@@ -347,41 +349,22 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
         }
 
         if (!qcState_.active) {
-            if (ImGui::Button("Save Local", ImVec2(btnWidth, 0))) {
-                try {
-                    AppConfig cfg;
-                    cfg.global.defaultColourMap = "GrayScale";
-                    int winW, winH;
-                    glfwGetWindowSize(window, &winW, &winH);
-                    cfg.global.windowWidth = winW;
-                    cfg.global.windowHeight = winH;
-                    cfg.global.syncCursors = state_.syncCursors_;
-                    cfg.global.syncZoom = state_.syncZoom_;
-                    cfg.global.syncPan = state_.syncPan_;
-                    cfg.global.showOverlay = state_.showOverlay_;
-
-                    for (int vi = 0; vi < numVolumes; ++vi) {
-                        const VolumeViewState& st = state_.viewStates_[vi];
-                        VolumeConfig vc;
-                        vc.path = state_.volumePaths_[vi];
-                        vc.colourMap = std::string(colourMapName(st.colourMap));
-                        vc.valueMin = st.valueRange[0];
-                        vc.valueMax = st.valueRange[1];
-                        vc.sliceIndices = {st.sliceIndices.x, st.sliceIndices.y, st.sliceIndices.z};
-                        vc.zoom = {st.zoom[0], st.zoom[1], st.zoom[2]};
-                        vc.panU = {st.panU[0], st.panU[1], st.panU[2]};
-                        vc.panV = {st.panV[0], st.panV[1], st.panV[2]};
-                        cfg.volumes.push_back(std::move(vc));
-                    }
-
-                    std::string savePath = state_.localConfigPath_.empty()
-                        ? "config.json" : state_.localConfigPath_;
-                    saveConfig(cfg, savePath);
-                } catch (const std::exception& e) {
-                    std::cerr << "Failed to save local config: " << e.what() << "\n";
-                }
+            if (ImGui::Button("Save Config", ImVec2(btnWidth, 0))) {
+                configFileDialogOpen_ = true;
+                configFileDialogIsSave_ = true;
+                configFileDialogCurrentPath_ = std::filesystem::current_path().string();
+                configFileDialogFilename_ = state_.localConfigPath_.empty() 
+                    ? "config.json" : std::filesystem::path(state_.localConfigPath_).filename().string();
+                updateConfigFileDialogEntries();
             }
-        } // end !qcState_.active (Save Local)
+            if (ImGui::Button("Load Config", ImVec2(btnWidth, 0))) {
+                configFileDialogOpen_ = true;
+                configFileDialogIsSave_ = false;
+                configFileDialogCurrentPath_ = std::filesystem::current_path().string();
+                configFileDialogFilename_.clear();
+                updateConfigFileDialogEntries();
+            }
+        } // end !qcState_.active (Save Config)
 
         ImGui::Separator();
 
@@ -977,6 +960,9 @@ void Interface::renderTagListWindow() {
             updateTagFileDialogEntries();
         }
 
+        ImGui::Spacing();
+        ImGui::Checkbox("Auto-save Tags", &state_.autoSaveTags_);
+
         // --- Transform section (only with 2+ volumes) ---
         if (numVolumes >= 2) {
             ImGui::Separator();
@@ -1028,7 +1014,7 @@ void Interface::renderTagListWindow() {
                             state_.volumes_[vi].tags.removeTag(state_.selectedTagIndex_);
                         }
                     }
-                    state_.saveTags();
+                    if (state_.autoSaveTags_) state_.saveTags();
                     state_.selectedTagIndex_ = -1;
                     state_.invalidateTransform();
                     state_.recomputeTransform();
@@ -1398,7 +1384,7 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                             }
                             state_.invalidateTransform();
                             state_.recomputeTransform();
-                            state_.saveTags();
+                            if (state_.autoSaveTags_) state_.saveTags();
                             for (int vv = 0; vv < 3; ++vv) {
                                 viewManager_.updateSliceTexture(vi, vv);
                             }
@@ -1424,7 +1410,7 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                                 vol.tags.setLabels(lbls);
                             }
 
-                            state_.saveTags();
+                            if (state_.autoSaveTags_) state_.saveTags();
                             state_.selectedTagIndex_ = tagCount;
                             state_.invalidateTransform();
                             state_.recomputeTransform();
@@ -2015,6 +2001,123 @@ void Interface::renderTagFileDialog() {
         } else {
             if (ImGui::Button("Cancel", ImVec2(w, btnH))) {
                 tagFileDialogOpen_ = false;
+            }
+        }
+    }
+    ImGui::End();
+}
+
+void Interface::updateConfigFileDialogEntries() {
+    namespace fs = std::filesystem;
+    configFileDialogEntries_.clear();
+    fs::path p(configFileDialogCurrentPath_);
+    if (!fs::exists(p) || !fs::is_directory(p))
+        return;
+    for (const auto& entry : fs::directory_iterator(p)) {
+        if (entry.is_regular_file()) {
+            std::string name = entry.path().filename().string();
+            if (name.size() > 5 && name.substr(name.size() - 5) == ".json")
+                configFileDialogEntries_.push_back(name);
+        }
+    }
+    std::sort(configFileDialogEntries_.begin(), configFileDialogEntries_.end());
+}
+
+void Interface::renderConfigFileDialog() {
+    if (!configFileDialogOpen_)
+        return;
+
+    std::string title = configFileDialogIsSave_ ? "Save Config File" : "Load Config File";
+    if (ImGui::Begin(title.c_str(), &configFileDialogOpen_)) {
+        ImGui::Text("%s", configFileDialogCurrentPath_.c_str());
+
+        if (ImGui::Button("..", ImVec2(30, 0))) {
+            std::filesystem::path p(configFileDialogCurrentPath_);
+            if (p.has_parent_path())
+                configFileDialogCurrentPath_ = p.parent_path().string();
+            updateConfigFileDialogEntries();
+        }
+
+        char pathBuf[512];
+        std::snprintf(pathBuf, sizeof(pathBuf), "%s", configFileDialogCurrentPath_.c_str());
+        if (ImGui::InputText("Path", pathBuf, sizeof(pathBuf))) {
+            configFileDialogCurrentPath_ = pathBuf;
+            updateConfigFileDialogEntries();
+        }
+
+        ImGui::Separator();
+        ImGui::BeginChild("FileList", ImVec2(0, 200));
+        for (const auto& name : configFileDialogEntries_) {
+            if (ImGui::Selectable(name.c_str(), false, ImGuiSelectableFlags_::ImGuiSelectableFlags_DontClosePopups)) {
+                std::string fullPath = std::filesystem::path(configFileDialogCurrentPath_) / name;
+                if (configFileDialogIsSave_) {
+                    configFileDialogFilename_ = name;
+                } else {
+                    configFileDialogOpen_ = false;
+                    try {
+                        AppConfig cfg = loadConfig(fullPath);
+                        int winW, winH;
+                        glfwGetWindowSize(interfaceWindow_, &winW, &winH);
+                        state_.applyConfig(cfg, winW, winH);
+                        state_.localConfigPath_ = fullPath;
+                        viewManager_.initializeAllTextures();
+                    } catch (const std::exception& e) {
+                        std::cerr << "Failed to load config: " << e.what() << "\n";
+                    }
+                }
+            }
+        }
+        ImGui::EndChild();
+
+        if (configFileDialogIsSave_) {
+            char nameBuf[256];
+            std::snprintf(nameBuf, sizeof(nameBuf), "%s", configFileDialogFilename_.c_str());
+            if (ImGui::InputText("Filename", nameBuf, sizeof(nameBuf))) {
+                configFileDialogFilename_ = nameBuf;
+            }
+            if (ImGui::Button("Save", ImVec2(80, 0))) {
+                if (!configFileDialogFilename_.empty()) {
+                    std::string fullPath = std::filesystem::path(configFileDialogCurrentPath_) / configFileDialogFilename_;
+                    try {
+                        AppConfig cfg;
+                        cfg.global.defaultColourMap = "GrayScale";
+                        int winW, winH;
+                        glfwGetWindowSize(interfaceWindow_, &winW, &winH);
+                        cfg.global.windowWidth = winW;
+                        cfg.global.windowHeight = winH;
+                        cfg.global.syncCursors = state_.syncCursors_;
+                        cfg.global.syncZoom = state_.syncZoom_;
+                        cfg.global.syncPan = state_.syncPan_;
+                        cfg.global.showOverlay = state_.showOverlay_;
+                        int numVolumes = state_.volumeCount();
+                        for (int vi = 0; vi < numVolumes; ++vi) {
+                            const VolumeViewState& st = state_.viewStates_[vi];
+                            VolumeConfig vc;
+                            vc.path = state_.volumePaths_[vi];
+                            vc.colourMap = std::string(colourMapName(st.colourMap));
+                            vc.valueMin = st.valueRange[0];
+                            vc.valueMax = st.valueRange[1];
+                            vc.sliceIndices = {st.sliceIndices.x, st.sliceIndices.y, st.sliceIndices.z};
+                            vc.zoom = {st.zoom[0], st.zoom[1], st.zoom[2]};
+                            vc.panU = {st.panU[0], st.panU[1], st.panU[2]};
+                            vc.panV = {st.panV[0], st.panV[1], st.panV[2]};
+                            cfg.volumes.push_back(std::move(vc));
+                        }
+                        saveConfig(cfg, fullPath);
+                        state_.localConfigPath_ = fullPath;
+                        configFileDialogOpen_ = false;
+                    } catch (const std::exception& e) {
+                        std::cerr << "Failed to save config: " << e.what() << "\n";
+                    }
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(80, 0))) {
+                configFileDialogOpen_ = false;
+            }
+        } else {
+            if (ImGui::Button("Cancel", ImVec2(80, 0))) {
+                configFileDialogOpen_ = false;
             }
         }
     }

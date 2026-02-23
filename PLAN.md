@@ -54,7 +54,8 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan/OpenGL 2,
 - [x] JSON config persistence using nlohmann/json
 - [x] Config loaded from `./config.json` or `--config` path
 - [x] Per-volume paths, colour maps, value ranges, slice indices, zoom, pan
-- [x] Tools panel with Save Local, Reset All Views, Quit buttons
+- [x] Tools panel with Save Config, Load Config, Reset All Views, Quit buttons
+- [x] Save Config and Load Config use file chooser dialog
 
 ### Command Line Options
 - [x] `-c`, `--config <path>` — load config from a specific path

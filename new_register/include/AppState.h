@@ -107,6 +107,7 @@ public:
 
     int selectedTagIndex_ = -1;
     bool tagListWindowVisible_ = false;
+    bool autoSaveTags_ = false;
 
     /// --- Transform state ---
     TransformType transformType_ = TransformType::LSQ6;
