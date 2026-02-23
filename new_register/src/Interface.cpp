@@ -348,23 +348,21 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
             ImGui::TextDisabled("(always visible)");
         }
 
-        if (!qcState_.active) {
-            if (ImGui::Button("Save Config", ImVec2(btnWidth, 0))) {
-                configFileDialogOpen_ = true;
-                configFileDialogIsSave_ = true;
-                configFileDialogCurrentPath_ = std::filesystem::current_path().string();
-                configFileDialogFilename_ = state_.localConfigPath_.empty() 
-                    ? "config.json" : std::filesystem::path(state_.localConfigPath_).filename().string();
-                updateConfigFileDialogEntries();
-            }
-            if (ImGui::Button("Load Config", ImVec2(btnWidth, 0))) {
-                configFileDialogOpen_ = true;
-                configFileDialogIsSave_ = false;
-                configFileDialogCurrentPath_ = std::filesystem::current_path().string();
-                configFileDialogFilename_.clear();
-                updateConfigFileDialogEntries();
-            }
-        } // end !qcState_.active (Save Config)
+        if (ImGui::Button("Save Config", ImVec2(btnWidth, 0))) {
+            configFileDialogOpen_ = true;
+            configFileDialogIsSave_ = true;
+            configFileDialogCurrentPath_ = std::filesystem::current_path().string();
+            configFileDialogFilename_ = state_.localConfigPath_.empty() 
+                ? "config.json" : std::filesystem::path(state_.localConfigPath_).filename().string();
+            updateConfigFileDialogEntries();
+        }
+        if (ImGui::Button("Load Config", ImVec2(btnWidth, 0))) {
+            configFileDialogOpen_ = true;
+            configFileDialogIsSave_ = false;
+            configFileDialogCurrentPath_ = std::filesystem::current_path().string();
+            configFileDialogFilename_.clear();
+            updateConfigFileDialogEntries();
+        }
 
         ImGui::Separator();
 
@@ -2058,9 +2056,29 @@ void Interface::renderConfigFileDialog() {
                         AppConfig cfg = loadConfig(fullPath);
                         int winW, winH;
                         glfwGetWindowSize(interfaceWindow_, &winW, &winH);
-                        state_.applyConfig(cfg, winW, winH);
-                        state_.localConfigPath_ = fullPath;
-                        viewManager_.initializeAllTextures();
+                        if (qcState_.active) {
+                            qcState_.columnConfigs = cfg.qcColumns.value_or(std::map<std::string, QCColumnConfig>{});
+                            state_.localConfigPath_ = fullPath;
+                            if (qcState_.rowCount() > 0) {
+                                const auto& paths = qcState_.pathsForRow(qcState_.currentRowIndex);
+                                state_.loadVolumeSet(paths);
+                                for (int ci = 0; ci < qcState_.columnCount() && ci < state_.volumeCount(); ++ci) {
+                                    auto it = qcState_.columnConfigs.find(qcState_.columnNames[ci]);
+                                    if (it != qcState_.columnConfigs.end()) {
+                                        VolumeViewState& vs = state_.viewStates_[ci];
+                                        auto cmOpt = colourMapByName(it->second.colourMap);
+                                        if (cmOpt) vs.colourMap = *cmOpt;
+                                        if (it->second.valueMin) vs.valueRange[0] = *it->second.valueMin;
+                                        if (it->second.valueMax) vs.valueRange[1] = *it->second.valueMax;
+                                    }
+                                }
+                                viewManager_.initializeAllTextures();
+                            }
+                        } else {
+                            state_.applyConfig(cfg, winW, winH);
+                            state_.localConfigPath_ = fullPath;
+                            viewManager_.initializeAllTextures();
+                        }
                     } catch (const std::exception& e) {
                         std::cerr << "Failed to load config: " << e.what() << "\n";
                     }
@@ -2089,19 +2107,23 @@ void Interface::renderConfigFileDialog() {
                         cfg.global.syncZoom = state_.syncZoom_;
                         cfg.global.syncPan = state_.syncPan_;
                         cfg.global.showOverlay = state_.showOverlay_;
-                        int numVolumes = state_.volumeCount();
-                        for (int vi = 0; vi < numVolumes; ++vi) {
-                            const VolumeViewState& st = state_.viewStates_[vi];
-                            VolumeConfig vc;
-                            vc.path = state_.volumePaths_[vi];
-                            vc.colourMap = std::string(colourMapName(st.colourMap));
-                            vc.valueMin = st.valueRange[0];
-                            vc.valueMax = st.valueRange[1];
-                            vc.sliceIndices = {st.sliceIndices.x, st.sliceIndices.y, st.sliceIndices.z};
-                            vc.zoom = {st.zoom[0], st.zoom[1], st.zoom[2]};
-                            vc.panU = {st.panU[0], st.panU[1], st.panU[2]};
-                            vc.panV = {st.panV[0], st.panV[1], st.panV[2]};
-                            cfg.volumes.push_back(std::move(vc));
+                        if (qcState_.active) {
+                            cfg.qcColumns = qcState_.columnConfigs;
+                        } else {
+                            int numVolumes = state_.volumeCount();
+                            for (int vi = 0; vi < numVolumes; ++vi) {
+                                const VolumeViewState& st = state_.viewStates_[vi];
+                                VolumeConfig vc;
+                                vc.path = state_.volumePaths_[vi];
+                                vc.colourMap = std::string(colourMapName(st.colourMap));
+                                vc.valueMin = st.valueRange[0];
+                                vc.valueMax = st.valueRange[1];
+                                vc.sliceIndices = {st.sliceIndices.x, st.sliceIndices.y, st.sliceIndices.z};
+                                vc.zoom = {st.zoom[0], st.zoom[1], st.zoom[2]};
+                                vc.panU = {st.panU[0], st.panU[1], st.panU[2]};
+                                vc.panV = {st.panV[0], st.panV[1], st.panV[2]};
+                                cfg.volumes.push_back(std::move(vc));
+                            }
                         }
                         saveConfig(cfg, fullPath);
                         state_.localConfigPath_ = fullPath;
