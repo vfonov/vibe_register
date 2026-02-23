@@ -65,13 +65,33 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
         overColour = colourMapLut(overMap).table[255];
     }
 
+    // For label volumes: check if we should use colour map instead of label LUT
+    bool useColourMapForLabel = vol.isLabelVolume() && state.colourMap != ColourMapType::GrayScale;
+    std::unordered_map<int, int> labelToIndex;
+    if (useColourMapForLabel) {
+        std::vector<int> uniqueLabels = vol.getUniqueLabelIds();
+        for (size_t i = 0; i < uniqueLabels.size(); ++i) {
+            labelToIndex[uniqueLabels[i]] = static_cast<int>(i);
+        }
+    }
+
     auto voxelToColour = [&](float val) -> uint32_t {
-        // Handle label volumes: use label LUT instead of colour map
+        // Handle label volumes: use colour map if selected, otherwise use label LUT
         if (vol.isLabelVolume()) {
             int labelId = static_cast<int>(val);
             if (labelId == 0) {
                 return 0x00000000;  // transparent background
             }
+            // Use colour map if a non-default one is selected
+            if (useColourMapForLabel) {
+                auto it = labelToIndex.find(labelId);
+                if (it != labelToIndex.end()) {
+                    int idx = static_cast<int>((static_cast<float>(it->second) / static_cast<float>(labelToIndex.size())) * 255.0f);
+                    return mainLut[idx];
+                }
+                return 0x00000000;  // unknown label
+            }
+            // Default: use label LUT
             const auto& labelLUT = vol.getLabelLUT();
             auto it = labelLUT.find(labelId);
             if (it != labelLUT.end()) {
@@ -216,6 +236,8 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         glm::dmat4 targetWorldToVox; // for TPS path: target vol worldToVoxel
         bool isLabelVolume = false;  // true if this is a label/segmentation volume
         const std::unordered_map<int, LabelInfo>* labelLUT = nullptr;  // label colour lookup
+        bool useColourMapForLabel = false;  // use colour map instead of label LUT
+        std::unordered_map<int, int> labelToIndex;  // label ID to colour map index
     };
 
     int numMaps = colourMapCount();
@@ -296,6 +318,14 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         info.isLabelVolume = vol.isLabelVolume();
         if (info.isLabelVolume) {
             info.labelLUT = &vol.getLabelLUT();
+            // Check if we should use colour map instead of label LUT
+            if (state_.viewStates_[vi].colourMap != ColourMapType::GrayScale) {
+                info.useColourMapForLabel = true;
+                std::vector<int> uniqueLabels = vol.getUniqueLabelIds();
+                for (size_t i = 0; i < uniqueLabels.size(); ++i) {
+                    info.labelToIndex[uniqueLabels[i]] = static_cast<int>(i);
+                }
+            }
         }
 
         infos.push_back(info);
@@ -414,24 +444,43 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
                 float raw = info.vdata[tz * info.dimXY + ty * info.dims.x + tx];
 
                 uint32_t packed;
-                if (info.isLabelVolume && info.labelLUT) {
+                if (info.isLabelVolume) {
                     int labelId = static_cast<int>(raw);
                     if (labelId == 0) {
                         continue;  // transparent background
                     }
-                    auto it = info.labelLUT->find(labelId);
-                    if (it != info.labelLUT->end()) {
-                        const LabelInfo& lbl = it->second;
-                        if (!lbl.visible) {
-                            continue;  // invisible label
+                    // Use colour map if selected
+                    if (info.useColourMapForLabel) {
+                        auto it = info.labelToIndex.find(labelId);
+                        if (it != info.labelToIndex.end()) {
+                            int idx = static_cast<int>((static_cast<float>(it->second) / static_cast<float>(info.labelToIndex.size())) * 255.0f);
+                            packed = info.mainLut[idx];
+                        } else {
+                            continue;  // unknown label
                         }
-                        packed = static_cast<uint32_t>(lbl.r) |
-                                 (static_cast<uint32_t>(lbl.g) << 8) |
-                                 (static_cast<uint32_t>(lbl.b) << 16) |
-                                 (static_cast<uint32_t>(lbl.a) << 24);
-                        if (lbl.a == 0) continue;
+                    } else if (info.labelLUT) {
+                        // Use label LUT
+                        auto it = info.labelLUT->find(labelId);
+                        if (it != info.labelLUT->end()) {
+                            const LabelInfo& lbl = it->second;
+                            if (!lbl.visible) {
+                                continue;  // invisible label
+                            }
+                            packed = static_cast<uint32_t>(lbl.r) |
+                                     (static_cast<uint32_t>(lbl.g) << 8) |
+                                     (static_cast<uint32_t>(lbl.b) << 16) |
+                                     (static_cast<uint32_t>(lbl.a) << 24);
+                            if (lbl.a == 0) continue;
+                        } else {
+                            // Label not in LUT: use grayscale based on label ID
+                            int gray = (labelId * 17) % 256;
+                            packed = static_cast<uint32_t>(gray) |
+                                     (static_cast<uint32_t>(gray) << 8) |
+                                     (static_cast<uint32_t>(gray) << 16) |
+                                     0xFF000000;
+                        }
                     } else {
-                        // Label not in LUT: use grayscale based on label ID
+                        // No label LUT: use grayscale based on label ID
                         int gray = (labelId * 17) % 256;
                         packed = static_cast<uint32_t>(gray) |
                                  (static_cast<uint32_t>(gray) << 8) |

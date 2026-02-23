@@ -7,6 +7,7 @@
 #include <sstream>
 #include <iostream>
 #include <fstream>
+#include <unordered_set>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
@@ -448,4 +449,20 @@ std::string Volume::getLabelNameAtVoxel(int x, int y, int z) const {
         return info->name;
     }
     return "";
+}
+
+std::vector<int> Volume::getUniqueLabelIds() const {
+    if (!isLabelVolume_ || data.empty()) {
+        return {};
+    }
+    std::unordered_set<int> uniqueIds;
+    for (float val : data) {
+        int labelId = static_cast<int>(val);
+        if (labelId != 0) {
+            uniqueIds.insert(labelId);
+        }
+    }
+    std::vector<int> result(uniqueIds.begin(), uniqueIds.end());
+    std::sort(result.begin(), result.end());
+    return result;
 }

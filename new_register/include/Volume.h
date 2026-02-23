@@ -101,6 +101,7 @@ public:
     void setLabelDescriptionFile(const std::string& path);
     const std::unordered_map<int, LabelInfo>& getLabelLUT() const { return labelLUT_; }
     const LabelInfo* getLabelInfo(int labelId) const;
+    std::vector<int> getUniqueLabelIds() const;
     std::string getLabelNameAtVoxel(int x, int y, int z) const;
 
 private:
