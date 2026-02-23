@@ -57,6 +57,15 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glm)
 
+# 3.8. cxxopts (Command-line argument parsing, single-header)
+FetchContent_Declare(
+    cxxopts
+    GIT_REPOSITORY https://github.com/jarro2783/cxxopts.git
+    GIT_TAG        v3.2.1
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(cxxopts)
+
 # 3.8. Eigen3 (Linear algebra: SVD, matrix solvers — used by Transform)
 FetchContent_Declare(
     eigen
@@ -174,6 +183,7 @@ target_include_directories(new_register PRIVATE
     ${glm_SOURCE_DIR}  # GLM is header-only
     ${eigen_SOURCE_DIR}  # Eigen is header-only
     ${minc2-simple-static_SOURCE_DIR}/src  # minc2-simple headers
+    ${cxxopts_SOURCE_DIR}/include  # cxxopts headers
 )
 
 # --- Compile Definitions ---
