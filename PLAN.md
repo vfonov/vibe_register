@@ -56,6 +56,9 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan/OpenGL 2,
 - [x] Per-volume paths, colour maps, value ranges, slice indices, zoom, pan
 - [x] Tools panel with Save Config, Load Config, Reset All Views, Quit buttons
 - [x] Save Config and Load Config use file chooser dialog
+- [x] QC mode: Save Config stores QC column configs (colour map, value range)
+- [x] QC mode: Load Config applies QC column configs and reloads current row
+- [x] QC mode: Colour map and value range changes auto-saved to column configs
 
 ### Command Line Options
 - [x] `-c`, `--config <path>` — load config from a specific path
@@ -64,6 +67,7 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan/OpenGL 2,
 - [x] Positional volume file arguments
 - [x] `-r`/`--red`, `-g`/`--green`, `-b`/`--blue`, `-G`/`--gray`, `-H`/`--hot`, `-S`/`--spectral`
 - [x] `--lut <name>` — set any colour map by name for next volume
+- [x] `--range <min>,<max>` — set value range for next volume (e.g., `--range 0,100`)
 - [x] `-B`/`--backend <name>` — graphics backend: `auto`, `vulkan`, `opengl2` (default: auto)
 - Example: `new_register --gray vol1.mnc -r vol2.mnc`
 
@@ -96,6 +100,7 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan/OpenGL 2,
 - [x] **Tag Editing**: Selected tag shown with larger circle (8 voxels vs 5); Right-click in Edit mode moves selected tag to cursor position; Tag Mode toggle (Add/Edit)
 - [x] **Load/Save**: Load Tags and Save Tags buttons with ImGui file dialog for .tag file selection
 - [x] Load tags from command line (`--tags`/`-t` CLI argument, combined two-volume .tag support)
+- [x] **Auto-save Tags**: Checkbox in Tags panel to enable/disable auto-save on tag changes
 
 ### Label Volume Support
 - [x] **Label flag**: CLI options `--label` / `-l` to mark volume as label/segmentation
