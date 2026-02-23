@@ -67,12 +67,24 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
 
     // For label volumes: check if we should use colour map instead of label LUT
     bool useColourMapForLabel = vol.isLabelVolume() && state.colourMap != ColourMapType::GrayScale;
-    std::unordered_map<int, int> labelToIndex;
+    const std::unordered_map<int, int>* labelToIndexPtr = nullptr;
+    size_t labelCount = 0;
     if (useColourMapForLabel) {
-        std::vector<int> uniqueLabels = vol.getUniqueLabelIds();
-        for (size_t i = 0; i < uniqueLabels.size(); ++i) {
-            labelToIndex[uniqueLabels[i]] = static_cast<int>(i);
+        auto cacheIt = labelToIndexCache_.find(volumeIndex);
+        if (cacheIt == labelToIndexCache_.end()) {
+            std::vector<int> uniqueLabels = vol.getUniqueLabelIds();
+            std::unordered_map<int, int> mapping;
+            for (size_t i = 0; i < uniqueLabels.size(); ++i) {
+                mapping[uniqueLabels[i]] = static_cast<int>(i);
+            }
+            labelCount = uniqueLabels.size();
+            labelToIndexCache_[volumeIndex] = std::move(mapping);
+            labelCacheSize_[volumeIndex] = labelCount;
+            cacheIt = labelToIndexCache_.find(volumeIndex);
+        } else {
+            labelCount = labelCacheSize_[volumeIndex];
         }
+        labelToIndexPtr = &cacheIt->second;
     }
 
     auto voxelToColour = [&](float val) -> uint32_t {
@@ -83,10 +95,10 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
                 return 0x00000000;  // transparent background
             }
             // Use colour map if a non-default one is selected
-            if (useColourMapForLabel) {
-                auto it = labelToIndex.find(labelId);
-                if (it != labelToIndex.end()) {
-                    int idx = static_cast<int>((static_cast<float>(it->second) / static_cast<float>(labelToIndex.size())) * 255.0f);
+            if (useColourMapForLabel && labelToIndexPtr) {
+                auto it = labelToIndexPtr->find(labelId);
+                if (it != labelToIndexPtr->end()) {
+                    int idx = static_cast<int>((static_cast<float>(it->second) / static_cast<float>(labelCount)) * 255.0f);
                     return mainLut[idx];
                 }
                 return 0x00000000;  // unknown label
@@ -238,6 +250,7 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         const std::unordered_map<int, LabelInfo>* labelLUT = nullptr;  // label colour lookup
         bool useColourMapForLabel = false;  // use colour map instead of label LUT
         std::unordered_map<int, int> labelToIndex;  // label ID to colour map index
+        size_t labelCacheSize = 0;  // number of unique labels
     };
 
     int numMaps = colourMapCount();
@@ -321,10 +334,19 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
             // Check if we should use colour map instead of label LUT
             if (state_.viewStates_[vi].colourMap != ColourMapType::GrayScale) {
                 info.useColourMapForLabel = true;
-                std::vector<int> uniqueLabels = vol.getUniqueLabelIds();
-                for (size_t i = 0; i < uniqueLabels.size(); ++i) {
-                    info.labelToIndex[uniqueLabels[i]] = static_cast<int>(i);
+                auto cacheIt = labelToIndexCache_.find(vi);
+                if (cacheIt == labelToIndexCache_.end()) {
+                    std::vector<int> uniqueLabels = vol.getUniqueLabelIds();
+                    std::unordered_map<int, int> mapping;
+                    for (size_t i = 0; i < uniqueLabels.size(); ++i) {
+                        mapping[uniqueLabels[i]] = static_cast<int>(i);
+                    }
+                    labelCacheSize_[vi] = uniqueLabels.size();
+                    labelToIndexCache_[vi] = std::move(mapping);
+                    cacheIt = labelToIndexCache_.find(vi);
                 }
+                info.labelToIndex = cacheIt->second;
+                info.labelCacheSize = labelCacheSize_[vi];
             }
         }
 
@@ -452,8 +474,8 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
                     // Use colour map if selected
                     if (info.useColourMapForLabel) {
                         auto it = info.labelToIndex.find(labelId);
-                        if (it != info.labelToIndex.end()) {
-                            int idx = static_cast<int>((static_cast<float>(it->second) / static_cast<float>(info.labelToIndex.size())) * 255.0f);
+                        if (it != info.labelToIndex.end() && info.labelCacheSize > 0) {
+                            int idx = static_cast<int>((static_cast<float>(it->second) / static_cast<float>(info.labelCacheSize)) * 255.0f);
                             packed = info.mainLut[idx];
                         } else {
                             continue;  // unknown label
@@ -704,4 +726,9 @@ void ViewManager::worldToSliceIndices(const Volume& vol, const double world[3], 
     indices[0] = std::clamp(indices[0], 0, vol.dimensions.x - 1);
     indices[1] = std::clamp(indices[1], 0, vol.dimensions.y - 1);
     indices[2] = std::clamp(indices[2], 0, vol.dimensions.z - 1);
+}
+
+void ViewManager::invalidateLabelCache(int volumeIndex) {
+    labelToIndexCache_.erase(volumeIndex);
+    labelCacheSize_.erase(volumeIndex);
 }

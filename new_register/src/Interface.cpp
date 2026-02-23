@@ -579,6 +579,9 @@ int Interface::renderVolumeColumn(int vi) {
 
                     auto applyColourMap = [&](ColourMapType cmType) {
                         state.colourMap = cmType;
+                        if (vol.isLabelVolume() && cmType != ColourMapType::GrayScale) {
+                            viewManager_.invalidateLabelCache(vi);
+                        }
                         viewManager_.updateSliceTexture(vi, 0);
                         viewManager_.updateSliceTexture(vi, 1);
                         viewManager_.updateSliceTexture(vi, 2);
@@ -802,6 +805,9 @@ int Interface::renderVolumeColumn(int vi) {
                 bool isLabel = vol.isLabelVolume();
                 if (ImGui::Checkbox("Label Volume", &isLabel)) {
                     state_.volumes_[vi].setLabelVolume(isLabel);
+                    if (isLabel && state.colourMap != ColourMapType::GrayScale) {
+                        viewManager_.invalidateLabelCache(vi);
+                    }
                     viewManager_.updateSliceTexture(vi, 0);
                     viewManager_.updateSliceTexture(vi, 1);
                     viewManager_.updateSliceTexture(vi, 2);
