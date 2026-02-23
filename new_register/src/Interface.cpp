@@ -584,6 +584,10 @@ int Interface::renderVolumeColumn(int vi) {
                         viewManager_.updateSliceTexture(vi, 2);
                         if (state_.hasOverlay())
                             viewManager_.updateAllOverlayTextures();
+                        if (qcState_.active) {
+                            std::string colName = qcState_.columnNames[vi];
+                            qcState_.columnConfigs[colName].colourMap = std::string(colourMapName(cmType));
+                        }
                     };
 
                     const float swatchSize = 24.0f * state_.dpiScale_;
@@ -777,6 +781,11 @@ int Interface::renderVolumeColumn(int vi) {
                     viewManager_.updateSliceTexture(vi, 2);
                     if (state_.hasOverlay())
                         viewManager_.updateAllOverlayTextures();
+                    if (qcState_.active) {
+                        std::string colName = qcState_.columnNames[vi];
+                        qcState_.columnConfigs[colName].valueMin = state.valueRange[0];
+                        qcState_.columnConfigs[colName].valueMax = state.valueRange[1];
+                    }
                 }
 
                 if (ImGui::Button("Reset View")) {
