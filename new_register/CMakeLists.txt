@@ -31,42 +31,58 @@ find_package(HDF5 REQUIRED COMPONENTS C)
 find_package(Threads REQUIRED)
 
 # 3. Dear ImGui (Docking Branch)
+# Disable all optional builds - we only need the core library
 include(FetchContent)
 FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui
     GIT_TAG        docking
 )
+set(ImGui_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ImGui_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(ImGui_DIR_SOURCES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(imgui)
 
 # 3.5. nlohmann/json (JSON serialization, C++11+)
+# Header-only library - no build needed
 FetchContent_Declare(
     nlohmann_json
     GIT_REPOSITORY https://github.com/nlohmann/json.git
     GIT_TAG        v3.11.3
     GIT_SHALLOW    TRUE
 )
+set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+set(JSON_Install OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(nlohmann_json)
 
 # 3.75. GLM (Math library for vector/matrix operations)
+# Header-only library - no build needed
 FetchContent_Declare(
     glm
     GIT_REPOSITORY https://github.com/g-truc/glm.git
     GIT_TAG        1.0.1
     GIT_SHALLOW    TRUE
 )
+set(GLM_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(GLM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLM_BUILD_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glm)
 
 # 3.8. cxxopts (Command-line argument parsing, single-header)
+# Header-only library - no build needed
 FetchContent_Declare(
     cxxopts
     GIT_REPOSITORY https://github.com/jarro2783/cxxopts.git
     GIT_TAG        v3.2.1
     GIT_SHALLOW    TRUE
 )
+set(CXXOPTS_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(CXXOPTS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(CXXOPTS_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(cxxopts)
 
 # 3.8. Eigen3 (Linear algebra: SVD, matrix solvers — used by Transform)
+# Header-only library - disable all builds and installation
 FetchContent_Declare(
     eigen
     GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
@@ -74,8 +90,11 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
-set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(EIGEN_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(EIGEN_BUILD_PKGCONFIG OFF CACHE BOOL "" FORCE)
+set(EIGEN_BUILD_INSTALL OFF CACHE BOOL "" FORCE)
+set(EIGEN_INCLUDE_INSTALL_PATH "${CMAKE_BINARY_DIR}/eigen_headers" CACHE PATH "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(eigen)
 
 # Create ImGui library target
@@ -241,3 +260,15 @@ endif()
 # --- Testing ---
 enable_testing()
 add_subdirectory(tests)
+
+# --- Install ---
+# Default to local install (in build directory) to avoid polluting system
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/install" CACHE PATH "Install prefix" FORCE)
+endif()
+
+install(TARGETS new_register
+    RUNTIME DESTINATION bin
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+)
