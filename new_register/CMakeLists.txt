@@ -4,6 +4,10 @@ project(NewRegister VERSION 0.1.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# --- Static linking (avoid conflicts with system libraries) ---
+# Set after finding system packages to avoid interfering with their detection
+set(BUILD_SHARED_LIBS_DEFAULT ${BUILD_SHARED_LIBS})
+
 # --- Backend options ---
 option(ENABLE_VULKAN  "Build Vulkan backend"  ON)
 option(ENABLE_OPENGL2 "Build OpenGL2 backend" ON)
@@ -29,6 +33,10 @@ find_package(HDF5 REQUIRED COMPONENTS C)
 
 # 2.6 Threads (Required for Prefetcher background thread)
 find_package(Threads REQUIRED)
+
+# --- Force static linking for fetched dependencies ---
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".lib" CACHE STRING "" FORCE)
 
 # 3. Dear ImGui (Docking Branch)
 # Disable all optional builds - we only need the core library
@@ -161,6 +169,9 @@ if(EXISTS "${libminc_BINARY_DIR}")
     set(LIBMINC_PREFIX "${libminc_BINARY_DIR}")
 endif()
 set(CMAKE_PREFIX_PATH "${LIBMINC_PREFIX};${CMAKE_PREFIX_PATH}")
+
+# Disable building shared library for minc2-simple
+set(BUILD_MINC2_SIMPLE_SHARED OFF CACHE BOOL "" FORCE)
 
 # Suppress upstream minc2-simple tests (same known failures as libminc)
 set(_SAVE_BUILD_TESTING ${BUILD_TESTING})
