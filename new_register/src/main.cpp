@@ -419,6 +419,18 @@ int main(int argc, char** argv)
                 glfwGetMonitorContentScale(primary, &sx, &sy);
                 glfwGetMonitorWorkarea(primary, &monWorkX, &monWorkY,
                                       &monWorkW, &monWorkH);
+                if (debugLoggingEnabled())
+                {
+                    std::cerr << "[window] Content scale: " << sx << " x " << sy << "\n";
+                    std::cerr << "[window] Monitor workarea: "
+                              << monWorkX << "," << monWorkY << " "
+                              << monWorkW << "x" << monWorkH << "\n";
+                    const GLFWvidmode* vmode = glfwGetVideoMode(primary);
+                    if (vmode)
+                        std::cerr << "[window] Video mode: "
+                                  << vmode->width << "x" << vmode->height
+                                  << " @ " << vmode->refreshRate << "Hz\n";
+                }
             }
             initScale = (sx > sy) ? sx : sy;
             if (initScale < 1.0f) initScale = 1.0f;
@@ -443,6 +455,24 @@ int main(int argc, char** argv)
         int maxH = static_cast<int>(monWorkH * 0.9f);
         if (initW > maxW) initW = maxW;
         if (initH > maxH) initH = maxH;
+
+        if (debugLoggingEnabled())
+        {
+            std::cerr << "[window] Auto size: "
+                      << static_cast<int>(colWidth * totalCols * initScale) << "x"
+                      << static_cast<int>(baseHeight * initScale) << "\n";
+            std::cerr << "[window] Config override: "
+                      << (mergedCfg.global.windowWidth.has_value()
+                          ? std::to_string(*mergedCfg.global.windowWidth) : "none")
+                      << " x "
+                      << (mergedCfg.global.windowHeight.has_value()
+                          ? std::to_string(*mergedCfg.global.windowHeight) : "none")
+                      << "\n";
+            std::cerr << "[window] Clamped request: " << initW << "x" << initH
+                      << " (max " << maxW << "x" << maxH << ")\n";
+            std::cerr << "[window] GLFW_SCALE_TO_MONITOR: ON"
+                         " (GLFW may multiply by content scale internally)\n";
+        }
 
         std::string windowTitle = std::string("New Register (") +
             GraphicsBackend::backendName(backendType) + ")";
@@ -470,8 +500,14 @@ int main(int argc, char** argv)
         else
         {
             if (debugLoggingEnabled())
+            {
+                const char* errDesc = nullptr;
+                int errCode = glfwGetError(&errDesc);
                 std::cerr << "[backend] " << GraphicsBackend::backendName(backendType)
-                          << " failed to create window\n";
+                          << " failed to create window"
+                          << " (glfw error " << errCode
+                          << ": " << (errDesc ? errDesc : "unknown") << ")\n";
+            }
         }
 
         // If the chosen backend uses OpenGL and GLX failed, retry with EGL
@@ -492,7 +528,17 @@ int main(int argc, char** argv)
             glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API);
             glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
             windowTitle = "New Register (opengl2-egl)";
-            window = glfwCreateWindow(initW, initH,
+
+            // Use conservative dimensions for the EGL retry.  Large windows
+            // can cause fatal X I/O errors on X proxies like nxagent (the
+            // Xlib error handler calls exit(), crashing the process).  We
+            // create a small window first, then resize after success.
+            constexpr int safeW = 800, safeH = 600;
+            if (debugLoggingEnabled())
+                std::cerr << "[window] EGL retry with safe size: "
+                          << safeW << "x" << safeH
+                          << " (will resize to " << initW << "x" << initH << ")\n";
+            window = glfwCreateWindow(safeW, safeH,
                 windowTitle.c_str(), nullptr, nullptr);
             if (window)
             {
@@ -500,6 +546,8 @@ int main(int argc, char** argv)
                 {
                     backend->initialize(window);
                     initialized = true;
+                    // Now resize to the desired dimensions.
+                    glfwSetWindowSize(window, initW, initH);
                 }
                 catch (const std::exception& e)
                 {
@@ -511,20 +559,30 @@ int main(int argc, char** argv)
             else
             {
                 if (debugLoggingEnabled())
-                    std::cerr << "[backend] opengl2-egl failed to create window\n";
+                {
+                    const char* errDesc = nullptr;
+                    int errCode = glfwGetError(&errDesc);
+                    std::cerr << "[backend] opengl2-egl failed to create window"
+                              << " (glfw error " << errCode
+                              << ": " << (errDesc ? errDesc : "unknown") << ")\n";
+                }
             }
         }
 
-        // Fallback: try every other compiled-in backend
+        // Fallback: try every other compiled-in backend.
+        // Use safe dimensions to avoid fatal X I/O errors on proxies,
+        // then resize after successful initialization.
         if (!initialized)
         {
+            constexpr int safeW = 800, safeH = 600;
             for (auto fallback : GraphicsBackend::availableBackends())
             {
                 if (fallback == backendType)
                     continue;
                 if (debugLoggingEnabled())
                     std::cerr << "[backend] Trying fallback: "
-                              << GraphicsBackend::backendName(fallback) << "\n";
+                              << GraphicsBackend::backendName(fallback)
+                              << " (" << safeW << "x" << safeH << ")\n";
                 try
                 {
                     if (window)
@@ -537,13 +595,26 @@ int main(int argc, char** argv)
                     glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
                     windowTitle = std::string("New Register (") +
                         GraphicsBackend::backendName(fallback) + ")";
-                    window = glfwCreateWindow(initW, initH,
+                    window = glfwCreateWindow(safeW, safeH,
                         windowTitle.c_str(), nullptr, nullptr);
                     if (!window)
+                    {
+                        if (debugLoggingEnabled())
+                        {
+                            const char* errDesc = nullptr;
+                            int errCode = glfwGetError(&errDesc);
+                            std::cerr << "[backend] "
+                                      << GraphicsBackend::backendName(fallback)
+                                      << " window creation failed (glfw error "
+                                      << errCode << ": "
+                                      << (errDesc ? errDesc : "unknown") << ")\n";
+                        }
                         continue;
+                    }
                     backend->initialize(window);
                     backendType = fallback;
                     initialized = true;
+                    glfwSetWindowSize(window, initW, initH);
                     break;
                 }
                 catch (const std::exception& e2)
