@@ -81,10 +81,14 @@ void AppState::loadTagsForVolume(int index) {
                 volumes_[1].tags.setLabels(labels);
                 std::cerr << "Loaded two-volume tag file: "
                           << tagPath << " (" << pts2.size() << " tags)\n";
+                invalidateTransform();
             }
         } catch (const std::exception& e) {
             std::cerr << "Exception loading tag file: " << e.what() << "\n";
         }
+    }
+    if (volumes_[index].hasTags()) {
+        invalidateTransform();
     }
 }
 
