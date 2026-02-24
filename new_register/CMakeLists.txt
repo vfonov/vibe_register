@@ -4,6 +4,10 @@ project(NewRegister VERSION 0.1.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# --- Disable installation of all dependencies by default ---
+# Must be set before any FetchContent_MakeAvailable or add_subdirectory
+set(CMAKE_DISABLE_INSTALL_PACKAGES ON)
+
 # --- Static linking (avoid conflicts with system libraries) ---
 # Set after finding system packages to avoid interfering with their detection
 set(BUILD_SHARED_LIBS_DEFAULT ${BUILD_SHARED_LIBS})
@@ -273,13 +277,12 @@ enable_testing()
 add_subdirectory(tests)
 
 # --- Install ---
-# Default to local install (in build directory) to avoid polluting system
+# Only the executable is installed, not dependencies
+# Default install location: build directory (no system pollution)
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-    set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/install" CACHE PATH "Install prefix" FORCE)
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}" CACHE PATH "Install prefix" FORCE)
 endif()
 
 install(TARGETS new_register
     RUNTIME DESTINATION bin
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
 )
