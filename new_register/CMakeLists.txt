@@ -275,14 +275,3 @@ endif()
 # --- Testing ---
 enable_testing()
 add_subdirectory(tests)
-
-# --- Install ---
-# Only the executable is installed, not dependencies
-# Default install location: build directory (no system pollution)
-if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-    set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}" CACHE PATH "Install prefix" FORCE)
-endif()
-
-install(TARGETS new_register
-    RUNTIME DESTINATION bin
-)
