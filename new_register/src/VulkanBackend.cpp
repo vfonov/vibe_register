@@ -16,6 +16,8 @@
 #include <csignal>
 #include <csetjmp>
 
+#include "AppState.h"
+
 // Destructor must be defined here (not defaulted in header) because
 // the header only forward-declares VulkanTexture. The unique_ptr
 // destructor in vulkanTextures_ needs VulkanTexture to be complete.
@@ -47,7 +49,8 @@ void VulkanBackend::checkVkResult(VkResult err)
     if (err < 0)
         throw std::runtime_error("Vulkan error: VkResult = " + std::to_string(err));
     // Positive values are non-fatal (e.g. VK_SUBOPTIMAL_KHR)
-    std::cerr << "[vulkan] Warning: VkResult = " << err << "\n";
+    if (debugLoggingEnabled())
+        std::cerr << "[vulkan] Warning: VkResult = " << err << "\n";
 }
 
 // ---------------------------------------------------------------------------
@@ -141,17 +144,19 @@ void VulkanBackend::createDevice()
                     gpus[i], j, surface_, &presentSupport);
                 if (err != VK_SUCCESS)
                 {
-                    std::cerr << "[vulkan] Surface query failed on "
-                              << props.deviceName
-                              << " (VkResult=" << err << "), skipping\n";
+                    if (debugLoggingEnabled())
+                        std::cerr << "[vulkan] Surface query failed on "
+                                  << props.deviceName
+                                  << " (VkResult=" << err << "), skipping\n";
                     continue;
                 }
                 if (presentSupport == VK_TRUE)
                 {
                     physicalDevice_ = gpus[i];
                     queueFamily_ = j;
-                    std::cerr << "[vulkan] Selected device: "
-                              << props.deviceName << "\n";
+                    if (debugLoggingEnabled())
+                        std::cerr << "[vulkan] Selected device: "
+                                  << props.deviceName << "\n";
                     goto found;
                 }
             }
@@ -179,8 +184,9 @@ void VulkanBackend::createDevice()
             {
                 physicalDevice_ = gpus[i];
                 queueFamily_ = j;
-                std::cerr << "[vulkan] Selected software device: "
-                          << props.deviceName << "\n";
+                if (debugLoggingEnabled())
+                    std::cerr << "[vulkan] Selected software device: "
+                              << props.deviceName << "\n";
                 goto found;
             }
         }

@@ -6,6 +6,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <atomic>
 
 #include <glm/glm.hpp>
 
@@ -15,6 +16,12 @@
 #include "GraphicsBackend.h"  // for Texture
 
 class AppConfig;
+
+inline std::atomic<bool>& debugLoggingEnabled()
+{
+    static std::atomic<bool> flag{false};
+    return flag;
+}
 
 constexpr int kClampCurrent = -2;
 constexpr int kClampTransparent = -1;

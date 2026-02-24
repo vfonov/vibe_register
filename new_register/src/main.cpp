@@ -38,7 +38,8 @@ extern "C" {
 // ---------------------------------------------------------------------------
 static void glfwErrorCallback(int error, const char* description)
 {
-    std::cerr << "[glfw] Error " << error << ": " << description << "\n";
+    if (debugLoggingEnabled())
+        std::cerr << "[glfw] Error " << error << ": " << description << "\n";
 }
 
 int main(int argc, char** argv)
@@ -52,6 +53,7 @@ int main(int argc, char** argv)
             ("B,backend", "Graphics backend: auto, vulkan, opengl2", cxxopts::value<std::string>())
             ("t,tags", "Load combined two-volume .tag file", cxxopts::value<std::string>())
             ("h,help", "Show this help message")
+            ("d,debug", "Enable debug output")
             ("test", "Launch with a generated test volume")
             ("lut", "Set colour map for the next volume", cxxopts::value<std::string>())
             ("r,red", "Set Red colour map for the next volume")
@@ -96,6 +98,7 @@ int main(int argc, char** argv)
             cliTagPath = result["tags"].as<std::string>();
 
         bool useTestData = result.count("test") > 0;
+        debugLoggingEnabled().store(result.count("debug") > 0);
 
         std::string qcInputPath;
         if (result.count("qc"))
@@ -286,11 +289,14 @@ int main(int argc, char** argv)
             backendType = GraphicsBackend::detectBest();
         }
 
-        std::cerr << "[backend] Using: " << GraphicsBackend::backendName(backendType) << "\n";
-        std::cerr << "[backend] Available:";
-        for (auto b : GraphicsBackend::availableBackends())
-            std::cerr << " " << GraphicsBackend::backendName(b);
-        std::cerr << "\n";
+        if (debugLoggingEnabled())
+        {
+            std::cerr << "[backend] Using: " << GraphicsBackend::backendName(backendType) << "\n";
+            std::cerr << "[backend] Available:";
+            for (auto b : GraphicsBackend::availableBackends())
+                std::cerr << " " << GraphicsBackend::backendName(b);
+            std::cerr << "\n";
+        }
 
         std::string localConfigPath;
         if (!cliConfigPath.empty())
@@ -456,14 +462,16 @@ int main(int argc, char** argv)
             }
             catch (const std::exception& e)
             {
-                std::cerr << "[backend] " << GraphicsBackend::backendName(backendType)
-                          << " init failed: " << e.what() << "\n";
+                if (debugLoggingEnabled())
+                    std::cerr << "[backend] " << GraphicsBackend::backendName(backendType)
+                              << " init failed: " << e.what() << "\n";
             }
         }
         else
         {
-            std::cerr << "[backend] " << GraphicsBackend::backendName(backendType)
-                      << " failed to create window\n";
+            if (debugLoggingEnabled())
+                std::cerr << "[backend] " << GraphicsBackend::backendName(backendType)
+                          << " failed to create window\n";
         }
 
         // If the chosen backend uses OpenGL and GLX failed, retry with EGL
@@ -472,7 +480,8 @@ int main(int argc, char** argv)
         // bypasses GLX entirely and works with Mesa's software renderer.
         if (!initialized && backendType == BackendType::OpenGL2)
         {
-            std::cerr << "[backend] Retrying opengl2 with EGL context\n";
+            if (debugLoggingEnabled())
+                std::cerr << "[backend] Retrying opengl2 with EGL context\n";
             if (window)
             {
                 glfwDestroyWindow(window);
@@ -494,13 +503,15 @@ int main(int argc, char** argv)
                 }
                 catch (const std::exception& e)
                 {
-                    std::cerr << "[backend] opengl2-egl init failed: "
-                              << e.what() << "\n";
+                    if (debugLoggingEnabled())
+                        std::cerr << "[backend] opengl2-egl init failed: "
+                                  << e.what() << "\n";
                 }
             }
             else
             {
-                std::cerr << "[backend] opengl2-egl failed to create window\n";
+                if (debugLoggingEnabled())
+                    std::cerr << "[backend] opengl2-egl failed to create window\n";
             }
         }
 
@@ -511,8 +522,9 @@ int main(int argc, char** argv)
             {
                 if (fallback == backendType)
                     continue;
-                std::cerr << "[backend] Trying fallback: "
-                          << GraphicsBackend::backendName(fallback) << "\n";
+                if (debugLoggingEnabled())
+                    std::cerr << "[backend] Trying fallback: "
+                              << GraphicsBackend::backendName(fallback) << "\n";
                 try
                 {
                     if (window)
@@ -536,8 +548,9 @@ int main(int argc, char** argv)
                 }
                 catch (const std::exception& e2)
                 {
-                    std::cerr << "[backend] " << GraphicsBackend::backendName(fallback)
-                              << " also failed: " << e2.what() << "\n";
+                    if (debugLoggingEnabled())
+                        std::cerr << "[backend] " << GraphicsBackend::backendName(fallback)
+                                  << " also failed: " << e2.what() << "\n";
                 }
             }
         }

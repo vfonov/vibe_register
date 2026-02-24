@@ -91,12 +91,14 @@ void Prefetcher::workerLoop()
                 Volume vol;
                 vol.load(path);
                 cache_.put(path, vol);
-                std::cerr << "[prefetch] cached: " << path << "\n";
+                if (debugLoggingEnabled())
+                    std::cerr << "[prefetch] cached: " << path << "\n";
             }
             catch (const std::exception& e)
             {
-                std::cerr << "[prefetch] failed: " << path
-                          << " (" << e.what() << ")\n";
+                if (debugLoggingEnabled())
+                    std::cerr << "[prefetch] failed: " << path
+                              << " (" << e.what() << ")\n";
             }
         }
     }

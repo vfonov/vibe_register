@@ -19,6 +19,8 @@
 #include <stdexcept>
 #include <cstring>
 
+#include "AppState.h"
+
 // ---------------------------------------------------------------------------
 // GLFW hints
 // ---------------------------------------------------------------------------
@@ -61,8 +63,9 @@ void OpenGL2Backend::initialize(GLFWwindow* window)
     // Store initial framebuffer size
     glfwGetFramebufferSize(window, &fbWidth_, &fbHeight_);
 
-    std::cerr << "[opengl2] Initialized: " << glGetString(GL_RENDERER)
-              << " (" << glGetString(GL_VERSION) << ")\n";
+    if (debugLoggingEnabled())
+        std::cerr << "[opengl2] Initialized: " << glGetString(GL_RENDERER)
+                  << " (" << glGetString(GL_VERSION) << ")\n";
 }
 
 void OpenGL2Backend::shutdown()
