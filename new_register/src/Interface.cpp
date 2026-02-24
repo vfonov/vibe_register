@@ -156,9 +156,9 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
         }
 
         if (qcState_.active) {
-            if (ImGui::IsKeyPressed(ImGuiKey_RightBracket))
+            if (ImGui::IsKeyPressed(ImGuiKey_RightBracket, false))
                 switchQCRow(qcState_.currentRowIndex + 1, backend);
-            if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket))
+            if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket, false))
                 switchQCRow(qcState_.currentRowIndex - 1, backend);
         }
 
