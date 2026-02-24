@@ -94,20 +94,26 @@ set(CXXOPTS_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(cxxopts)
 
 # 3.8. Eigen3 (Linear algebra: SVD, matrix solvers — used by Transform)
-# Header-only library - disable all builds and installation
-FetchContent_Declare(
-    eigen
+# Use ExternalProject_Add to build in build directory only
+include(ExternalProject)
+set(EIGEN_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/eigen_install")
+ExternalProject_Add(Eigen
     GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
     GIT_TAG        3.4.0
     GIT_SHALLOW    TRUE
+    INSTALL_DIR    ${EIGEN_INSTALL_PREFIX}
+    CMAKE_ARGS
+        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
+        -DBUILD_DOCUMENTATION=OFF
+        -DBUILD_TESTING=OFF
+        -DBUILD_PACKAGE=OFF
+        -DEIGEN_BUILD_PKGCONFIG=OFF
+    BUILD_BYPRODUCTS ${EIGEN_INSTALL_PREFIX}/include/eigen3/Eigen
 )
-set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
-set(EIGEN_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-set(EIGEN_BUILD_PKGCONFIG OFF CACHE BOOL "" FORCE)
-set(EIGEN_BUILD_INSTALL OFF CACHE BOOL "" FORCE)
-set(EIGEN_INCLUDE_INSTALL_PATH "${CMAKE_BINARY_DIR}/eigen_headers" CACHE PATH "" FORCE)
-set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(eigen)
+set(eigen_SOURCE_DIR "${CMAKE_BINARY_DIR}/eigen-src")
+set(eigen_BINARY_DIR "${CMAKE_BINARY_DIR}/eigen-build")
+set(eigen_INCLUDE_DIR "${EIGEN_INSTALL_PREFIX}/include/eigen3")
 
 # Create ImGui library target
 add_library(imgui STATIC
@@ -224,13 +230,16 @@ endif()
 # --- Executable ---
 add_executable(new_register ${SOURCES})
 
+# Add Eigen as a dependency - must be built before new_register
+add_dependencies(new_register Eigen)
+
 # --- Include Directories ---
 target_include_directories(new_register PRIVATE
     include
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
     ${glm_SOURCE_DIR}  # GLM is header-only
-    ${eigen_SOURCE_DIR}  # Eigen is header-only
+    ${eigen_INCLUDE_DIR}  # Eigen from ExternalProject (in build dir)
     ${minc2-simple-static_SOURCE_DIR}/src  # minc2-simple headers
     ${cxxopts_SOURCE_DIR}/include  # cxxopts headers
 )

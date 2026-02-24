@@ -7,7 +7,7 @@ set(INC_DIR ${PROJECT_SOURCE_DIR}/include)
 set(TEST_DATA_DIR ${PROJECT_SOURCE_DIR}/../test_data)
 
 # Shared include dirs for tests that use Volume / MINC
-set(COMMON_INCLUDES ${INC_DIR} ${glm_SOURCE_DIR} ${minc2-simple-static_SOURCE_DIR}/src)
+set(COMMON_INCLUDES ${INC_DIR} ${glm_SOURCE_DIR} ${eigen_INCLUDE_DIR} ${minc2-simple-static_SOURCE_DIR}/src)
 
 # --- Helper macro to reduce boilerplate ---
 # add_nr_test(<name>
@@ -150,7 +150,7 @@ add_test(NAME AppConfigTest COMMAND test_app_config)
 
 add_nr_test(test_transform
     SOURCES   Transform.cpp
-    INCLUDES  ${INC_DIR} ${glm_SOURCE_DIR} ${eigen_SOURCE_DIR} ${minc2-simple-static_SOURCE_DIR}/src
+    INCLUDES  ${INC_DIR} ${glm_SOURCE_DIR} ${eigen_INCLUDE_DIR} ${minc2-simple-static_SOURCE_DIR}/src
     LINKS     glm minc2-simple-static minc2
 )
 add_test(NAME TransformTest COMMAND test_transform)
