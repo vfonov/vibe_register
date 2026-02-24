@@ -90,11 +90,21 @@ target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
 
 # 4. LIBMINC
 # Try system LIBMINC first, then fall back to FetchContent
+# Only use system libminc if found outside _deps directory
+set(_USE_SYSTEM_MINC OFF)
 find_package(LIBMINC QUIET HINTS ENV MINC_TOOLKIT)
-if(LIBMINC_FOUND)
-    message(STATUS "Found system LIBMINC: ${LIBMINC_DIR}")
+if(LIBMINC_FOUND AND LIBMINC_DIR)
+    if(NOT LIBMINC_DIR MATCHES "_deps")
+        set(_USE_SYSTEM_MINC ON)
+    endif()
+endif()
+
+if(_USE_SYSTEM_MINC)
+    message(STATUS "Using system LIBMINC: ${LIBMINC_DIR}")
+    set(MINC2_LIB minc2)
+    set(MINC2_INCLUDE_DIR "${LIBMINC_DIR}/include")
 else()
-    message(STATUS "LIBMINC not found, fetching from GitHub...")
+    message(STATUS "LIBMINC not found or in _deps, fetching from GitHub...")
     FetchContent_Declare(
         libminc
         GIT_REPOSITORY https://github.com/BIC-MNI/libminc.git
@@ -106,6 +116,11 @@ else()
     set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(libminc)
     set(BUILD_TESTING ${_SAVE_BUILD_TESTING} CACHE BOOL "" FORCE)
+    
+    # Use absolute path to fetched library
+    set(MINC2_LIB "${CMAKE_BINARY_DIR}/_deps/libminc-build/libminc2.a")
+    set(MINC2_INCLUDE_DIR "${libminc_SOURCE_DIR}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L${CMAKE_BINARY_DIR}/_deps/libminc-build")
 endif()
 
 # 5. minc2-simple
@@ -201,8 +216,6 @@ if(ENABLE_METAL)
 endif()
 
 # --- Linking ---
-set(MINC2_LIB "${CMAKE_BINARY_DIR}/_deps/libminc-build/libminc2.a")
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L${CMAKE_BINARY_DIR}/_deps/libminc-build")
 target_link_libraries(new_register PRIVATE
     glfw
     imgui
@@ -212,6 +225,7 @@ target_link_libraries(new_register PRIVATE
     glm
     Threads::Threads
 )
+target_include_directories(new_register PRIVATE ${MINC2_INCLUDE_DIR})
 if(ENABLE_VULKAN)
     target_link_libraries(new_register PRIVATE Vulkan::Vulkan)
 endif()
