@@ -1834,7 +1834,7 @@ void Interface::switchQCRow(int newRow, GraphicsBackend& backend) {
 
     scrollToCurrentRow_ = true;
 
-    // Trigger background prefetch of adjacent rows.
+    // Queue adjacent rows for prefetching (loaded on main thread).
     if (prefetcher_)
     {
         std::vector<std::string> prefetchPaths;

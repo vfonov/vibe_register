@@ -574,7 +574,8 @@ int main(int argc, char** argv)
         ViewManager viewManager(state, *backend);
         Interface interface(state, viewManager, qcState);
 
-        // Create background prefetcher for QC mode (optional).
+        // Create prefetcher for QC mode — queues adjacent rows for
+        // main-thread loading (libminc/HDF5 are not thread-safe).
         std::unique_ptr<Prefetcher> prefetcher;
         if (qcState.active)
         {
@@ -601,7 +602,7 @@ int main(int argc, char** argv)
             }
             viewManager.initializeAllTextures();
 
-            // Kick off initial prefetch of adjacent rows.
+            // Queue adjacent rows for prefetching (loaded incrementally each frame).
             if (prefetcher)
             {
                 std::vector<std::string> prefetchPaths;
@@ -665,6 +666,11 @@ int main(int argc, char** argv)
         {
             glfwPollEvents();
 
+            // Incrementally load one prefetched volume per frame (main thread
+            // only — libminc/HDF5 are not thread-safe).
+            if (prefetcher)
+                prefetcher->loadPending();
+
             if (backend->needsSwapchainRebuild())
             {
                 int width, height;
@@ -685,10 +691,6 @@ int main(int argc, char** argv)
         }
 
         backend->waitIdle();
-
-        // Shut down prefetcher before destroying GPU resources.
-        if (prefetcher)
-            prefetcher->shutdown();
 
         if (qcState.active)
             qcState.saveOutputCsv();
