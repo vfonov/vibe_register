@@ -120,6 +120,8 @@ add_nr_test(test_colour_map
     INCLUDES  ${INC_DIR}
     LINKS     ""
 )
+add_nr_test(test_label_rounding)
+add_test(NAME LabelRoundingTest COMMAND test_label_rounding)
 add_test(NAME ColourMapTests COMMAND test_colour_map)
 
 # ------------------------------------------------------------------

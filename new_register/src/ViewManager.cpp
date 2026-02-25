@@ -90,7 +90,7 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
     auto voxelToColour = [&](float val) -> uint32_t {
         // Handle label volumes: use colour map if selected, otherwise use label LUT
         if (vol.isLabelVolume()) {
-            int labelId = static_cast<int>(val);
+            int labelId = static_cast<int>(std::round(val));
             if (labelId == 0) {
                 return 0x00000000;  // transparent background
             }
@@ -467,7 +467,7 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
 
                 uint32_t packed;
                 if (info.isLabelVolume) {
-                    int labelId = static_cast<int>(raw);
+                    int labelId = static_cast<int>(std::round(raw));
                     if (labelId == 0) {
                         continue;  // transparent background
                     }

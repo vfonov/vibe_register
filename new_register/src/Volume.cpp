@@ -443,7 +443,7 @@ std::string Volume::getLabelNameAtVoxel(int x, int y, int z) const {
         return "";
     }
 
-    int labelId = static_cast<int>(getUnchecked(x, y, z));
+    int labelId = static_cast<int>(std::round(getUnchecked(x, y, z)));
     const LabelInfo* info = getLabelInfo(labelId);
     if (info && !info->name.empty()) {
         return info->name;
@@ -457,7 +457,7 @@ std::vector<int> Volume::getUniqueLabelIds() const {
     }
     std::unordered_set<int> uniqueIds;
     for (float val : data) {
-        int labelId = static_cast<int>(val);
+        int labelId = static_cast<int>(std::round(val));
         if (labelId != 0) {
             uniqueIds.insert(labelId);
         }
