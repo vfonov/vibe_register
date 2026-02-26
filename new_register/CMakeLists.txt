@@ -35,6 +35,14 @@ endif()
 # 2.5 HDF5 (Required by minc2 headers)
 find_package(HDF5 REQUIRED COMPONENTS C)
 
+# 2.6 NetCDF (Optional - required for MINC1 support)
+find_package(NetCDF QUIET)
+if(NetCDF_FOUND)
+    message(STATUS "NetCDF found: ${NETCDF_INCLUDE_DIR}")
+else()
+    message(STATUS "NetCDF not found - MINC1 support will be disabled")
+endif()
+
 # 2.6 Threads (Required for Prefetcher background thread)
 find_package(Threads REQUIRED)
 
@@ -141,53 +149,91 @@ if(_USE_SYSTEM_MINC)
     set(MINC2_LIB minc2)
     set(MINC2_INCLUDE_DIR "${LIBMINC_DIR}/include")
 else()
-    message(STATUS "LIBMINC not found or in _deps, fetching from GitHub...")
-    FetchContent_Declare(
-        libminc
+    message(STATUS "LIBMINC not found or in _deps, using ExternalProject...")
+    
+    # Use ExternalProject_Add to avoid install pollution
+    include(ExternalProject)
+    set(LIBMINC_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/libminc_install")
+    
+    # Build args - enable MINC1 support if NetCDF is available
+    set(_LIBMINC_ARGS
+        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
+        -DBUILD_TESTING=OFF
+        -DBUILD_SHARED_LIBS=OFF
+        -DLIBMINC_BUILD_EZMINC=OFF
+        -DHDF5_INCLUDE_DIRS=${HDF5_INCLUDE_DIRS}
+        -DHDF5_LIBRARIES=${HDF5_LIBRARIES}
+    )
+    if(NetCDF_FOUND)
+        list(APPEND _LIBMINC_ARGS
+            -DLIBMINC_MINC1_SUPPORT=ON
+            -DNETCDF_INCLUDE_DIR=${NETCDF_INCLUDE_DIR}
+            -DNETCDF_LIBRARY=${NETCDF_LIBRARY}
+        )
+    else()
+        list(APPEND _LIBMINC_ARGS -DLIBMINC_MINC1_SUPPORT=OFF)
+    endif()
+    
+    ExternalProject_Add(libminc
         GIT_REPOSITORY https://github.com/BIC-MNI/libminc.git
         GIT_TAG        develop
+        GIT_SHALLOW    TRUE
+        INSTALL_DIR    ${LIBMINC_INSTALL_PREFIX}
+        CMAKE_ARGS ${_LIBMINC_ARGS}
+        BUILD_BYPRODUCTS ${LIBMINC_INSTALL_PREFIX}/lib/libminc2.a
     )
-    # Suppress upstream libminc tests (known failures: test-io-full missing
-    # history attribute, test-nan-short Inf/NaN in integer storage)
-    set(_SAVE_BUILD_TESTING ${BUILD_TESTING})
-    set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(libminc)
-    set(BUILD_TESTING ${_SAVE_BUILD_TESTING} CACHE BOOL "" FORCE)
     
-    # Use absolute path to fetched library
-    set(MINC2_LIB "${CMAKE_BINARY_DIR}/_deps/libminc-build/libminc2.a")
-    set(MINC2_INCLUDE_DIR "${libminc_SOURCE_DIR}")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L${CMAKE_BINARY_DIR}/_deps/libminc-build")
+    set(MINC2_LIB "${LIBMINC_INSTALL_PREFIX}/lib/libminc2.a")
+    set(MINC2_INCLUDE_DIR "${LIBMINC_INSTALL_PREFIX}/include")
+    set(MINC2_LIB_DIR "${LIBMINC_INSTALL_PREFIX}/lib")
+    set(_USE_EXTERNAL_MINC ON)
 endif()
 
 # 5. minc2-simple
-# Fetch the source but build manually to integrate with LIBMINC
-FetchContent_Declare(
-    minc2-simple-static
+# Use ExternalProject_Add to avoid install pollution
+include(ExternalProject)
+set(MINC2_SIMPLE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/minc2_simple_install")
+
+# Determine dependency - if using fetched libminc, depend on it
+set(_MINC2_DEPENDS "")
+if(NOT _USE_SYSTEM_MINC)
+    set(_MINC2_DEPENDS libminc)
+    set(_MINC2_LIBMINC_PREFIX "${LIBMINC_INSTALL_PREFIX}")
+else()
+    set(_MINC2_LIBMINC_PREFIX "${LIBMINC_DIR}")
+endif()
+
+ExternalProject_Add(minc2-simple-static
     GIT_REPOSITORY https://github.com/NIST-MNI/minc2-simple.git
     GIT_TAG        develop
+    GIT_SHALLOW    TRUE
+    INSTALL_DIR    ${MINC2_SIMPLE_INSTALL_PREFIX}
+    DEPENDS        ${_MINC2_DEPENDS}
+    CMAKE_ARGS
+        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
+        -DCMAKE_PREFIX_PATH=${_MINC2_LIBMINC_PREFIX}
+        -DCMAKE_C_FLAGS=-I/usr/include/hdf5/serial
+        -DCMAKE_CXX_FLAGS=-I/usr/include/hdf5/serial
+        -DLIBMINC_DIR=${_MINC2_LIBMINC_PREFIX}/lib/cmake
+        -DBUILD_TESTING=OFF
+        -DBUILD_MINC2_SIMPLE_SHARED=OFF
+    BUILD_BYPRODUCTS ${MINC2_SIMPLE_INSTALL_PREFIX}/lib/libminc2_simple.a
 )
-FetchContent_GetProperties(minc2-simple-static)
-if(NOT minc2-simple-static_POPULATED)
-    FetchContent_Populate(minc2-simple-static)
+
+set(minc2-simple-static_SOURCE_DIR "${MINC2_SIMPLE_INSTALL_PREFIX}/src")
+set(minc2-simple-static_INCLUDE_DIR "${MINC2_SIMPLE_INSTALL_PREFIX}/include")
+set(minc2-simple-static_LIB "${MINC2_SIMPLE_INSTALL_PREFIX}/lib/libminc2-simple-static.a")
+set(minc2-simple-static_LIB_DIR "${MINC2_SIMPLE_INSTALL_PREFIX}/lib")
+
+# Add library search paths for ExternalProject builds
+if(NOT _USE_SYSTEM_MINC AND DEFINED MINC2_LIB_DIR)
+    link_directories(${MINC2_LIB_DIR})
 endif()
-
-# Build minc2-simple manually to integrate with fetched LIBMINC
-# Set prefix path to find LIBMINC config
-set(LIBMINC_PREFIX "${libminc_SOURCE_DIR}")
-if(EXISTS "${libminc_BINARY_DIR}")
-    set(LIBMINC_PREFIX "${libminc_BINARY_DIR}")
+if(DEFINED minc2-simple-static_LIB_DIR)
+    link_directories(${minc2-simple-static_LIB_DIR})
 endif()
-set(CMAKE_PREFIX_PATH "${LIBMINC_PREFIX};${CMAKE_PREFIX_PATH}")
-
-# Disable building shared library for minc2-simple
-set(BUILD_MINC2_SIMPLE_SHARED OFF CACHE BOOL "" FORCE)
-
-# Suppress upstream minc2-simple tests (same known failures as libminc)
-set(_SAVE_BUILD_TESTING ${BUILD_TESTING})
-set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-add_subdirectory(${minc2-simple-static_SOURCE_DIR} ${minc2-simple-static_BINARY_DIR})
-set(BUILD_TESTING ${_SAVE_BUILD_TESTING} CACHE BOOL "" FORCE)
 
 # --- Sources (explicit list instead of GLOB_RECURSE) ---
 set(SOURCES
@@ -259,16 +305,24 @@ if(ENABLE_METAL)
 endif()
 
 # --- Linking ---
+# Note: Using library file paths instead of targets since ExternalProject creates
+# UTILITY targets that cannot be linked with target_link_libraries
 target_link_libraries(new_register PRIVATE
     glfw
     imgui
-    minc2-simple-static
+    ${minc2-simple-static_LIB}
     ${MINC2_LIB}
+    /usr/lib/x86_64-linux-gnu/hdf5/serial/libhdf5.so
+    /usr/lib/x86_64-linux-gnu/libz.so
+    /usr/lib/x86_64-linux-gnu/libpthread.a
     nlohmann_json::nlohmann_json
     glm
     Threads::Threads
 )
-target_include_directories(new_register PRIVATE ${MINC2_INCLUDE_DIR})
+target_include_directories(new_register PRIVATE 
+    ${MINC2_INCLUDE_DIR}
+    ${minc2-simple-static_INCLUDE_DIR}
+)
 if(ENABLE_VULKAN)
     target_link_libraries(new_register PRIVATE Vulkan::Vulkan)
 endif()
@@ -279,6 +333,13 @@ endif()
 # std::filesystem requires separate library on GCC 9
 if(CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "10.0")
     target_link_libraries(new_register PRIVATE stdc++fs)
+endif()
+
+# Ensure ExternalProjects are built before the main target
+if(NOT _USE_SYSTEM_MINC)
+    add_dependencies(new_register libminc minc2-simple-static)
+else()
+    add_dependencies(new_register minc2-simple-static)
 endif()
 
 # --- Testing ---

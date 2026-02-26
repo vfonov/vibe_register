@@ -7,7 +7,10 @@ set(INC_DIR ${PROJECT_SOURCE_DIR}/include)
 set(TEST_DATA_DIR ${PROJECT_SOURCE_DIR}/../test_data)
 
 # Shared include dirs for tests that use Volume / MINC
-set(COMMON_INCLUDES ${INC_DIR} ${glm_SOURCE_DIR} ${eigen_INCLUDE_DIR} ${minc2-simple-static_SOURCE_DIR}/src)
+set(COMMON_INCLUDES ${INC_DIR} ${glm_SOURCE_DIR} ${eigen_INCLUDE_DIR} ${minc2-simple-static_INCLUDE_DIR} ${MINC2_INCLUDE_DIR})
+
+# Library paths for linking (from parent CMakeLists)
+set(MINC2_SIMPLE_LIB ${minc2-simple-static_LIB})
 
 # --- Helper macro to reduce boilerplate ---
 # add_nr_test(<name>
@@ -39,12 +42,12 @@ macro(add_nr_test NAME)
 endmacro()
 
 # ------------------------------------------------------------------
-# Volume / MINC tests (link minc2-simple-static + glm)
+# Volume / MINC tests (link ${MINC2_SIMPLE_LIB} + glm)
 # ------------------------------------------------------------------
 
 add_nr_test(test_real_data
     SOURCES  Volume.cpp TagWrapper.cpp
-    LINKS    minc2-simple-static glm
+    LINKS    ${MINC2_SIMPLE_LIB} ${MINC2_LIB} glm /usr/lib/x86_64-linux-gnu/hdf5/serial/libhdf5.so
 )
 add_test(NAME ReadRealData COMMAND test_real_data
     ${TEST_DATA_DIR}/mni_icbm152_t1_tal_nlin_sym_09c.mnc
@@ -53,13 +56,13 @@ add_test(NAME ReadRealData COMMAND test_real_data
 
 add_nr_test(test_coordinate_sync
     SOURCES  Volume.cpp TagWrapper.cpp
-    LINKS    minc2-simple-static glm
+    LINKS    ${MINC2_SIMPLE_LIB} ${MINC2_LIB} glm /usr/lib/x86_64-linux-gnu/hdf5/serial/libhdf5.so
 )
 add_test(NAME CoordinateSyncTest COMMAND test_coordinate_sync ${TEST_DATA_DIR})
 
 add_nr_test(test_center_of_mass
     SOURCES  Volume.cpp TagWrapper.cpp
-    LINKS    minc2-simple-static glm
+    LINKS    ${MINC2_SIMPLE_LIB} ${MINC2_LIB} glm /usr/lib/x86_64-linux-gnu/hdf5/serial/libhdf5.so
 )
 add_test(NAME CenterOfMassTest COMMAND test_center_of_mass
     ${TEST_DATA_DIR}/mni_icbm152_t1_tal_nlin_sym_09c.mnc
@@ -67,7 +70,7 @@ add_test(NAME CenterOfMassTest COMMAND test_center_of_mass
 
 add_nr_test(test_thick_slices_com
     SOURCES  Volume.cpp TagWrapper.cpp
-    LINKS    minc2-simple-static glm
+    LINKS    ${MINC2_SIMPLE_LIB} ${MINC2_LIB} glm /usr/lib/x86_64-linux-gnu/hdf5/serial/libhdf5.so
 )
 add_test(NAME ThickSlicesCOMTest COMMAND test_thick_slices_com
     ${TEST_DATA_DIR}/mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc
@@ -75,13 +78,13 @@ add_test(NAME ThickSlicesCOMTest COMMAND test_thick_slices_com
 
 add_nr_test(test_world_to_voxel
     SOURCES  Volume.cpp TagWrapper.cpp
-    LINKS    minc2-simple-static minc2 glm
+    LINKS    ${MINC2_SIMPLE_LIB} ${MINC2_LIB} glm /usr/lib/x86_64-linux-gnu/hdf5/serial/libhdf5.so
 )
 add_test(NAME WorldToVoxelTest COMMAND test_world_to_voxel ${TEST_DATA_DIR})
 
 add_nr_test(test_matrix_debug
     SOURCES  Volume.cpp TagWrapper.cpp
-    LINKS    minc2-simple-static minc2 glm
+    LINKS    ${MINC2_SIMPLE_LIB} ${MINC2_LIB} glm /usr/lib/x86_64-linux-gnu/hdf5/serial/libhdf5.so
 )
 add_test(NAME MatrixDebugTest COMMAND test_matrix_debug ${TEST_DATA_DIR})
 
@@ -91,7 +94,7 @@ add_test(NAME MatrixDebugTest COMMAND test_matrix_debug ${TEST_DATA_DIR})
 
 add_nr_test(test_tag_load
     SOURCES  TagWrapper.cpp
-    LINKS    minc2-simple-static minc2 glm
+    LINKS    ${MINC2_SIMPLE_LIB} ${MINC2_LIB} glm /usr/lib/x86_64-linux-gnu/hdf5/serial/libhdf5.so
 )
 add_test(NAME TagLoadTest COMMAND test_tag_load
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -102,12 +105,12 @@ add_test(NAME TagLoadTest COMMAND test_tag_load
 # ------------------------------------------------------------------
 
 add_nr_test(test_volume_info
-    LINKS  minc2-simple-static minc2 glm
+    LINKS  ${MINC2_SIMPLE_LIB} ${MINC2_LIB} glm /usr/lib/x86_64-linux-gnu/hdf5/serial/libhdf5.so
 )
 add_test(NAME VolumeInfoTest COMMAND test_volume_info ${TEST_DATA_DIR})
 
 add_nr_test(test_minc_dims
-    LINKS  minc2-simple-static minc2 glm
+    LINKS  ${MINC2_SIMPLE_LIB} ${MINC2_LIB} glm /usr/lib/x86_64-linux-gnu/hdf5/serial/libhdf5.so
 )
 add_test(NAME MincDimsTest COMMAND test_minc_dims ${TEST_DATA_DIR})
 
@@ -152,8 +155,8 @@ add_test(NAME AppConfigTest COMMAND test_app_config)
 
 add_nr_test(test_transform
     SOURCES   Transform.cpp
-    INCLUDES  ${INC_DIR} ${glm_SOURCE_DIR} ${eigen_INCLUDE_DIR} ${minc2-simple-static_SOURCE_DIR}/src
-    LINKS     glm minc2-simple-static minc2
+    INCLUDES  ${INC_DIR} ${glm_SOURCE_DIR} ${eigen_INCLUDE_DIR} ${minc2-simple-static_INCLUDE_DIR}
+    LINKS     glm ${MINC2_SIMPLE_LIB} ${MINC2_LIB} /usr/lib/x86_64-linux-gnu/hdf5/serial/libhdf5.so
 )
 add_test(NAME TransformTest COMMAND test_transform)
 
