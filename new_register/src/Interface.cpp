@@ -538,13 +538,48 @@ int Interface::renderVolumeColumn(int vi) {
         const float controlsHeightBase = 160.0f * state_.dpiScale_;
         const float controlsHeight = state_.cleanMode_ ? 0.0f : controlsHeightBase;
         float viewAreaHeight = avail.y - controlsHeight;
-        float viewRowHeight = viewAreaHeight / 3.0f;
 
-        if (viewRowHeight < 40.0f * state_.dpiScale_)
-            viewRowHeight = 40.0f * state_.dpiScale_;
+        float viewHeights[3];
+        for (int v = 0; v < 3; ++v) {
+            viewHeights[v] = viewAreaHeight * state_.sharedViewRatios[v];
+            if (viewHeights[v] < 40.0f * state_.dpiScale_)
+                viewHeights[v] = 40.0f * state_.dpiScale_;
+        }
 
         for (int v = 0; v < 3; ++v) {
-            viewDirtyMask |= renderSliceView(vi, v, ImVec2(viewWidth, viewRowHeight));
+            viewDirtyMask |= renderSliceView(vi, v, ImVec2(viewWidth, viewHeights[v]));
+
+            if (v < 2) {
+                ImGuiID splitterId = ImGui::GetID(("##view_splitter_" + std::to_string(v)).c_str());
+                float* size1 = &viewHeights[v];
+                float* size2 = &viewHeights[v + 1];
+
+                ImRect splitterBb;
+                splitterBb.Min = ImVec2(ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y);
+                splitterBb.Max = ImVec2(splitterBb.Min.x + viewWidth, splitterBb.Min.y + 8.0f);
+
+                bool changed = ImGui::SplitterBehavior(
+                    splitterBb, splitterId, ImGuiAxis_Y,
+                    size1, size2,
+                    40.0f * state_.dpiScale_,
+                    40.0f * state_.dpiScale_
+                );
+
+                if (changed) {
+                    float total = *size1 + *size2;
+                    float newRatio1 = *size1 / total;
+                    float newRatio2 = *size2 / total;
+
+                    float oldRatio1 = state_.sharedViewRatios[v];
+                    float oldRatio2 = state_.sharedViewRatios[v + 1];
+                    float oldCombined = oldRatio1 + oldRatio2;
+
+                    state_.sharedViewRatios[v] = newRatio1 * oldCombined;
+                    state_.sharedViewRatios[v + 1] = newRatio2 * oldCombined;
+                }
+
+                ImGui::SetCursorScreenPos(ImVec2(splitterBb.Min.x, splitterBb.Min.y + 8.0f));
+            }
         }
 
         for (int v = 0; v < 3; ++v) {
@@ -849,13 +884,50 @@ void Interface::renderOverlayPanel() {
         const float controlsHeightBase = 160.0f * state_.dpiScale_;
         const float controlsHeight = state_.cleanMode_ ? 0.0f : controlsHeightBase;
         float viewAreaHeight = avail.y - controlsHeight;
-        float viewRowHeight = viewAreaHeight / 3.0f;
-        if (viewRowHeight < 40.0f * state_.dpiScale_)
-            viewRowHeight = 40.0f * state_.dpiScale_;
+
+        float viewHeights[3];
+        for (int v = 0; v < 3; ++v) {
+            viewHeights[v] = viewAreaHeight * state_.sharedViewRatios[v];
+            if (viewHeights[v] < 40.0f * state_.dpiScale_)
+                viewHeights[v] = 40.0f * state_.dpiScale_;
+        }
 
         int overlayDirtyMask = 0;
-        for (int v = 0; v < 3; ++v)
-            overlayDirtyMask |= renderOverlayView(v, ImVec2(avail.x, viewRowHeight));
+        for (int v = 0; v < 3; ++v) {
+            overlayDirtyMask |= renderOverlayView(v, ImVec2(avail.x, viewHeights[v]));
+
+            if (v < 2) {
+                ImGuiID splitterId = ImGui::GetID(("##overlay_splitter_" + std::to_string(v)).c_str());
+                float* size1 = &viewHeights[v];
+                float* size2 = &viewHeights[v + 1];
+
+                ImRect splitterBb;
+                splitterBb.Min = ImVec2(ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y);
+                splitterBb.Max = ImVec2(splitterBb.Min.x + avail.x, splitterBb.Min.y + 8.0f);
+
+                bool changed = ImGui::SplitterBehavior(
+                    splitterBb, splitterId, ImGuiAxis_Y,
+                    size1, size2,
+                    40.0f * state_.dpiScale_,
+                    40.0f * state_.dpiScale_
+                );
+
+                if (changed) {
+                    float total = *size1 + *size2;
+                    float newRatio1 = *size1 / total;
+                    float newRatio2 = *size2 / total;
+
+                    float oldRatio1 = state_.sharedViewRatios[v];
+                    float oldRatio2 = state_.sharedViewRatios[v + 1];
+                    float oldCombined = oldRatio1 + oldRatio2;
+
+                    state_.sharedViewRatios[v] = newRatio1 * oldCombined;
+                    state_.sharedViewRatios[v + 1] = newRatio2 * oldCombined;
+                }
+
+                ImGui::SetCursorScreenPos(ImVec2(splitterBb.Min.x, splitterBb.Min.y + 8.0f));
+            }
+        }
 
         if (overlayDirtyMask) {
             for (int vi = 0; vi < state_.volumeCount(); ++vi)

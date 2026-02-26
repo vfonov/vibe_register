@@ -112,6 +112,8 @@ public:
     std::string localConfigPath_;
     bool layoutInitialized_ = false;
 
+    std::array<float, 3> sharedViewRatios = {0.33f, 0.33f, 0.34f};
+
     int selectedTagIndex_ = -1;
     bool tagListWindowVisible_ = false;
     bool autoSaveTags_ = false;
