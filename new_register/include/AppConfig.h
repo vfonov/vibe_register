@@ -40,6 +40,7 @@ struct GlobalConfig
     bool syncPan = false;
     bool tagListVisible = false;
     bool showOverlay = true;
+    bool showCrosshairs = true;
 };
 
 /// Top-level config structure.

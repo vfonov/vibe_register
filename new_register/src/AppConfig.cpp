@@ -57,6 +57,7 @@ void to_json(nlohmann::json& j, const GlobalConfig& g)
     j["sync_pan"] = g.syncPan;
     j["tag_list_visible"] = g.tagListVisible;
     j["show_overlay"] = g.showOverlay;
+    j["show_crosshairs"] = g.showCrosshairs;
 }
 
 void from_json(const nlohmann::json& j, GlobalConfig& g)
@@ -69,6 +70,7 @@ void from_json(const nlohmann::json& j, GlobalConfig& g)
     if (j.contains("sync_pan"))           j.at("sync_pan").get_to(g.syncPan);
     if (j.contains("tag_list_visible"))   j.at("tag_list_visible").get_to(g.tagListVisible);
     if (j.contains("show_overlay"))       j.at("show_overlay").get_to(g.showOverlay);
+    if (j.contains("show_crosshairs"))    j.at("show_crosshairs").get_to(g.showCrosshairs);
 }
 
 void to_json(nlohmann::json& j, const AppConfig& c)

@@ -202,6 +202,7 @@ void AppState::applyConfig(const AppConfig& cfg, int defaultWindowWidth, int def
     syncPan_ = cfg.global.syncPan;
     tagListWindowVisible_ = cfg.global.tagListVisible;
     showOverlay_ = cfg.global.showOverlay;
+    showCrosshairs_ = cfg.global.showCrosshairs;
 
     for (int vi = 0; vi < static_cast<int>(volumes_.size()); ++vi) {
         VolumeViewState& state = viewStates_[vi];

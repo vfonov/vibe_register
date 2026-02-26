@@ -342,6 +342,9 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
             }
         }
 
+        if (ImGui::Checkbox("Show Crosshairs", &state_.showCrosshairs_)) {
+        }
+
         if (!qcState_.active) {
             ImGui::Text("Tags");
             ImGui::SameLine();
@@ -1260,7 +1263,7 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                     tex->id,
                     imgSize, uv0, uv1);
 
-                {
+                if (state_.showCrosshairs_) {
                     ImDrawList* dl = ImGui::GetWindowDrawList();
                     const ImU32 crossCol = IM_COL32(255, 255, 0, 100);
                     const float crossThick = 1.0f * state_.dpiScale_;
@@ -1591,7 +1594,7 @@ int Interface::renderOverlayView(int viewIndex, const ImVec2& childSize) {
                     tex->id,
                     imgSize, uv0, uv1);
 
-                {
+                if (state_.showCrosshairs_) {
                     ImDrawList* dl = ImGui::GetWindowDrawList();
                     const ImU32 crossCol = IM_COL32(255, 255, 0, 100);
                     const float crossThick = 1.0f * state_.dpiScale_;

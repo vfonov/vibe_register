@@ -105,6 +105,7 @@ public:
     bool syncCursors_ = false;
     bool syncZoom_ = false;
     bool syncPan_ = false;
+    bool showCrosshairs_ = true;
     int lastSyncSource_ = 0;
     int lastSyncView_ = 0;
     bool cursorSyncDirty_ = false;
