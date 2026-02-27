@@ -557,9 +557,10 @@ int Interface::renderVolumeColumn(int vi) {
                 float* size1 = &viewHeights[v];
                 float* size2 = &viewHeights[v + 1];
 
+                constexpr float splitterThick = 4.0f;
                 ImRect splitterBb;
                 splitterBb.Min = ImVec2(ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y);
-                splitterBb.Max = ImVec2(splitterBb.Min.x + viewWidth, splitterBb.Min.y + 8.0f);
+                splitterBb.Max = ImVec2(splitterBb.Min.x + viewWidth, splitterBb.Min.y + splitterThick);
 
                 bool changed = ImGui::SplitterBehavior(
                     splitterBb, splitterId, ImGuiAxis_Y,
@@ -581,7 +582,7 @@ int Interface::renderVolumeColumn(int vi) {
                     state_.sharedViewRatios[v + 1] = newRatio2 * oldCombined;
                 }
 
-                ImGui::SetCursorScreenPos(ImVec2(splitterBb.Min.x, splitterBb.Min.y + 8.0f));
+                ImGui::SetCursorScreenPos(ImVec2(splitterBb.Min.x, splitterBb.Min.y + splitterThick));
             }
         }
 
@@ -1216,7 +1217,9 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
     VolumeViewState& state = state_.viewStates_[vi];
     const Volume& vol = state_.volumes_[vi];
 
-    ImGui::BeginChild(childId, childSize, ImGuiChildFlags_Borders);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::BeginChild(childId, childSize, ImGuiChildFlags_None);
+    ImGui::PopStyleVar();
     {
         if (state.sliceTextures[viewIndex]) {
             Texture* tex = state.sliceTextures[viewIndex].get();
