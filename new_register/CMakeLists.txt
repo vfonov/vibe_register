@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.15)
 project(NewRegister VERSION 0.1.0 LANGUAGES C CXX)
 
+# Add custom cmake modules path for finding HDF5/NetCDF
+set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake-modules" "${CMAKE_MODULE_PATH}")
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -36,7 +39,21 @@ endif()
 find_package(HDF5 REQUIRED COMPONENTS C)
 
 # 2.6 NetCDF (Optional - required for MINC1 support)
-find_package(NetCDF QUIET)
+# Use custom FindNETCDF.cmake from cmake-modules
+set(_netcdf_quiet ${QUIET})
+set(QUIET TRUE)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake-modules/FindNETCDF.cmake)
+set(QUIET ${_netcdf_quiet})
+unset(_netcdf_quiet)
+
+# Workaround: CMake IF command doesn't recognize string "TRUE" from find_module
+# Convert to proper boolean
+if(DEFINED NETCDF_FOUND AND NETCDF_FOUND)
+    set(NetCDF_FOUND TRUE)
+else()
+    set(NetCDF_FOUND FALSE)
+endif()
+
 if(NetCDF_FOUND)
     message(STATUS "NetCDF found: ${NETCDF_INCLUDE_DIR}")
 else()
@@ -315,6 +332,7 @@ target_link_libraries(new_register PRIVATE
     /usr/lib/x86_64-linux-gnu/hdf5/serial/libhdf5.so
     /usr/lib/x86_64-linux-gnu/libz.so
     /usr/lib/x86_64-linux-gnu/libpthread.a
+    ${NETCDF_LIBRARY}
     nlohmann_json::nlohmann_json
     glm
     Threads::Threads
