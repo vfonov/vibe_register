@@ -20,6 +20,13 @@ enum class TransformType
 /// Human-readable display names for each transform type.
 const char* transformTypeName(TransformType type);
 
+/// Short string key for config serialization (e.g. "LSQ6", "TPS").
+const char* transformTypeToString(TransformType type);
+
+/// Parse a config string key back to TransformType.
+/// Returns LSQ6 if the string is unrecognised.
+TransformType transformTypeFromString(const std::string& str);
+
 /// Number of TransformType enum values.
 constexpr int kTransformTypeCount = 6;
 

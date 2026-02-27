@@ -151,6 +151,23 @@ bool AppState::loadCombinedTags(const std::string& path) {
 }
 
 void AppState::saveTags() {
+    // If per-volume mode is explicitly selected, always use per-volume saving
+    if (usePerVolumeTagFiles_) {
+        for (int vi = 0; vi < static_cast<int>(volumes_.size()); ++vi) {
+            if (volumePaths_[vi].empty())
+                continue;
+            std::filesystem::path tagPath(volumePaths_[vi]);
+            tagPath.replace_extension(".tag");
+            try {
+                volumes_[vi].saveTags(tagPath.string());
+                std::cerr << "Saved tags to " << tagPath << "\n";
+            } catch (const std::exception& e) {
+                std::cerr << "Failed to save tags: " << e.what() << "\n";
+            }
+        }
+        return;
+    }
+
     // If combined tag path is set and we have 2+ volumes, save combined
     if (combinedTagPath_[0] != '\0' && volumes_.size() >= 2) {
         saveCombinedTags();
@@ -203,6 +220,9 @@ void AppState::applyConfig(const AppConfig& cfg, int defaultWindowWidth, int def
     tagListWindowVisible_ = cfg.global.tagListVisible;
     showOverlay_ = cfg.global.showOverlay;
     showCrosshairs_ = cfg.global.showCrosshairs;
+    autoSaveTags_ = cfg.global.autoSaveTags;
+    transformType_ = transformTypeFromString(cfg.global.transformType);
+    transformOutOfDate_ = true;
 
     for (int vi = 0; vi < static_cast<int>(volumes_.size()); ++vi) {
         VolumeViewState& state = viewStates_[vi];

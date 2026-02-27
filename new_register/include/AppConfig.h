@@ -41,6 +41,8 @@ struct GlobalConfig
     bool tagListVisible = false;
     bool showOverlay = true;
     bool showCrosshairs = true;
+    bool autoSaveTags = false;                   // Auto-save tags on edit (default: off)
+    std::string transformType = "LSQ6";          // Transform mode: LSQ6..LSQ12, TPS
 };
 
 /// Top-level config structure.

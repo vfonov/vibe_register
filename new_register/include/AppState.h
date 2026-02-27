@@ -118,6 +118,7 @@ public:
     int selectedTagIndex_ = -1;
     bool tagListWindowVisible_ = false;
     bool autoSaveTags_ = false;
+    bool usePerVolumeTagFiles_ = false;  ///< true = per-volume .tag files, false = global/combined
 
     /// --- Transform state ---
     TransformType transformType_ = TransformType::LSQ6;

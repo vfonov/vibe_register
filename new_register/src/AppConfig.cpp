@@ -58,6 +58,8 @@ void to_json(nlohmann::json& j, const GlobalConfig& g)
     j["tag_list_visible"] = g.tagListVisible;
     j["show_overlay"] = g.showOverlay;
     j["show_crosshairs"] = g.showCrosshairs;
+    j["auto_save_tags"] = g.autoSaveTags;
+    j["transform_type"] = g.transformType;
 }
 
 void from_json(const nlohmann::json& j, GlobalConfig& g)
@@ -71,6 +73,8 @@ void from_json(const nlohmann::json& j, GlobalConfig& g)
     if (j.contains("tag_list_visible"))   j.at("tag_list_visible").get_to(g.tagListVisible);
     if (j.contains("show_overlay"))       j.at("show_overlay").get_to(g.showOverlay);
     if (j.contains("show_crosshairs"))    j.at("show_crosshairs").get_to(g.showCrosshairs);
+    if (j.contains("auto_save_tags"))     j.at("auto_save_tags").get_to(g.autoSaveTags);
+    if (j.contains("transform_type"))     j.at("transform_type").get_to(g.transformType);
 }
 
 void to_json(nlohmann::json& j, const AppConfig& c)

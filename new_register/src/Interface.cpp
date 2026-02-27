@@ -1048,6 +1048,30 @@ void Interface::renderTagListWindow() {
             updateTagFileDialogEntries();
         }
 
+        // --- Display currently loaded tag file (two-volume mode) ---
+        if (numVolumes >= 2) {
+            if (state_.usePerVolumeTagFiles_) {
+                ImGui::TextWrapped("Mode: per-volume tag files");
+                for (int vi = 0; vi < numVolumes; ++vi) {
+                    if (!state_.volumePaths_[vi].empty()) {
+                        std::filesystem::path tagPath(state_.volumePaths_[vi]);
+                        tagPath.replace_extension(".tag");
+                        ImGui::TextWrapped("  Vol %d: %s", vi, tagPath.filename().string().c_str());
+                    }
+                }
+            } else if (state_.combinedTagPath_[0] != '\0') {
+                std::filesystem::path p(state_.combinedTagPath_);
+                ImGui::TextWrapped("Tag file: %s", p.filename().string().c_str());
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", state_.combinedTagPath_);
+                }
+            } else {
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.0f, 1.0f), "No tag file loaded");
+            }
+
+            ImGui::Checkbox("Per-volume tag files", &state_.usePerVolumeTagFiles_);
+        }
+
         ImGui::Spacing();
         ImGui::Checkbox("Auto-save Tags", &state_.autoSaveTags_);
 
@@ -2196,6 +2220,8 @@ void Interface::renderConfigFileDialog() {
                         cfg.global.syncZoom = state_.syncZoom_;
                         cfg.global.syncPan = state_.syncPan_;
                         cfg.global.showOverlay = state_.showOverlay_;
+                        cfg.global.autoSaveTags = state_.autoSaveTags_;
+                        cfg.global.transformType = transformTypeToString(state_.transformType_);
                         if (qcState_.active) {
                             cfg.qcColumns = qcState_.columnConfigs;
                         } else {

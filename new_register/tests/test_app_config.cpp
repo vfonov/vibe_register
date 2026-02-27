@@ -67,6 +67,8 @@ static void testMissingFileReturnsDefault()
     CHECK(!cfg.global.syncPan, "default syncPan should be false");
     CHECK(!cfg.global.tagListVisible, "default tagListVisible should be false");
     CHECK(cfg.global.showOverlay, "default showOverlay should be true");
+    CHECK(!cfg.global.autoSaveTags, "default autoSaveTags should be false");
+    CHECK(cfg.global.transformType == "LSQ6", "default transformType should be LSQ6");
     CHECK(!cfg.qcColumns.has_value(), "default qcColumns should be nullopt");
 
     std::cout << " done\n";
@@ -91,6 +93,8 @@ static void testSaveAndReloadRoundTrip()
     original.global.syncPan = true;
     original.global.tagListVisible = true;
     original.global.showOverlay = false;
+    original.global.autoSaveTags = true;
+    original.global.transformType = "LSQ12";
 
     VolumeConfig v1;
     v1.path = "/data/vol1.mnc";
@@ -129,6 +133,10 @@ static void testSaveAndReloadRoundTrip()
     CHECK(loaded.global.syncPan == true, "global.syncPan");
     CHECK(loaded.global.tagListVisible == true, "global.tagListVisible");
     CHECK(loaded.global.showOverlay == false, "global.showOverlay");
+
+    // New config fields
+    CHECK(loaded.global.autoSaveTags == true, "global.autoSaveTags round-trip");
+    CHECK(loaded.global.transformType == "LSQ12", "global.transformType round-trip");
 
     // Verify volumes
     CHECK(loaded.volumes.size() == 2, "should have 2 volumes");

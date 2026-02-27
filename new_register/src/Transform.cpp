@@ -531,6 +531,31 @@ const char* transformTypeName(TransformType type)
     return "Unknown";
 }
 
+const char* transformTypeToString(TransformType type)
+{
+    switch (type)
+    {
+    case TransformType::LSQ6:  return "LSQ6";
+    case TransformType::LSQ7:  return "LSQ7";
+    case TransformType::LSQ9:  return "LSQ9";
+    case TransformType::LSQ10: return "LSQ10";
+    case TransformType::LSQ12: return "LSQ12";
+    case TransformType::TPS:   return "TPS";
+    }
+    return "LSQ6";
+}
+
+TransformType transformTypeFromString(const std::string& str)
+{
+    if (str == "LSQ6")  return TransformType::LSQ6;
+    if (str == "LSQ7")  return TransformType::LSQ7;
+    if (str == "LSQ9")  return TransformType::LSQ9;
+    if (str == "LSQ10") return TransformType::LSQ10;
+    if (str == "LSQ12") return TransformType::LSQ12;
+    if (str == "TPS")   return TransformType::TPS;
+    return TransformType::LSQ6;
+}
+
 // ---------------------------------------------------------------------------
 // TransformResult::transformPoint
 // ---------------------------------------------------------------------------
