@@ -1499,7 +1499,6 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                             }
 
                             if (state_.autoSaveTags_) state_.saveTags();
-                            state_.selectedTagIndex_ = tagCount;
                             state_.invalidateTransform();
                             state_.recomputeTransform();
                             for (int v = 0; v < state_.volumeCount(); ++v) {
