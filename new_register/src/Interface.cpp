@@ -2223,6 +2223,8 @@ void Interface::renderConfigFileDialog() {
                         cfg.global.syncZoom = state_.syncZoom_;
                         cfg.global.syncPan = state_.syncPan_;
                         cfg.global.showOverlay = state_.showOverlay_;
+                        cfg.global.showCrosshairs = state_.showCrosshairs_;
+                        cfg.global.tagListVisible = state_.tagListWindowVisible_;
                         cfg.global.autoSaveTags = state_.autoSaveTags_;
                         cfg.global.transformType = transformTypeToString(state_.transformType_);
                         if (qcState_.active) {

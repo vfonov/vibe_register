@@ -67,6 +67,10 @@ int main(int argc, char** argv)
             ("range", "Set value range for next volume as <min>,<max> (e.g., --range 0,100)", cxxopts::value<std::string>())
             ("qc", "Enable QC mode with input CSV", cxxopts::value<std::string>())
             ("qc-output", "Output CSV for QC verdicts (required with --qc)", cxxopts::value<std::string>())
+            ("sync", "Synchronize all (cursor, zoom, pan)")
+            ("sync-cursor", "Synchronize cursor position across volumes")
+            ("sync-zoom", "Synchronize zoom level across volumes")
+            ("sync-pan", "Synchronize pan position across volumes")
             ("positional", "Volume files", cxxopts::value<std::vector<std::string>>());
 
         opts.parse_positional({"positional"});
@@ -113,6 +117,11 @@ int main(int argc, char** argv)
             std::cerr << "Error: --qc requires --qc-output <path>\n";
             return 1;
         }
+
+        bool cliSyncAll    = result.count("sync") > 0;
+        bool cliSyncCursor = result.count("sync-cursor") > 0 || cliSyncAll;
+        bool cliSyncZoom   = result.count("sync-zoom") > 0   || cliSyncAll;
+        bool cliSyncPan    = result.count("sync-pan") > 0    || cliSyncAll;
 
         std::vector<std::string> volumeFiles;
         std::vector<std::optional<std::string>> cliLutPerVolume;
@@ -696,6 +705,11 @@ int main(int argc, char** argv)
         {
             state.initializeViewStates();
             state.applyConfig(mergedCfg, initW, initH);
+
+            // CLI sync flags override config values.
+            if (cliSyncCursor) state.syncCursors_ = true;
+            if (cliSyncZoom)   state.syncZoom_ = true;
+            if (cliSyncPan)    state.syncPan_ = true;
 
             // CLI LUT flags override config colour maps.
             for (size_t vi = 0; vi < cliLutPerVolume.size() && vi < static_cast<size_t>(state.volumeCount()); ++vi)
