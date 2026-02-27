@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 project(NewRegister VERSION 0.1.0 LANGUAGES C CXX)
 
-# Add custom cmake modules path for finding HDF5/NetCDF
+# Add custom cmake modules path for finding NetCDF
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake-modules" "${CMAKE_MODULE_PATH}")
 
 set(CMAKE_CXX_STANDARD 17)
@@ -36,28 +36,17 @@ if(ENABLE_OPENGL2)
 endif()
 
 # 2.5 HDF5 (Required by minc2 headers)
-find_package(HDF5 REQUIRED COMPONENTS C)
+SET(HDF5_NO_FIND_PACKAGE_CONFIG_FILE ON)
+FIND_PACKAGE(HDF5 REQUIRED COMPONENTS C )
 
-# 2.6 NetCDF (Optional - required for MINC1 support)
-# Use custom FindNETCDF.cmake from cmake-modules
-set(_netcdf_quiet ${QUIET})
-set(QUIET TRUE)
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake-modules/FindNETCDF.cmake)
-set(QUIET ${_netcdf_quiet})
-unset(_netcdf_quiet)
+# For MINC1 support
+FIND_PACKAGE(NETCDF REQUIRED)
 
-# Workaround: CMake IF command doesn't recognize string "TRUE" from find_module
-# Convert to proper boolean
-if(DEFINED NETCDF_FOUND AND NETCDF_FOUND)
-    set(NetCDF_FOUND TRUE)
+
+if(NETCDF_FOUND)
+    message(STATUS "NETCDF found: ${NETCDF_INCLUDE_DIR}")
 else()
-    set(NetCDF_FOUND FALSE)
-endif()
-
-if(NetCDF_FOUND)
-    message(STATUS "NetCDF found: ${NETCDF_INCLUDE_DIR}")
-else()
-    message(STATUS "NetCDF not found - MINC1 support will be disabled")
+    message(STATUS "NETCDF not found - MINC1 support will be disabled")
 endif()
 
 # 2.6 Threads (Required for Prefetcher background thread)
@@ -65,7 +54,12 @@ find_package(Threads REQUIRED)
 
 # --- Force static linking for fetched dependencies ---
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".lib" CACHE STRING "" FORCE)
+set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".lib" ".so"  CACHE STRING "" FORCE)
+
+
+SET(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
+SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+
 
 # 3. Dear ImGui (Docking Branch)
 # Disable all optional builds - we only need the core library
@@ -128,7 +122,7 @@ ExternalProject_Add(Eigen
     GIT_SHALLOW    TRUE
     INSTALL_DIR    ${EIGEN_INSTALL_PREFIX}
     CMAKE_ARGS
-        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
         -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
         -DBUILD_DOCUMENTATION=OFF
         -DBUILD_TESTING=OFF
@@ -154,7 +148,10 @@ target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
 # Try system LIBMINC first, then fall back to FetchContent
 # Only use system libminc if found outside _deps directory
 set(_USE_SYSTEM_MINC OFF)
-find_package(LIBMINC QUIET HINTS ENV MINC_TOOLKIT)
+
+FIND_PATH( MINC_TOOLKIT_DIR bin/mincstats  HINTS $ENV{MINC_TOOLKIT} DOC "minc-toolkit install prefix")
+FIND_PACKAGE( LIBMINC QUIET HINTS ${MINC_TOOLKIT_DIR}/lib${LIB_SUFFIX})
+
 if(LIBMINC_FOUND AND LIBMINC_DIR)
     if(NOT LIBMINC_DIR MATCHES "_deps")
         set(_USE_SYSTEM_MINC ON)
@@ -163,35 +160,39 @@ endif()
 
 if(_USE_SYSTEM_MINC)
     message(STATUS "Using system LIBMINC: ${LIBMINC_DIR}")
-    set(MINC2_LIB minc2)
+    INCLUDE( ${LIBMINC_USE_FILE} )
+    set(MINC2_LIB ${LIBMINC_LIBRARIES})
     set(MINC2_INCLUDE_DIR "${LIBMINC_DIR}/include")
+    set(MINC2_LIB_DIR ${LIBMINC_DIR})
 else()
     message(STATUS "LIBMINC not found or in _deps, using ExternalProject...")
-    
+
     # Use ExternalProject_Add to avoid install pollution
     include(ExternalProject)
     set(LIBMINC_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/libminc_install")
-    
     # Build args - enable MINC1 support if NetCDF is available
     set(_LIBMINC_ARGS
-        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
         -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
         -DBUILD_TESTING=OFF
         -DBUILD_SHARED_LIBS=OFF
         -DLIBMINC_BUILD_EZMINC=OFF
-        -DHDF5_INCLUDE_DIRS=${HDF5_INCLUDE_DIRS}
-        -DHDF5_LIBRARIES=${HDF5_LIBRARIES}
+        -DHDF5_INCLUDE_DIRS:STRING=${HDF5_INCLUDE_DIRS}
+        -DHDF5_C_LIBRARIES:STRING=${HDF5_C_LIBRARIES}
+        -DHDF5_LIBRARY:FILEPATH=${HDF5_LIBRARY}
+        -DHDF5_hdf5_LIBRARY_RELEASE:FILEPATH=${HDF5_hdf5_LIBRARY_RELEASE}
+        -DHDF5_hdf5_LIBRARY_DEBUG:FILEPATH=${HDF5_hdf5_LIBRARY_DEBUG}
     )
     if(NetCDF_FOUND)
         list(APPEND _LIBMINC_ARGS
-            -DLIBMINC_MINC1_SUPPORT=ON
-            -DNETCDF_INCLUDE_DIR=${NETCDF_INCLUDE_DIR}
-            -DNETCDF_LIBRARY=${NETCDF_LIBRARY}
+            -DLIBMINC_MINC1_SUPPORT:BOOL=ON
+            -DNETCDF_INCLUDE_DIR:STRING=${NETCDF_INCLUDE_DIR}
+            -DNETCDF_LIBRARY:STRING=${NETCDF_LIBRARY}
         )
-    else()
-        list(APPEND _LIBMINC_ARGS -DLIBMINC_MINC1_SUPPORT=OFF)
+    #else()
+    #    list(APPEND _LIBMINC_ARGS -DLIBMINC_MINC1_SUPPORT=OFF)
     endif()
-    
+
     ExternalProject_Add(libminc
         GIT_REPOSITORY https://github.com/BIC-MNI/libminc.git
         GIT_TAG        develop
@@ -200,10 +201,9 @@ else()
         CMAKE_ARGS ${_LIBMINC_ARGS}
         BUILD_BYPRODUCTS ${LIBMINC_INSTALL_PREFIX}/lib/libminc2.a
     )
-    
     set(MINC2_LIB "${LIBMINC_INSTALL_PREFIX}/lib/libminc2.a")
     set(MINC2_INCLUDE_DIR "${LIBMINC_INSTALL_PREFIX}/include")
-    set(MINC2_LIB_DIR "${LIBMINC_INSTALL_PREFIX}/lib")
+    set(MINC2_LIB_DIR "${LIBMINC_INSTALL_PREFIX}/lib${LIB_SUFFIX}")
     set(_USE_EXTERNAL_MINC ON)
 endif()
 
@@ -220,6 +220,7 @@ if(NOT _USE_SYSTEM_MINC)
 else()
     set(_MINC2_LIBMINC_PREFIX "${LIBMINC_DIR}")
 endif()
+message("LIBMINC_DIR=${MINC2_LIB_DIR}")
 
 ExternalProject_Add(minc2-simple-static
     GIT_REPOSITORY https://github.com/NIST-MNI/minc2-simple.git
@@ -228,16 +229,18 @@ ExternalProject_Add(minc2-simple-static
     INSTALL_DIR    ${MINC2_SIMPLE_INSTALL_PREFIX}
     DEPENDS        ${_MINC2_DEPENDS}
     CMAKE_ARGS
-        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
         -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
         -DCMAKE_PREFIX_PATH=${_MINC2_LIBMINC_PREFIX}
-        -DCMAKE_C_FLAGS=-I/usr/include/hdf5/serial
-        -DCMAKE_CXX_FLAGS=-I/usr/include/hdf5/serial
-        -DLIBMINC_DIR=${_MINC2_LIBMINC_PREFIX}/lib/cmake
-        -DBUILD_TESTING=OFF
-        -DBUILD_MINC2_SIMPLE_SHARED=OFF
+        -DLIBMINC_DIR=${MINC2_LIB_DIR}/cmake
+        -DBUILD_TESTING:BOOL=OFF
+        -DBUILD_MINC2_SIMPLE_SHARED:BOOL=OFF
+        -DCMAKE_C_FLAGS:STRING=-I${HDF5_INCLUDE_DIRS} # HACK to make it find hdf5.h 
     BUILD_BYPRODUCTS ${MINC2_SIMPLE_INSTALL_PREFIX}/lib/libminc2_simple.a
 )
+if(NOT _USE_SYSTEM_MINC)
+add_dependencies(minc2-simple-static libminc)
+endif()
 
 set(minc2-simple-static_SOURCE_DIR "${MINC2_SIMPLE_INSTALL_PREFIX}/src")
 set(minc2-simple-static_INCLUDE_DIR "${MINC2_SIMPLE_INSTALL_PREFIX}/include")
@@ -321,23 +324,31 @@ if(ENABLE_METAL)
     target_compile_definitions(new_register PRIVATE HAS_METAL=1)
 endif()
 
+# Ensure ExternalProjects are built before the main target
+if(NOT _USE_SYSTEM_MINC)
+    add_dependencies(new_register libminc minc2-simple-static)
+else()
+    add_dependencies(new_register minc2-simple-static)
+endif()
+
 # --- Linking ---
 # Note: Using library file paths instead of targets since ExternalProject creates
 # UTILITY targets that cannot be linked with target_link_libraries
+
+message("NETCDF_LIBRARY=${NETCDF_LIBRARY}")
 target_link_libraries(new_register PRIVATE
-    glfw
     imgui
     ${minc2-simple-static_LIB}
     ${MINC2_LIB}
-    /usr/lib/x86_64-linux-gnu/hdf5/serial/libhdf5.so
-    /usr/lib/x86_64-linux-gnu/libz.so
-    /usr/lib/x86_64-linux-gnu/libpthread.a
     ${NETCDF_LIBRARY}
+    ${HDF5_C_LIBRARIES}
     nlohmann_json::nlohmann_json
     glm
+    glfw
     Threads::Threads
+    ${CMAKE_DL_LIBS}
 )
-target_include_directories(new_register PRIVATE 
+target_include_directories(new_register PRIVATE
     ${MINC2_INCLUDE_DIR}
     ${minc2-simple-static_INCLUDE_DIR}
 )
@@ -353,12 +364,8 @@ if(CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "10.0")
     target_link_libraries(new_register PRIVATE stdc++fs)
 endif()
 
-# Ensure ExternalProjects are built before the main target
-if(NOT _USE_SYSTEM_MINC)
-    add_dependencies(new_register libminc minc2-simple-static)
-else()
-    add_dependencies(new_register minc2-simple-static)
-endif()
+
+INSTALL(TARGETS new_register DESTINATION bin)
 
 # --- Testing ---
 enable_testing()
