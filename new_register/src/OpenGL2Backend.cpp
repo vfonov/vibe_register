@@ -22,6 +22,33 @@
 #include "AppState.h"
 
 // ---------------------------------------------------------------------------
+// OpenGL error checking
+// ---------------------------------------------------------------------------
+
+static void checkGLError(const char* operation, const char* file, int line)
+{
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR)
+    {
+        const char* errStr = "UNKNOWN";
+        switch (err)
+        {
+            case GL_INVALID_ENUM: errStr = "GL_INVALID_ENUM"; break;
+            case GL_INVALID_VALUE: errStr = "GL_INVALID_VALUE"; break;
+            case GL_INVALID_OPERATION: errStr = "GL_INVALID_OPERATION"; break;
+            case GL_STACK_OVERFLOW: errStr = "GL_STACK_OVERFLOW"; break;
+            case GL_STACK_UNDERFLOW: errStr = "GL_STACK_UNDERFLOW"; break;
+            case GL_OUT_OF_MEMORY: errStr = "GL_OUT_OF_MEMORY"; break;
+            case GL_INVALID_FRAMEBUFFER_OPERATION: errStr = "GL_INVALID_FRAMEBUFFER_OPERATION"; break;
+        }
+        std::cerr << "[opengl2] Error in " << operation << " at " << file << ":" << line
+                  << ": " << errStr << " (0x" << std::hex << err << std::dec << ")\n";
+    }
+}
+
+#define GL_CHECK(op) do { op; checkGLError(#op, __FILE__, __LINE__); } while (0)
+
+// ---------------------------------------------------------------------------
 // GLFW hints
 // ---------------------------------------------------------------------------
 
@@ -49,8 +76,8 @@ void OpenGL2Backend::initialize(GLFWwindow* window)
     window_ = window;
 
     // OpenGL requires making the context current before any GL calls.
-    glfwMakeContextCurrent(window);
-    glfwSwapInterval(1);  // VSync
+    GL_CHECK(glfwMakeContextCurrent(window));
+    GL_CHECK(glfwSwapInterval(1));  // VSync
 
     // Query content scale for HiDPI
     {
@@ -64,8 +91,12 @@ void OpenGL2Backend::initialize(GLFWwindow* window)
     glfwGetFramebufferSize(window, &fbWidth_, &fbHeight_);
 
     if (debugLoggingEnabled())
-        std::cerr << "[opengl2] Initialized: " << glGetString(GL_RENDERER)
-                  << " (" << glGetString(GL_VERSION) << ")\n";
+    {
+        const char* renderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+        const char* version = reinterpret_cast<const char*>(glGetString(GL_VERSION));
+        std::cerr << "[opengl2] Initialized: " << (renderer ? renderer : "unknown")
+                  << " (" << (version ? version : "unknown") << ")\n";
+    }
 }
 
 void OpenGL2Backend::shutdown()
@@ -76,7 +107,7 @@ void OpenGL2Backend::shutdown()
 
 void OpenGL2Backend::waitIdle()
 {
-    glFinish();
+    GL_CHECK(glFinish());
 }
 
 // ---------------------------------------------------------------------------
@@ -94,14 +125,14 @@ void OpenGL2Backend::rebuildSwapchain(int width, int height)
 {
     fbWidth_ = width;
     fbHeight_ = height;
-    glViewport(0, 0, width, height);
+    GL_CHECK(glViewport(0, 0, width, height));
 }
 
 void OpenGL2Backend::beginFrame()
 {
     // Update framebuffer size each frame (handles resize)
     glfwGetFramebufferSize(window_, &fbWidth_, &fbHeight_);
-    glViewport(0, 0, fbWidth_, fbHeight_);
+    GL_CHECK(glViewport(0, 0, fbWidth_, fbHeight_));
 }
 
 void OpenGL2Backend::endFrame()
@@ -109,15 +140,15 @@ void OpenGL2Backend::endFrame()
     ImDrawData* drawData = ImGui::GetDrawData();
     if (!drawData) return;
 
-    glViewport(0, 0,
+    GL_CHECK(glViewport(0, 0,
         static_cast<int>(drawData->DisplaySize.x),
-        static_cast<int>(drawData->DisplaySize.y));
-    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
+        static_cast<int>(drawData->DisplaySize.y)));
+    GL_CHECK(glClearColor(0.1f, 0.1f, 0.1f, 1.0f));
+    GL_CHECK(glClear(GL_COLOR_BUFFER_BIT));
 
     ImGui_ImplOpenGL2_RenderDrawData(drawData);
 
-    glfwSwapBuffers(window_);
+    GL_CHECK(glfwSwapBuffers(window_));
 }
 
 // ---------------------------------------------------------------------------
@@ -187,21 +218,21 @@ std::vector<uint8_t> OpenGL2Backend::captureScreenshot(int& width, int& height)
     // Read the front buffer (the last fully-rendered frame) since this method
     // is called mid-frame before endFrame() renders the current frame to the
     // back buffer.
-    glReadBuffer(GL_FRONT);
-    glFinish();
+    GL_CHECK(glReadBuffer(GL_FRONT));
+    GL_CHECK(glFinish());
 
     glfwGetFramebufferSize(window_, &width, &height);
     if (width <= 0 || height <= 0)
     {
-        glReadBuffer(GL_BACK);
+        GL_CHECK(glReadBuffer(GL_BACK));
         return {};
     }
 
     std::vector<uint8_t> pixels(width * height * 4);
-    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    GL_CHECK(glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data()));
 
     // Restore default read buffer
-    glReadBuffer(GL_BACK);
+    GL_CHECK(glReadBuffer(GL_BACK));
 
     // OpenGL reads bottom-to-top; flip vertically for top-to-bottom RGBA.
     int rowBytes = width * 4;
@@ -225,17 +256,22 @@ std::vector<uint8_t> OpenGL2Backend::captureScreenshot(int& width, int& height)
 std::unique_ptr<Texture> OpenGL2Backend::createTexture(int w, int h, const void* data)
 {
     GLuint texId = 0;
-    glGenTextures(1, &texId);
-    glBindTexture(GL_TEXTURE_2D, texId);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    GL_CHECK(glGenTextures(1, &texId));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, texId));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER));
     float borderColor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0,
-                 GL_RGBA, GL_UNSIGNED_BYTE, data);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    GL_CHECK(glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor));
+    GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, data));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, 0));
+
+    if (texId == 0)
+    {
+        throw std::runtime_error("OpenGL2Backend: failed to create texture");
+    }
 
     auto tex = std::make_unique<Texture>();
     tex->id     = static_cast<ImTextureID>(static_cast<intptr_t>(texId));
@@ -252,10 +288,10 @@ void OpenGL2Backend::updateTexture(Texture* tex, const void* data)
     auto it = glTextures_.find(tex->id);
     if (it == glTextures_.end()) return;
 
-    glBindTexture(GL_TEXTURE_2D, it->second);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, tex->width, tex->height,
-                    GL_RGBA, GL_UNSIGNED_BYTE, data);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, it->second));
+    GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, tex->width, tex->height,
+                    GL_RGBA, GL_UNSIGNED_BYTE, data));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, 0));
 }
 
 void OpenGL2Backend::destroyTexture(Texture* tex)
@@ -264,7 +300,7 @@ void OpenGL2Backend::destroyTexture(Texture* tex)
     auto it = glTextures_.find(tex->id);
     if (it != glTextures_.end())
     {
-        glDeleteTextures(1, &it->second);
+        GL_CHECK(glDeleteTextures(1, &it->second));
         glTextures_.erase(it);
     }
     tex->id = 0;
@@ -273,6 +309,8 @@ void OpenGL2Backend::destroyTexture(Texture* tex)
 void OpenGL2Backend::shutdownTextureSystem()
 {
     for (auto& pair : glTextures_)
-        glDeleteTextures(1, &pair.second);
+    {
+        GL_CHECK(glDeleteTextures(1, &pair.second));
+    }
     glTextures_.clear();
 }

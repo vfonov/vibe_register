@@ -105,7 +105,13 @@ void StagingResources::ensureCapacity(VkDeviceSize requiredSize)
     if (err != VK_SUCCESS)
         throw std::runtime_error("StagingResources::ensureCapacity: vkAllocateMemory failed");
 
-    vkBindBufferMemory(g_Device, buffer, memory, 0);
+    err = vkBindBufferMemory(g_Device, buffer, memory, 0);
+    if (err != VK_SUCCESS)
+    {
+        vkFreeMemory(g_Device, memory, nullptr);
+        vkDestroyBuffer(g_Device, buffer, nullptr);
+        throw std::runtime_error("StagingResources::ensureCapacity: vkBindBufferMemory failed");
+    }
 
     // Persistently map (HOST_COHERENT — no explicit flush needed).
     err = vkMapMemory(g_Device, memory, 0, newCap, 0, &mappedPtr);
@@ -204,7 +210,13 @@ std::unique_ptr<VulkanTexture> CreateTexture(int w, int h, const void* data) {
         err = vkAllocateMemory(g_Device, &alloc_info, nullptr, &tex->image_memory);
         if (err != VK_SUCCESS) fail("vkAllocateMemory failed for image");
         
-        vkBindImageMemory(g_Device, tex->image, tex->image_memory, 0);
+        err = vkBindImageMemory(g_Device, tex->image, tex->image_memory, 0);
+        if (err != VK_SUCCESS)
+        {
+            vkFreeMemory(g_Device, tex->image_memory, nullptr);
+            vkDestroyImage(g_Device, tex->image, nullptr);
+            fail("vkBindImageMemory failed");
+        }
     }
 
     // Create Sampler
@@ -263,12 +275,16 @@ void UpdateTexture(VulkanTexture* tex, const void* data) {
     std::memcpy(g_Staging.mappedPtr, data, static_cast<size_t>(image_size));
 
     // Reset and re-record the persistent command buffer.
-    vkResetCommandBuffer(g_Staging.commandBuffer, 0);
+    VkResult err = vkResetCommandBuffer(g_Staging.commandBuffer, 0);
+    if (err != VK_SUCCESS)
+        throw std::runtime_error("UpdateTexture: vkResetCommandBuffer failed");
 
     VkCommandBufferBeginInfo beginInfo = {};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(g_Staging.commandBuffer, &beginInfo);
+    err = vkBeginCommandBuffer(g_Staging.commandBuffer, &beginInfo);
+    if (err != VK_SUCCESS)
+        throw std::runtime_error("UpdateTexture: vkBeginCommandBuffer failed");
 
     // Transition to TRANSFER_DST.
     // On first upload the image is UNDEFINED; on subsequent uploads
@@ -338,18 +354,22 @@ void UpdateTexture(VulkanTexture* tex, const void* data) {
             0, 0, nullptr, 0, nullptr, 1, &barrier);
     }
 
-    vkEndCommandBuffer(g_Staging.commandBuffer);
+    err = vkEndCommandBuffer(g_Staging.commandBuffer);
+    if (err != VK_SUCCESS)
+        throw std::runtime_error("UpdateTexture: vkEndCommandBuffer failed");
 
     VkSubmitInfo submitInfo = {};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &g_Staging.commandBuffer;
 
-    VkResult err = vkQueueSubmit(g_Queue, 1, &submitInfo, VK_NULL_HANDLE);
+    err = vkQueueSubmit(g_Queue, 1, &submitInfo, VK_NULL_HANDLE);
     if (err != VK_SUCCESS)
         throw std::runtime_error("UpdateTexture: vkQueueSubmit failed (err=" +
                                  std::to_string(err) + ")");
-    vkQueueWaitIdle(g_Queue);
+    err = vkQueueWaitIdle(g_Queue);
+    if (err != VK_SUCCESS)
+        throw std::runtime_error("UpdateTexture: vkQueueWaitIdle failed");
 
     tex->uploaded = true;
 }

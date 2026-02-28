@@ -18,10 +18,51 @@
 
 #include "AppState.h"
 
+// ---------------------------------------------------------------------------
+// Vulkan validation layer debug callback
+// ---------------------------------------------------------------------------
+
+static VKAPI_ATTR VkBool32 VKAPI_CALL debugReportCallback(
+    VkDebugReportFlagsEXT flags,
+    VkDebugReportObjectTypeEXT /*objectType*/,
+    uint64_t /*object*/,
+    size_t /*location*/,
+    int32_t /*messageCode*/,
+    const char* pLayerPrefix,
+    const char* pMessage,
+    void* /*pUserData*/)
+{
+    std::cerr << "[vulkan] ";
+    if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
+        std::cerr << "ERROR: ";
+    else if (flags & VK_DEBUG_REPORT_WARNING_BIT_EXT)
+        std::cerr << "WARNING: ";
+    else if (flags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)
+        std::cerr << "PERF: ";
+    else if (flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT)
+        std::cerr << "DEBUG: ";
+    else
+        std::cerr << "INFO: ";
+    std::cerr << "[" << pLayerPrefix << "] " << pMessage << "\n";
+    return VK_FALSE;
+}
+
 // Destructor must be defined here (not defaulted in header) because
 // the header only forward-declares VulkanTexture. The unique_ptr
 // destructor in vulkanTextures_ needs VulkanTexture to be complete.
-VulkanBackend::~VulkanBackend() = default;
+VulkanBackend::~VulkanBackend()
+{
+    if (debugReport_ != VK_NULL_HANDLE && instance_ != VK_NULL_HANDLE)
+    {
+        auto vkDestroyDebugReportCallbackEXT = (PFN_vkDestroyDebugReportCallbackEXT)
+            vkGetInstanceProcAddr(instance_, "vkDestroyDebugReportCallbackEXT");
+        if (vkDestroyDebugReportCallbackEXT)
+        {
+            vkDestroyDebugReportCallbackEXT(instance_, debugReport_, allocator_);
+        }
+        debugReport_ = VK_NULL_HANDLE;
+    }
+}
 
 // ---------------------------------------------------------------------------
 // SIGSEGV guard — catches driver-level crashes (e.g. lavapipe over SSH)
@@ -59,13 +100,57 @@ void VulkanBackend::checkVkResult(VkResult err)
 
 void VulkanBackend::createInstance(const char** extensions, uint32_t extensionCount)
 {
+    // Enable validation layers if debug logging is enabled
+    const char* validationLayerName = "VK_LAYER_KHRONOS_validation";
+    std::vector<const char*> enabledLayers;
+    if (debugLoggingEnabled())
+    {
+        // Check if validation layer is available
+        uint32_t layerCount = 0;
+        vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+        std::vector<VkLayerProperties> availableLayers(layerCount);
+        vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
+
+        for (const auto& layer : availableLayers)
+        {
+            if (std::strcmp(layer.layerName, validationLayerName) == 0)
+            {
+                enabledLayers.push_back(validationLayerName);
+                std::cerr << "[vulkan] Enabling validation layer: " << validationLayerName << "\n";
+                break;
+            }
+        }
+    }
+
     VkInstanceCreateInfo createInfo = {};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     createInfo.enabledExtensionCount = extensionCount;
     createInfo.ppEnabledExtensionNames = extensions;
+    createInfo.enabledLayerCount = static_cast<uint32_t>(enabledLayers.size());
+    createInfo.ppEnabledLayerNames = enabledLayers.data();
 
     VkResult err = vkCreateInstance(&createInfo, allocator_, &instance_);
     checkVkResult(err);
+
+    // Create debug report callback if validation is enabled
+    if (!enabledLayers.empty())
+    {
+        VkDebugReportCallbackCreateInfoEXT callbackInfo = {};
+        callbackInfo.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
+        callbackInfo.flags = VK_DEBUG_REPORT_ERROR_BIT_EXT |
+                             VK_DEBUG_REPORT_WARNING_BIT_EXT |
+                             VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT;
+        callbackInfo.pfnCallback = debugReportCallback;
+
+        auto vkCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)
+            vkGetInstanceProcAddr(instance_, "vkCreateDebugReportCallbackEXT");
+        if (vkCreateDebugReportCallbackEXT)
+        {
+            err = vkCreateDebugReportCallbackEXT(instance_, &callbackInfo, allocator_, &debugReport_);
+            checkVkResult(err);
+            std::cerr << "[vulkan] Debug report callback created\n";
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -805,7 +890,14 @@ std::vector<uint8_t> VulkanBackend::captureScreenshot(int& width, int& height)
         vkDestroyBuffer(device_, stagingBuffer, allocator_);
         return {};
     }
-    vkBindBufferMemory(device_, stagingBuffer, stagingMemory, 0);
+    err = vkBindBufferMemory(device_, stagingBuffer, stagingMemory, 0);
+    checkVkResult(err);
+    if (err != VK_SUCCESS)
+    {
+        vkFreeMemory(device_, stagingMemory, allocator_);
+        vkDestroyBuffer(device_, stagingBuffer, allocator_);
+        return {};
+    }
 
     // Allocate a one-shot command buffer
     VkCommandBuffer cmd;
@@ -814,12 +906,27 @@ std::vector<uint8_t> VulkanBackend::captureScreenshot(int& width, int& height)
     cmdAllocInfo.commandPool        = commandPool_;
     cmdAllocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     cmdAllocInfo.commandBufferCount = 1;
-    vkAllocateCommandBuffers(device_, &cmdAllocInfo, &cmd);
+    err = vkAllocateCommandBuffers(device_, &cmdAllocInfo, &cmd);
+    checkVkResult(err);
+    if (err != VK_SUCCESS || cmd == VK_NULL_HANDLE)
+    {
+        vkFreeMemory(device_, stagingMemory, allocator_);
+        vkDestroyBuffer(device_, stagingBuffer, allocator_);
+        return {};
+    }
 
     VkCommandBufferBeginInfo beginInfo = {};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(cmd, &beginInfo);
+    err = vkBeginCommandBuffer(cmd, &beginInfo);
+    checkVkResult(err);
+    if (err != VK_SUCCESS)
+    {
+        vkFreeMemory(device_, stagingMemory, allocator_);
+        vkDestroyBuffer(device_, stagingBuffer, allocator_);
+        vkFreeCommandBuffers(device_, commandPool_, 1, &cmd);
+        return {};
+    }
 
     // Transition swapchain image: PRESENT_SRC -> TRANSFER_SRC
     VkImageMemoryBarrier barrier = {};
@@ -859,15 +966,18 @@ std::vector<uint8_t> VulkanBackend::captureScreenshot(int& width, int& height)
         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
         0, 0, nullptr, 0, nullptr, 1, &barrier);
 
-    vkEndCommandBuffer(cmd);
+    err = vkEndCommandBuffer(cmd);
+    checkVkResult(err);
 
     // Submit and wait
     VkSubmitInfo submitInfo = {};
     submitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers    = &cmd;
-    vkQueueSubmit(queue_, 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(queue_);
+    err = vkQueueSubmit(queue_, 1, &submitInfo, VK_NULL_HANDLE);
+    checkVkResult(err);
+    err = vkQueueWaitIdle(queue_);
+    checkVkResult(err);
 
     vkFreeCommandBuffers(device_, commandPool_, 1, &cmd);
 
