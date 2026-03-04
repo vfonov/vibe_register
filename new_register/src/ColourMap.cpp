@@ -286,6 +286,131 @@ static const ControlPoint kViridis[] = {
     { 1.00f, 0.993f, 0.906f, 0.144f, 1.0f },
 };
 
+// --- Jet (MATLAB classic rainbow) ---
+static const ControlPoint kJet[] = {
+    { 0.000f, 0.000f, 0.000f, 0.500f, 1.0f },
+    { 0.050f, 0.000f, 0.000f, 0.703f, 1.0f },
+    { 0.100f, 0.000f, 0.000f, 0.906f, 1.0f },
+    { 0.150f, 0.000f, 0.109f, 1.000f, 1.0f },
+    { 0.200f, 0.000f, 0.313f, 1.000f, 1.0f },
+    { 0.250f, 0.000f, 0.516f, 1.000f, 1.0f },
+    { 0.300f, 0.000f, 0.719f, 1.000f, 1.0f },
+    { 0.350f, 0.000f, 0.922f, 1.000f, 1.0f },
+    { 0.400f, 0.125f, 1.000f, 0.875f, 1.0f },
+    { 0.450f, 0.328f, 1.000f, 0.672f, 1.0f },
+    { 0.500f, 0.531f, 1.000f, 0.469f, 1.0f },
+    { 0.550f, 0.734f, 1.000f, 0.266f, 1.0f },
+    { 0.600f, 0.938f, 1.000f, 0.063f, 1.0f },
+    { 0.650f, 1.000f, 0.875f, 0.000f, 1.0f },
+    { 0.700f, 1.000f, 0.672f, 0.000f, 1.0f },
+    { 0.750f, 1.000f, 0.469f, 0.000f, 1.0f },
+    { 0.800f, 1.000f, 0.266f, 0.000f, 1.0f },
+    { 0.850f, 1.000f, 0.063f, 0.000f, 1.0f },
+    { 0.900f, 0.906f, 0.000f, 0.000f, 1.0f },
+    { 0.950f, 0.703f, 0.000f, 0.000f, 1.0f },
+    { 1.000f, 0.500f, 0.000f, 0.000f, 1.0f },
+};
+
+// --- Magma (matplotlib, perceptually uniform sequential) ---
+static const ControlPoint kMagma[] = {
+    { 0.00f, 0.001f, 0.000f, 0.014f, 1.0f },
+    { 0.05f, 0.035f, 0.028f, 0.141f, 1.0f },
+    { 0.10f, 0.090f, 0.045f, 0.272f, 1.0f },
+    { 0.15f, 0.157f, 0.040f, 0.383f, 1.0f },
+    { 0.20f, 0.232f, 0.039f, 0.443f, 1.0f },
+    { 0.25f, 0.311f, 0.064f, 0.467f, 1.0f },
+    { 0.30f, 0.390f, 0.083f, 0.472f, 1.0f },
+    { 0.35f, 0.470f, 0.097f, 0.462f, 1.0f },
+    { 0.40f, 0.550f, 0.113f, 0.438f, 1.0f },
+    { 0.45f, 0.631f, 0.137f, 0.402f, 1.0f },
+    { 0.50f, 0.710f, 0.170f, 0.357f, 1.0f },
+    { 0.55f, 0.784f, 0.215f, 0.310f, 1.0f },
+    { 0.60f, 0.849f, 0.275f, 0.265f, 1.0f },
+    { 0.65f, 0.905f, 0.348f, 0.225f, 1.0f },
+    { 0.70f, 0.948f, 0.432f, 0.196f, 1.0f },
+    { 0.75f, 0.977f, 0.524f, 0.181f, 1.0f },
+    { 0.80f, 0.993f, 0.623f, 0.195f, 1.0f },
+    { 0.85f, 0.998f, 0.726f, 0.247f, 1.0f },
+    { 0.90f, 0.996f, 0.831f, 0.341f, 1.0f },
+    { 0.95f, 0.991f, 0.928f, 0.490f, 1.0f },
+    { 1.00f, 0.987f, 0.991f, 0.750f, 1.0f },
+};
+
+// --- Inferno (matplotlib, perceptually uniform sequential) ---
+static const ControlPoint kInferno[] = {
+    { 0.00f, 0.001f, 0.000f, 0.014f, 1.0f },
+    { 0.05f, 0.035f, 0.021f, 0.134f, 1.0f },
+    { 0.10f, 0.097f, 0.031f, 0.272f, 1.0f },
+    { 0.15f, 0.172f, 0.018f, 0.378f, 1.0f },
+    { 0.20f, 0.253f, 0.014f, 0.415f, 1.0f },
+    { 0.25f, 0.333f, 0.044f, 0.405f, 1.0f },
+    { 0.30f, 0.413f, 0.070f, 0.372f, 1.0f },
+    { 0.35f, 0.492f, 0.095f, 0.328f, 1.0f },
+    { 0.40f, 0.572f, 0.118f, 0.280f, 1.0f },
+    { 0.45f, 0.648f, 0.145f, 0.227f, 1.0f },
+    { 0.50f, 0.722f, 0.179f, 0.172f, 1.0f },
+    { 0.55f, 0.791f, 0.225f, 0.119f, 1.0f },
+    { 0.60f, 0.852f, 0.284f, 0.072f, 1.0f },
+    { 0.65f, 0.903f, 0.358f, 0.035f, 1.0f },
+    { 0.70f, 0.941f, 0.444f, 0.017f, 1.0f },
+    { 0.75f, 0.967f, 0.537f, 0.044f, 1.0f },
+    { 0.80f, 0.980f, 0.637f, 0.115f, 1.0f },
+    { 0.85f, 0.982f, 0.741f, 0.212f, 1.0f },
+    { 0.90f, 0.974f, 0.846f, 0.336f, 1.0f },
+    { 0.95f, 0.964f, 0.940f, 0.497f, 1.0f },
+    { 1.00f, 0.988f, 1.000f, 0.644f, 1.0f },
+};
+
+// --- Plasma (matplotlib, perceptually uniform sequential) ---
+static const ControlPoint kPlasma[] = {
+    { 0.00f, 0.050f, 0.030f, 0.528f, 1.0f },
+    { 0.05f, 0.133f, 0.022f, 0.563f, 1.0f },
+    { 0.10f, 0.210f, 0.013f, 0.579f, 1.0f },
+    { 0.15f, 0.285f, 0.001f, 0.581f, 1.0f },
+    { 0.20f, 0.355f, 0.004f, 0.568f, 1.0f },
+    { 0.25f, 0.421f, 0.023f, 0.543f, 1.0f },
+    { 0.30f, 0.483f, 0.048f, 0.510f, 1.0f },
+    { 0.35f, 0.542f, 0.073f, 0.472f, 1.0f },
+    { 0.40f, 0.598f, 0.098f, 0.432f, 1.0f },
+    { 0.45f, 0.651f, 0.123f, 0.391f, 1.0f },
+    { 0.50f, 0.700f, 0.150f, 0.351f, 1.0f },
+    { 0.55f, 0.747f, 0.180f, 0.311f, 1.0f },
+    { 0.60f, 0.792f, 0.213f, 0.270f, 1.0f },
+    { 0.65f, 0.834f, 0.253f, 0.227f, 1.0f },
+    { 0.70f, 0.874f, 0.300f, 0.183f, 1.0f },
+    { 0.75f, 0.909f, 0.359f, 0.137f, 1.0f },
+    { 0.80f, 0.940f, 0.432f, 0.091f, 1.0f },
+    { 0.85f, 0.963f, 0.517f, 0.050f, 1.0f },
+    { 0.90f, 0.976f, 0.613f, 0.032f, 1.0f },
+    { 0.95f, 0.977f, 0.717f, 0.069f, 1.0f },
+    { 1.00f, 0.940f, 0.975f, 0.131f, 1.0f },
+};
+
+// --- Turbo (Google AI, improved rainbow) ---
+static const ControlPoint kTurbo[] = {
+    { 0.00f, 0.190f, 0.072f, 0.232f, 1.0f },
+    { 0.05f, 0.260f, 0.150f, 0.540f, 1.0f },
+    { 0.10f, 0.305f, 0.250f, 0.760f, 1.0f },
+    { 0.15f, 0.318f, 0.370f, 0.920f, 1.0f },
+    { 0.20f, 0.290f, 0.495f, 0.990f, 1.0f },
+    { 0.25f, 0.227f, 0.615f, 0.980f, 1.0f },
+    { 0.30f, 0.141f, 0.722f, 0.898f, 1.0f },
+    { 0.35f, 0.059f, 0.809f, 0.767f, 1.0f },
+    { 0.40f, 0.040f, 0.872f, 0.613f, 1.0f },
+    { 0.45f, 0.137f, 0.916f, 0.449f, 1.0f },
+    { 0.50f, 0.315f, 0.943f, 0.290f, 1.0f },
+    { 0.55f, 0.510f, 0.954f, 0.155f, 1.0f },
+    { 0.60f, 0.685f, 0.942f, 0.063f, 1.0f },
+    { 0.65f, 0.828f, 0.897f, 0.020f, 1.0f },
+    { 0.70f, 0.930f, 0.822f, 0.011f, 1.0f },
+    { 0.75f, 0.985f, 0.722f, 0.007f, 1.0f },
+    { 0.80f, 0.994f, 0.600f, 0.005f, 1.0f },
+    { 0.85f, 0.960f, 0.472f, 0.004f, 1.0f },
+    { 0.90f, 0.886f, 0.345f, 0.004f, 1.0f },
+    { 0.95f, 0.776f, 0.222f, 0.012f, 1.0f },
+    { 1.00f, 0.647f, 0.108f, 0.024f, 1.0f },
+};
+
 /// Helper macro: number of elements in a C array.
 template<typename T, int N>
 constexpr int countOf(const T (&)[N]) { return N; }
@@ -339,6 +464,16 @@ ColourLut buildLut(ColourMapType type)
         return buildFromControlPoints(kContour, countOf(kContour));
     case ColourMapType::Viridis:
         return buildFromControlPoints(kViridis, countOf(kViridis));
+    case ColourMapType::Jet:
+        return buildFromControlPoints(kJet, countOf(kJet));
+    case ColourMapType::Magma:
+        return buildFromControlPoints(kMagma, countOf(kMagma));
+    case ColourMapType::Inferno:
+        return buildFromControlPoints(kInferno, countOf(kInferno));
+    case ColourMapType::Plasma:
+        return buildFromControlPoints(kPlasma, countOf(kPlasma));
+    case ColourMapType::Turbo:
+        return buildFromControlPoints(kTurbo, countOf(kTurbo));
     default:
         return buildFromControlPoints(kGrayScale, countOf(kGrayScale));
     }
@@ -376,6 +511,11 @@ std::string_view colourMapName(ColourMapType type)
     case ColourMapType::NegBlue:        return "Blue (neg)";
     case ColourMapType::Contour:        return "Contour";
     case ColourMapType::Viridis:        return "Viridis";
+    case ColourMapType::Jet:            return "Jet";
+    case ColourMapType::Magma:          return "Magma";
+    case ColourMapType::Inferno:        return "Inferno";
+    case ColourMapType::Plasma:         return "Plasma";
+    case ColourMapType::Turbo:          return "Turbo";
     default:                            return "Unknown";
     }
 }

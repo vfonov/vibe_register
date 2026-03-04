@@ -34,6 +34,11 @@ enum class ColourMapType
     NegBlue,
     Contour,
     Viridis,
+    Jet,
+    Magma,
+    Inferno,
+    Plasma,
+    Turbo,
 
     Count  // sentinel — must be last
 };
