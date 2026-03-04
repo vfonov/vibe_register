@@ -150,11 +150,15 @@ static void viewAxes(int viewIndex, int& axisU, int& axisV)
 }
 
 /// Resample a rendered slice so that its pixel dimensions reflect the
-/// physical (world-space) voxel aspect ratio.  When voxels are non-uniform
-/// (e.g. 1 mm in-plane but 3 mm slice thickness), the raw pixel buffer has
-/// an incorrect aspect ratio.  This function scales up the under-represented
-/// axis using nearest-neighbour interpolation so that the output pixels are
-/// square in world space, matching new_register's display.
+/// physical (world-space) voxel spacing at the finest resolution present
+/// in the volume.  When voxels are non-uniform (e.g. 3 mm X, 1 mm Y,
+/// 2 mm Z), the raw pixel buffer has an incorrect aspect ratio *and*
+/// views involving coarse axes appear smaller than views with fine axes.
+///
+/// By using the smallest step across all three volume axes as the
+/// target pixel size, every axis is scaled to the same resolution and
+/// all slice planes have consistent visual sizes — matching
+/// new_register's display.
 ///
 /// @param slice       The raw rendered slice (1 voxel = 1 pixel).
 /// @param vol         The reference volume (provides step sizes).
@@ -174,31 +178,18 @@ static RenderedSlice resampleToPhysicalAspect(
     if (stepU < 1e-12 || stepV < 1e-12)
         return slice;
 
-    // Physical extents (mm)
-    double physW = slice.width  * stepU;
-    double physH = slice.height * stepV;
+    // Use the finest voxel step across all three axes as the target
+    // pixel size.  This ensures that all slice planes are rendered at
+    // the same resolution and have consistent visual sizes.
+    double minStep = std::min({std::abs(vol.step[0]),
+                               std::abs(vol.step[1]),
+                               std::abs(vol.step[2])});
+    if (minStep < 1e-12)
+        minStep = std::min(stepU, stepV);
 
-    // Target pixel dimensions: keep the larger pixel dimension, scale up
-    // the other so that outW/outH == physW/physH  (i.e. square pixels in
-    // world space).
-    int outW, outH;
-    if (stepU > stepV)
-    {
-        // U voxels are physically wider → scale up pixel width
-        outW = static_cast<int>(std::round(slice.width * (stepU / stepV)));
-        outH = slice.height;
-    }
-    else if (stepV > stepU)
-    {
-        // V voxels are physically taller → scale up pixel height
-        outW = slice.width;
-        outH = static_cast<int>(std::round(slice.height * (stepV / stepU)));
-    }
-    else
-    {
-        // Already uniform
-        return slice;
-    }
+    // Scale each axis: nVoxels * (voxelSize / targetPixelSize)
+    int outW = static_cast<int>(std::round(slice.width  * (stepU / minStep)));
+    int outH = static_cast<int>(std::round(slice.height * (stepV / minStep)));
 
     if (outW < 1) outW = 1;
     if (outH < 1) outH = 1;
