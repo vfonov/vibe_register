@@ -261,6 +261,31 @@ static const ControlPoint kContour[] = {
     { 1.000f, 1.0f, 1.0f, 1.0f, 1.0f },
 };
 
+// --- Viridis (perceptually uniform, matplotlib reference) ---
+static const ControlPoint kViridis[] = {
+    { 0.00f, 0.267f, 0.004f, 0.329f, 1.0f },
+    { 0.05f, 0.283f, 0.141f, 0.458f, 1.0f },
+    { 0.10f, 0.283f, 0.232f, 0.536f, 1.0f },
+    { 0.15f, 0.271f, 0.309f, 0.584f, 1.0f },
+    { 0.20f, 0.248f, 0.377f, 0.614f, 1.0f },
+    { 0.25f, 0.220f, 0.439f, 0.632f, 1.0f },
+    { 0.30f, 0.191f, 0.496f, 0.640f, 1.0f },
+    { 0.35f, 0.164f, 0.550f, 0.641f, 1.0f },
+    { 0.40f, 0.139f, 0.603f, 0.632f, 1.0f },
+    { 0.45f, 0.122f, 0.653f, 0.612f, 1.0f },
+    { 0.50f, 0.127f, 0.702f, 0.578f, 1.0f },
+    { 0.55f, 0.166f, 0.749f, 0.531f, 1.0f },
+    { 0.60f, 0.244f, 0.791f, 0.469f, 1.0f },
+    { 0.65f, 0.348f, 0.827f, 0.396f, 1.0f },
+    { 0.70f, 0.472f, 0.855f, 0.310f, 1.0f },
+    { 0.75f, 0.601f, 0.875f, 0.222f, 1.0f },
+    { 0.80f, 0.733f, 0.884f, 0.141f, 1.0f },
+    { 0.85f, 0.854f, 0.887f, 0.098f, 1.0f },
+    { 0.90f, 0.945f, 0.890f, 0.153f, 1.0f },
+    { 0.95f, 0.985f, 0.905f, 0.306f, 1.0f },
+    { 1.00f, 0.993f, 0.906f, 0.144f, 1.0f },
+};
+
 /// Helper macro: number of elements in a C array.
 template<typename T, int N>
 constexpr int countOf(const T (&)[N]) { return N; }
@@ -312,6 +337,8 @@ ColourLut buildLut(ColourMapType type)
         return buildFromControlPoints(kNegBlue, countOf(kNegBlue));
     case ColourMapType::Contour:
         return buildFromControlPoints(kContour, countOf(kContour));
+    case ColourMapType::Viridis:
+        return buildFromControlPoints(kViridis, countOf(kViridis));
     default:
         return buildFromControlPoints(kGrayScale, countOf(kGrayScale));
     }
@@ -348,6 +375,7 @@ std::string_view colourMapName(ColourMapType type)
     case ColourMapType::NegGreen:       return "Green (neg)";
     case ColourMapType::NegBlue:        return "Blue (neg)";
     case ColourMapType::Contour:        return "Contour";
+    case ColourMapType::Viridis:        return "Viridis";
     default:                            return "Unknown";
     }
 }

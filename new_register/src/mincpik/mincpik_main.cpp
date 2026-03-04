@@ -407,6 +407,8 @@ int main(int argc, char** argv)
 
             if (perVolOpts[i].colourMap)
                 params[i].colourMap = *perVolOpts[i].colourMap;
+            else if (perVolOpts[i].isLabel)
+                params[i].colourMap = ColourMapType::Viridis;
             if (perVolOpts[i].range)
             {
                 params[i].valueMin = (*perVolOpts[i].range)[0];

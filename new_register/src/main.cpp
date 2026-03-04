@@ -740,6 +740,9 @@ int main(int argc, char** argv)
                 if (cliLabelVolumePerVolume[vi])
                 {
                     state.volumes_[vi].setLabelVolume(true);
+                    // Default to Viridis for label volumes unless an explicit LUT was given.
+                    if (!cliLutPerVolume[vi].has_value())
+                        state.viewStates_[vi].colourMap = ColourMapType::Viridis;
                 }
                 if (cliLabelDescPerVolume[vi].has_value())
                 {

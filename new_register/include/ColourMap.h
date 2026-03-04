@@ -33,6 +33,7 @@ enum class ColourMapType
     NegGreen,
     NegBlue,
     Contour,
+    Viridis,
 
     Count  // sentinel — must be last
 };
