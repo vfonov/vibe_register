@@ -84,7 +84,10 @@ int main(int argc, char** argv)
                       << "  vulkan   Vulkan (default where available, best performance)\n"
                       << "  opengl2  OpenGL 2.1 (legacy, works over SSH/X11)\n"
                       << "  auto     Auto-detect best available (default)\n"
-                      << "\nLUT and range flags apply to the next volume file on the command line.\n"
+                      << "\nAvailable colour maps (for --lut):\n";
+            for (int cm = 0; cm < colourMapCount(); ++cm)
+                std::cout << "  " << colourMapName(static_cast<ColourMapType>(cm)) << "\n";
+            std::cout << "\nLUT and range flags apply to the next volume file on the command line.\n"
                       << "Example: new_register --gray --range 0,100 vol1.mnc -r vol2.mnc\n";
             return 0;
         }

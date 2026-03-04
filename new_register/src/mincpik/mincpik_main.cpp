@@ -227,7 +227,10 @@ int main(int argc, char** argv)
         if (result.count("help"))
         {
             std::cout << opts.help() << "\n"
-                      << "Example:\n"
+                      << "Available colour maps (for --lut):\n";
+            for (int cm = 0; cm < colourMapCount(); ++cm)
+                std::cout << "  " << colourMapName(static_cast<ColourMapType>(cm)) << "\n";
+            std::cout << "\nExample:\n"
                       << "  new_mincpik --gray vol1.mnc -r vol2.mnc --coronal 5 -o mosaic.png\n";
             return 0;
         }
@@ -295,7 +298,14 @@ int main(int argc, char** argv)
                         if (cmOpt)
                             pendingLut = *cmOpt;
                         else
-                            std::cerr << "Warning: unknown colour map '" << argv[i] << "'\n";
+                        {
+                            std::cerr << "Unknown colour map: " << argv[i] << "\n"
+                                      << "Available maps:";
+                            for (int cm = 0; cm < colourMapCount(); ++cm)
+                                std::cerr << " " << colourMapName(static_cast<ColourMapType>(cm));
+                            std::cerr << "\n";
+                            return 1;
+                        }
                     }
                     else if (arg == "-L" || arg == "--labels")
                     {
