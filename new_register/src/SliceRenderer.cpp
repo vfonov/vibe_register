@@ -1,0 +1,561 @@
+#include "SliceRenderer.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+
+// ---------------------------------------------------------------------------
+// renderSlice — single-volume 2D slice (port of ViewManager::updateSliceTexture
+//               CPU portion, lines 15-183)
+// ---------------------------------------------------------------------------
+
+RenderedSlice renderSlice(
+    const Volume& vol,
+    const VolumeRenderParams& params,
+    int viewIndex,
+    int sliceIndex)
+{
+    RenderedSlice result;
+
+    if (vol.data.empty())
+        return result;
+
+    // Hoist LUT pointer and colour count
+    const uint32_t* mainLut = colourMapLut(params.colourMap).table.data();
+    int numMaps = colourMapCount();
+
+    int dimX = vol.dimensions.x;
+    int dimY = vol.dimensions.y;
+    int dimZ = vol.dimensions.z;
+
+    float rangeMin = static_cast<float>(params.valueMin);
+    float rangeMax = static_cast<float>(params.valueMax);
+    float rangeSpan = rangeMax - rangeMin;
+    if (rangeSpan < 1e-12f)
+        rangeSpan = 1e-12f;
+    float invSpan = 1.0f / rangeSpan;
+
+    // Pre-resolve under/over LUT pointers
+    int underMode = params.underColourMode;
+    uint32_t underColour = 0x00000000;
+    bool underTransparent = (underMode == kSliceClampTransparent);
+    if (!underTransparent)
+    {
+        ColourMapType underMap = params.colourMap;
+        if (underMode >= 0 && underMode < numMaps)
+            underMap = static_cast<ColourMapType>(underMode);
+        underColour = colourMapLut(underMap).table[0];
+    }
+
+    int overMode = params.overColourMode;
+    uint32_t overColour = 0x00000000;
+    bool overTransparent = (overMode == kSliceClampTransparent);
+    if (!overTransparent)
+    {
+        ColourMapType overMap = params.colourMap;
+        if (overMode >= 0 && overMode < numMaps)
+            overMap = static_cast<ColourMapType>(overMode);
+        overColour = colourMapLut(overMap).table[255];
+    }
+
+    // For label volumes: build label-to-index mapping if a non-default colour
+    // map is selected, so labels are rendered via the colour map LUT instead
+    // of per-label RGBA.
+    bool useColourMapForLabel = vol.isLabelVolume() && params.colourMap != ColourMapType::GrayScale;
+    std::unordered_map<int, int> labelToIndex;
+    size_t labelCount = 0;
+    if (useColourMapForLabel)
+    {
+        std::vector<int> uniqueLabels = vol.getUniqueLabelIds();
+        for (size_t i = 0; i < uniqueLabels.size(); ++i)
+            labelToIndex[uniqueLabels[i]] = static_cast<int>(i);
+        labelCount = uniqueLabels.size();
+    }
+
+    // Lambda: map a raw voxel value to a packed 0xAABBGGRR colour.
+    auto voxelToColour = [&](float val) -> uint32_t {
+        // Label volumes
+        if (vol.isLabelVolume())
+        {
+            int labelId = static_cast<int>(std::round(val));
+            if (labelId == 0)
+                return 0x00000000;  // transparent background
+
+            if (useColourMapForLabel)
+            {
+                auto it = labelToIndex.find(labelId);
+                if (it != labelToIndex.end() && labelCount > 0)
+                {
+                    int idx = static_cast<int>(
+                        (static_cast<float>(it->second) / static_cast<float>(labelCount)) * 255.0f);
+                    return mainLut[idx];
+                }
+                return 0x00000000;  // unknown label
+            }
+
+            // Default: use per-label LUT
+            const auto& labelLUT = vol.getLabelLUT();
+            auto it = labelLUT.find(labelId);
+            if (it != labelLUT.end())
+            {
+                const LabelInfo& info = it->second;
+                if (!info.visible)
+                    return 0x00000000;
+                return static_cast<uint32_t>(info.r) |
+                       (static_cast<uint32_t>(info.g) << 8) |
+                       (static_cast<uint32_t>(info.b) << 16) |
+                       (static_cast<uint32_t>(info.a) << 24);
+            }
+
+            // Label not in LUT: deterministic grayscale
+            int gray = (labelId * 17) % 256;
+            return static_cast<uint32_t>(gray) |
+                   (static_cast<uint32_t>(gray) << 8) |
+                   (static_cast<uint32_t>(gray) << 16) |
+                   0xFF000000;
+        }
+
+        // Regular volume: colour map with under/over clamping
+        if (val < rangeMin)
+            return underTransparent ? 0x00000000 : underColour;
+        if (val > rangeMax)
+            return overTransparent ? 0x00000000 : overColour;
+        int idx = static_cast<int>((val - rangeMin) * invSpan * 255.0f + 0.5f);
+        if (idx > 255)
+            idx = 255;
+        return mainLut[idx];
+    };
+
+    const float* vdata = vol.data.data();
+    int w, h;
+
+    if (viewIndex == 0)
+    {
+        // Axial (Z): px=X, py=Y
+        w = dimX;
+        h = dimY;
+        int z = std::clamp(sliceIndex, 0, dimZ - 1);
+
+        result.pixels.resize(w * h);
+        int zOff = z * dimY * dimX;
+        for (int y = 0; y < h; ++y)
+        {
+            int rowOff = zOff + y * dimX;
+            int dstOff = (h - 1 - y) * w;
+            for (int x = 0; x < w; ++x)
+                result.pixels[dstOff + x] = voxelToColour(vdata[rowOff + x]);
+        }
+    }
+    else if (viewIndex == 1)
+    {
+        // Sagittal (X): px=Y, py=Z
+        w = dimY;
+        h = dimZ;
+        int x = std::clamp(sliceIndex, 0, dimX - 1);
+
+        result.pixels.resize(w * h);
+        for (int z = 0; z < h; ++z)
+        {
+            int zOff = z * dimY * dimX + x;
+            int dstOff = (h - 1 - z) * w;
+            for (int y = 0; y < w; ++y)
+                result.pixels[dstOff + y] = voxelToColour(vdata[zOff + y * dimX]);
+        }
+    }
+    else
+    {
+        // Coronal (Y): px=X, py=Z
+        w = dimX;
+        h = dimZ;
+        int y = std::clamp(sliceIndex, 0, dimY - 1);
+
+        result.pixels.resize(w * h);
+        int yOff = y * dimX;
+        for (int z = 0; z < h; ++z)
+        {
+            int zOff = z * dimY * dimX + yOff;
+            int dstOff = (h - 1 - z) * w;
+            for (int x = 0; x < w; ++x)
+                result.pixels[dstOff + x] = voxelToColour(vdata[zOff + x]);
+        }
+    }
+
+    result.width = w;
+    result.height = h;
+    return result;
+}
+
+// ---------------------------------------------------------------------------
+// renderOverlaySlice — multi-volume composite (port of
+//                      ViewManager::updateOverlayTexture CPU portion,
+//                      lines 198-555)
+// ---------------------------------------------------------------------------
+
+RenderedSlice renderOverlaySlice(
+    const std::vector<const Volume*>& volumes,
+    const std::vector<VolumeRenderParams>& params,
+    int viewIndex,
+    int sliceIndex,
+    const TransformResult* transform)
+{
+    RenderedSlice result;
+
+    int numVols = static_cast<int>(volumes.size());
+    if (numVols < 2)
+        return result;
+
+    const Volume& ref = *volumes[0];
+    if (ref.data.empty())
+        return result;
+
+    int w, h;
+    if (viewIndex == 0)
+    {
+        w = ref.dimensions.x;
+        h = ref.dimensions.y;
+    }
+    else if (viewIndex == 1)
+    {
+        w = ref.dimensions.y;
+        h = ref.dimensions.z;
+    }
+    else
+    {
+        w = ref.dimensions.x;
+        h = ref.dimensions.z;
+    }
+
+    // --- Per-volume precomputed data ---
+    struct PerVolInfo
+    {
+        glm::dmat4 combined;         // ref-voxel -> target-voxel transform
+        const float* vdata;
+        glm::ivec3 dims;
+        int dimXY;
+        float rangeMin, rangeMax, invSpan;
+        const uint32_t* mainLut;
+        uint32_t underColour, overColour;
+        bool underTransparent, overTransparent;
+        float alpha;
+        bool useTPSInverse = false;
+        glm::dmat4 targetWorldToVox;
+        bool isLabelVolume = false;
+        const std::unordered_map<int, LabelInfo>* labelLUT = nullptr;
+        bool useColourMapForLabel = false;
+        std::unordered_map<int, int> labelToIndex;
+        size_t labelCacheSize = 0;
+    };
+
+    int numMaps = colourMapCount();
+    std::vector<PerVolInfo> infos;
+    infos.reserve(numVols);
+
+    // Determine transform availability
+    bool hasTransform = (transform != nullptr && transform->valid && numVols >= 2);
+    bool hasLinearTransform = hasTransform && (transform->type != TransformType::TPS);
+    bool hasTPSTransform = hasTransform && (transform->type == TransformType::TPS);
+
+    glm::dmat4 invLinear{1.0};
+    if (hasLinearTransform)
+        invLinear = glm::inverse(transform->linearMatrix);
+
+    for (int vi = 0; vi < numVols; ++vi)
+    {
+        const Volume& vol = *volumes[vi];
+        const VolumeRenderParams& p = params[vi];
+        if (vol.data.empty() || p.overlayAlpha <= 0.0f)
+            continue;
+
+        PerVolInfo info;
+
+        if (vi == 1 && hasLinearTransform)
+        {
+            info.combined = vol.worldToVoxel * invLinear * ref.voxelToWorld;
+        }
+        else if (vi == 1 && hasTPSTransform)
+        {
+            info.combined = vol.worldToVoxel * ref.voxelToWorld;  // unused in pixel loop
+            info.useTPSInverse = true;
+            info.targetWorldToVox = vol.worldToVoxel;
+        }
+        else
+        {
+            info.combined = vol.worldToVoxel * ref.voxelToWorld;
+        }
+
+        info.vdata = vol.data.data();
+        info.dims = vol.dimensions;
+        info.dimXY = vol.dimensions.x * vol.dimensions.y;
+        info.rangeMin = static_cast<float>(p.valueMin);
+        info.rangeMax = static_cast<float>(p.valueMax);
+        float span = info.rangeMax - info.rangeMin;
+        if (span < 1e-12f)
+            span = 1e-12f;
+        info.invSpan = 1.0f / span;
+        info.mainLut = colourMapLut(p.colourMap).table.data();
+        info.alpha = p.overlayAlpha;
+
+        // Pre-resolve under/over colours
+        int underMode = p.underColourMode;
+        info.underTransparent = (underMode == kSliceClampTransparent);
+        info.underColour = 0x00000000;
+        if (!info.underTransparent)
+        {
+            ColourMapType underMap = p.colourMap;
+            if (underMode >= 0 && underMode < numMaps)
+                underMap = static_cast<ColourMapType>(underMode);
+            info.underColour = colourMapLut(underMap).table[0];
+        }
+
+        int overMode = p.overColourMode;
+        info.overTransparent = (overMode == kSliceClampTransparent);
+        info.overColour = 0x00000000;
+        if (!info.overTransparent)
+        {
+            ColourMapType overMap = p.colourMap;
+            if (overMode >= 0 && overMode < numMaps)
+                overMap = static_cast<ColourMapType>(overMode);
+            info.overColour = colourMapLut(overMap).table[255];
+        }
+
+        // Label volume support
+        info.isLabelVolume = vol.isLabelVolume();
+        if (info.isLabelVolume)
+        {
+            info.labelLUT = &vol.getLabelLUT();
+            if (p.colourMap != ColourMapType::GrayScale)
+            {
+                info.useColourMapForLabel = true;
+                std::vector<int> uniqueLabels = vol.getUniqueLabelIds();
+                for (size_t i = 0; i < uniqueLabels.size(); ++i)
+                    info.labelToIndex[uniqueLabels[i]] = static_cast<int>(i);
+                info.labelCacheSize = uniqueLabels.size();
+            }
+        }
+
+        infos.push_back(std::move(info));
+    }
+
+    result.pixels.resize(w * h);
+
+    // Precompute ref-voxel base and row/col deltas for the 2D scan
+    glm::dvec3 refBase, refDpx, refDpy;
+    if (viewIndex == 0)
+    {
+        int z = std::clamp(sliceIndex, 0, ref.dimensions.z - 1);
+        refBase = glm::dvec3(0.0, 0.0, static_cast<double>(z));
+        refDpx = glm::dvec3(1.0, 0.0, 0.0);
+        refDpy = glm::dvec3(0.0, 1.0, 0.0);
+    }
+    else if (viewIndex == 1)
+    {
+        int x = std::clamp(sliceIndex, 0, ref.dimensions.x - 1);
+        refBase = glm::dvec3(static_cast<double>(x), 0.0, 0.0);
+        refDpx = glm::dvec3(0.0, 1.0, 0.0);
+        refDpy = glm::dvec3(0.0, 0.0, 1.0);
+    }
+    else
+    {
+        int y = std::clamp(sliceIndex, 0, ref.dimensions.y - 1);
+        refBase = glm::dvec3(0.0, static_cast<double>(y), 0.0);
+        refDpx = glm::dvec3(1.0, 0.0, 0.0);
+        refDpy = glm::dvec3(0.0, 0.0, 1.0);
+    }
+
+    // Precompute scanline parameters per volume
+    struct ScanInfo
+    {
+        glm::dvec3 base;
+        glm::dvec3 dpx;
+        glm::dvec3 dpy;
+    };
+    std::vector<ScanInfo> scans(infos.size());
+    for (size_t i = 0; i < infos.size(); ++i)
+    {
+        if (infos[i].useTPSInverse)
+            continue;
+        const auto& M = infos[i].combined;
+        glm::dvec4 bH = M * glm::dvec4(refBase, 1.0);
+        glm::dvec4 dxH = M * glm::dvec4(refDpx, 0.0);
+        glm::dvec4 dyH = M * glm::dvec4(refDpy, 0.0);
+        scans[i].base = glm::dvec3(bH);
+        scans[i].dpx = glm::dvec3(dxH);
+        scans[i].dpy = glm::dvec3(dyH);
+    }
+
+    // For TPS per-pixel path: precompute ref-voxel -> world scanline params
+    glm::dvec3 worldBase(0.0), worldDpx(0.0), worldDpy(0.0);
+    bool anyTPS = false;
+    for (const auto& info : infos)
+    {
+        if (info.useTPSInverse)
+        {
+            anyTPS = true;
+            break;
+        }
+    }
+    if (anyTPS)
+    {
+        const auto& V2W = ref.voxelToWorld;
+        glm::dvec4 bH  = V2W * glm::dvec4(refBase, 1.0);
+        glm::dvec4 dxH = V2W * glm::dvec4(refDpx, 0.0);
+        glm::dvec4 dyH = V2W * glm::dvec4(refDpy, 0.0);
+        worldBase = glm::dvec3(bH);
+        worldDpx  = glm::dvec3(dxH);
+        worldDpy  = glm::dvec3(dyH);
+    }
+
+    // Pixel loop
+    for (int py = 0; py < h; ++py)
+    {
+        int dstRowOff = (h - 1 - py) * w;
+
+        for (int px = 0; px < w; ++px)
+        {
+            float accR = 0.0f, accG = 0.0f, accB = 0.0f;
+            float totalWeight = 0.0f;
+
+            for (size_t vi = 0; vi < infos.size(); ++vi)
+            {
+                const auto& info = infos[vi];
+
+                glm::dvec3 tv;
+                if (info.useTPSInverse)
+                {
+                    glm::dvec3 worldPt = worldBase + static_cast<double>(px) * worldDpx
+                                                   + static_cast<double>(py) * worldDpy;
+                    glm::dvec3 vol1World = transform->inverseTransformPoint(worldPt);
+                    glm::dvec4 vox = info.targetWorldToVox * glm::dvec4(vol1World, 1.0);
+                    tv = glm::dvec3(vox);
+                }
+                else
+                {
+                    const auto& sc = scans[vi];
+                    tv = sc.base + static_cast<double>(px) * sc.dpx
+                                 + static_cast<double>(py) * sc.dpy;
+                }
+
+                int tx = static_cast<int>(std::round(tv.x));
+                int ty = static_cast<int>(std::round(tv.y));
+                int tz = static_cast<int>(std::round(tv.z));
+
+                // Bounds check
+                if (tx < 0 || tx >= info.dims.x ||
+                    ty < 0 || ty >= info.dims.y ||
+                    tz < 0 || tz >= info.dims.z)
+                    continue;
+
+                float raw = info.vdata[tz * info.dimXY + ty * info.dims.x + tx];
+
+                uint32_t packed;
+                if (info.isLabelVolume)
+                {
+                    int labelId = static_cast<int>(std::round(raw));
+                    if (labelId == 0)
+                        continue;
+
+                    if (info.useColourMapForLabel)
+                    {
+                        auto it = info.labelToIndex.find(labelId);
+                        if (it != info.labelToIndex.end() && info.labelCacheSize > 0)
+                        {
+                            int idx = static_cast<int>(
+                                (static_cast<float>(it->second) / static_cast<float>(info.labelCacheSize)) * 255.0f);
+                            packed = info.mainLut[idx];
+                        }
+                        else
+                        {
+                            continue;  // unknown label
+                        }
+                    }
+                    else if (info.labelLUT)
+                    {
+                        auto it = info.labelLUT->find(labelId);
+                        if (it != info.labelLUT->end())
+                        {
+                            const LabelInfo& lbl = it->second;
+                            if (!lbl.visible)
+                                continue;
+                            packed = static_cast<uint32_t>(lbl.r) |
+                                     (static_cast<uint32_t>(lbl.g) << 8) |
+                                     (static_cast<uint32_t>(lbl.b) << 16) |
+                                     (static_cast<uint32_t>(lbl.a) << 24);
+                            if (lbl.a == 0)
+                                continue;
+                        }
+                        else
+                        {
+                            int gray = (labelId * 17) % 256;
+                            packed = static_cast<uint32_t>(gray) |
+                                     (static_cast<uint32_t>(gray) << 8) |
+                                     (static_cast<uint32_t>(gray) << 16) |
+                                     0xFF000000;
+                        }
+                    }
+                    else
+                    {
+                        int gray = (labelId * 17) % 256;
+                        packed = static_cast<uint32_t>(gray) |
+                                 (static_cast<uint32_t>(gray) << 8) |
+                                 (static_cast<uint32_t>(gray) << 16) |
+                                 0xFF000000;
+                    }
+                }
+                else if (raw < info.rangeMin)
+                {
+                    if (info.underTransparent)
+                        continue;
+                    packed = info.underColour;
+                }
+                else if (raw > info.rangeMax)
+                {
+                    if (info.overTransparent)
+                        continue;
+                    packed = info.overColour;
+                }
+                else
+                {
+                    int lutIdx = static_cast<int>(
+                        (raw - info.rangeMin) * info.invSpan * 255.0f + 0.5f);
+                    if (lutIdx > 255)
+                        lutIdx = 255;
+                    packed = info.mainLut[lutIdx];
+                }
+
+                if ((packed >> 24) == 0)
+                    continue;
+
+                float srcR = static_cast<float>((packed >> 0) & 0xFF) * (1.0f / 255.0f);
+                float srcG = static_cast<float>((packed >> 8) & 0xFF) * (1.0f / 255.0f);
+                float srcB = static_cast<float>((packed >> 16) & 0xFF) * (1.0f / 255.0f);
+
+                accR += srcR * info.alpha;
+                accG += srcG * info.alpha;
+                accB += srcB * info.alpha;
+                totalWeight += info.alpha;
+            }
+
+            if (totalWeight > 0.0f)
+            {
+                float inv = 1.0f / totalWeight;
+                accR *= inv;
+                accG *= inv;
+                accB *= inv;
+            }
+
+            auto toByte = [](float v) -> uint32_t {
+                int c = static_cast<int>(v * 255.0f + 0.5f);
+                return static_cast<uint32_t>(c < 0 ? 0 : (c > 255 ? 255 : c));
+            };
+
+            result.pixels[dstRowOff + px] = toByte(accR)
+                                           | (toByte(accG) << 8)
+                                           | (toByte(accB) << 16)
+                                           | (0xFFu << 24);
+        }
+    }
+
+    result.width = w;
+    result.height = h;
+    return result;
+}

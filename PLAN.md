@@ -69,6 +69,10 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan/OpenGL 2,
 - [x] `--lut <name>` — set any colour map by name for next volume
 - [x] `--range <min>,<max>` — set value range for next volume (e.g., `--range 0,100`)
 - [x] `-B`/`--backend <name>` — graphics backend: `auto`, `vulkan`, `opengl2` (default: auto)
+- [x] `--sync` — synchronize all (cursor, zoom, pan)
+- [x] `--sync-cursor` — synchronize cursor position across volumes
+- [x] `--sync-zoom` — synchronize zoom level across volumes
+- [x] `--sync-pan` — synchronize pan position across volumes
 - Example: `new_register --gray vol1.mnc -r vol2.mnc`
 
 ### Multi-Backend Graphics
@@ -120,8 +124,7 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan/OpenGL 2,
 - [x] Works with both Vulkan and OpenGL 2 backends
 
 ### Tests
-- [x] 12 test suites (volume loading, colour maps, transforms, coordinate sync, tags, QC CSV, etc.)
-- [x] 13 test suites (added test_app_config for AppConfig JSON round-trips)
+- [x] 14 test suites (volume loading, colour maps, transforms, coordinate sync, tags, QC CSV, AppConfig, etc.)
 
 ### Transform Computation
 - [x] Compute transform from tag point pairs (volumes 0 and 1)
@@ -150,13 +153,16 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan/OpenGL 2,
 ### Bug Fixes
 - [x] Sagittal view tag placement: `drawTagsOnSlice()` had `dimU`/`dimV` swapped for viewIndex==1 (was U=Z,V=Y; corrected to U=Y,V=Z)
 - [x] Overlay transform timing: moved `recomputeTransform()` to the top of the render loop so the transform is always up-to-date before overlay textures are built; also rebuilds overlays after transform type radio button changes and tag deletion
+- [x] QC cursor preservation: restored slice indices when switching QC rows (previously only zoom/pan were preserved)
+- [x] Config save: fixed saving of crosshairs visibility and tag list window state to config file
+- [x] Error handling: added `GL_CHECK` macro with `checkGLError()` for all OpenGL calls; added Vulkan validation layer callback and VkResult checks for command buffer operations; added GLFW error callback
 
 ---
 
 ## Test Coverage Gaps
 
 Audit of all unit-testable public functions across source modules (excluding pure UI/GPU code).
-13 test suites currently pass. Approximate overall coverage of unit-testable functions: **~30%**.
+14 test suites currently pass. Approximate overall coverage of unit-testable functions: **~30%**.
 
 ### Quantitative Summary
 
@@ -276,7 +282,7 @@ Copy/move semantics, threading, trivial accessors.
 - [ ] Texture: `MTLTexture` objects, `ImTextureID = MTLTexture*`
 
 ### Remaining CLI Options
-- [ ] `-sync`: start with volumes synced
+- [x] `-sync`: start with volumes synced (also `--sync-cursor`, `--sync-zoom`, `--sync-pan` for granular control)
 - [ ] `-range VOLUME MIN MAX`: force initial colour range
 
 ---
@@ -336,7 +342,7 @@ sub02,,,,
 - [x] Per-column PASS/FAIL verdicts with comments
 - [x] QC dataset list embedded in Tools panel with per-column status indicators
 - [x] Auto-save on verdict/comment change, manual save button
-- [x] Preserves display settings (colour map, value range, zoom, pan) across row switches
+- [x] Preserves display settings (colour map, value range, zoom, pan, slice indices) across row switches
 - [x] Missing file handling with placeholder panels
 - [x] First-unrated-row auto-jump on startup
 - [x] Resizable columns in QC list with horizontal scroll
@@ -380,6 +386,7 @@ new_register/
 │   ├── OpenGL2Backend.h
 │   ├── Prefetcher.h
 │   ├── QCState.h
+│   ├── SliceRenderer.h
 │   ├── TagWrapper.hpp
 │   ├── Transform.h
 │   ├── Volume.h
@@ -396,12 +403,15 @@ new_register/
 │   ├── OpenGL2Backend.cpp
 │   ├── Prefetcher.cpp
 │   ├── QCState.cpp
+│   ├── SliceRenderer.cpp
 │   ├── TagWrapper.cpp
 │   ├── Transform.cpp
 │   ├── ViewManager.cpp
 │   ├── Volume.cpp
 │   ├── VulkanBackend.cpp
-│   └── VulkanHelpers.cpp
+│   ├── VulkanHelpers.cpp
+│   └── mincpik/
+│       └── mincpik_main.cpp
 └── tests/
     ├── test_real_data.cpp
     ├── test_colour_map.cpp
@@ -415,7 +425,8 @@ new_register/
     ├── test_center_of_mass.cpp
     ├── test_qc_csv.cpp
     ├── test_transform.cpp
-    └── test_app_config.cpp
+    ├── test_app_config.cpp
+    └── test_mincpik.cpp
 ```
 
 ### Component Design
@@ -456,6 +467,146 @@ ctest --output-on-failure
 ### Test Data
 - `test_data/mni_icbm152_t1_tal_nlin_sym_09c.mnc` — 1mm isotropic (193x229x193)
 - `test_data/mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc` — 3x1x2mm (64x229x96)
+
+---
+
+## new_mincpik — Headless Mosaic Image Generator
+
+A command-line companion to `new_register` that loads one or more MINC2 volumes,
+composites overlay slices (same algorithm as the overlay panel), arranges them in
+a grid mosaic, and writes the result to a `.png` file. No GPU, X11, Wayland, GLFW,
+or ImGui dependencies.
+
+### Architecture
+
+```
+new_register/
+├── CMakeLists.txt              # nr_core library + new_mincpik target
+├── include/
+│   ├── SliceRenderer.h         # CPU slice/overlay rendering API
+│   └── ... (existing headers)
+├── src/
+│   ├── SliceRenderer.cpp       # CPU rendering (ported from ViewManager)
+│   ├── mincpik/
+│   │   └── mincpik_main.cpp    # entry point + CLI + mosaic assembly
+│   └── ... (existing sources)
+└── tests/
+    ├── test_mincpik.cpp        # rendering correctness tests
+    └── ... (existing tests)
+```
+
+### Shared Library: `nr_core`
+
+Static library of GPU-free modules shared by both `new_register` and `new_mincpik`:
+
+| Source | Purpose |
+|--------|---------|
+| `Volume.cpp` | MINC2 loading, coordinate transforms |
+| `ColourMap.cpp` | 21 colour map LUT generation |
+| `Transform.cpp` | Tag-point registration (LSQ6-12, TPS) |
+| `TagWrapper.cpp` | Tag file I/O |
+| `AppConfig.cpp` | JSON config persistence |
+
+`SliceRenderer.cpp` is also added to `nr_core` so both apps share it.
+
+### SliceRenderer API
+
+```cpp
+struct VolumeRenderParams {
+    double valueMin, valueMax;
+    ColourMapType colourMap;
+    float overlayAlpha;
+    int underColourMode, overColourMode;
+};
+
+struct RenderedSlice {
+    std::vector<uint32_t> pixels;  // packed 0xAABBGGRR
+    int width, height;
+};
+
+RenderedSlice renderOverlaySlice(
+    const std::vector<const Volume*>& volumes,
+    const std::vector<VolumeRenderParams>& params,
+    int viewIndex,
+    const std::vector<int>& sliceIndices,
+    const TransformResult* transform = nullptr);
+```
+
+Ported from the CPU portions of `ViewManager::updateOverlayTexture()` — same
+scanline-optimized compositing, same colour mapping, same under/over clamping.
+
+### Mosaic Layout
+
+```
+┌──────────┬──────────┬──────────┐
+│ Coronal  │ Coronal  │ Coronal  │  row 0
+│ slice 1  │ slice 2  │ slice 3  │
+├──────────┼──────────┼──────────┤
+│ Sagittal │ Sagittal │ Sagittal │  row 1
+│ slice 1  │ slice 2  │ slice 3  │
+├──────────┼──────────┼──────────┤
+│ Axial    │ Axial    │ Axial    │  row 2
+│ slice 1  │ slice 2  │ slice 3  │
+└──────────┴──────────┴──────────┘
+```
+
+- Each row = one anatomical plane
+- Each column = one slice at a given coordinate (evenly spaced or user-specified)
+- Default: 1 slice per plane at volume center (3 rows x 1 column)
+- Output via `stbi_write_png()`
+
+### CLI
+
+```
+new_mincpik [options] volume1.mnc [volume2.mnc ...] -o output.png
+
+Volume display (apply to next volume):
+  -G, --gray              GrayScale colour map
+  -H, --hot               HotMetal colour map
+  -S, --spectral          Spectral colour map
+  -r, --red               Red colour map
+  -g, --green             Green colour map
+  -b, --blue              Blue colour map
+  --lut <name>            Named colour map
+  --range <min>,<max>     Value range
+  -l, --label             Mark as label volume
+  -L, --labels <file>     Label description file
+
+Slice selection:
+  --axial <N>             Number of axial slices (default: 1)
+  --sagittal <N>          Number of sagittal slices (default: 1)
+  --coronal <N>           Number of coronal slices (default: 1)
+  --axial-at <z1,z2,...>  World Z coordinates
+  --sagittal-at <x1,...>  World X coordinates
+  --coronal-at <y1,...>   World Y coordinates
+
+Output:
+  -o, --output <path>     Output PNG (required)
+  --width <W>             Scale output to this width
+  --gap <px>              Cell gap (default: 2)
+
+Transform:
+  -t, --tags <file>       Load .tag file
+  --xfm <file>            Load .xfm transform
+
+Other:
+  -c, --config <path>     Load config.json
+  --alpha <v1,v2,...>     Per-volume overlay alpha
+  -h, --help
+  -d, --debug
+```
+
+### Implementation Status
+- [ ] Create `nr_core` static library in CMakeLists.txt
+- [ ] Update `new_register` target to link `nr_core`
+- [ ] Update test targets to link `nr_core`
+- [ ] Verify build + all 14 tests pass
+- [ ] Create `SliceRenderer.h/.cpp`
+- [ ] Create `mincpik_main.cpp`
+- [ ] Add `new_mincpik` target to CMakeLists.txt
+- [ ] Build and test with real MINC data
+- [ ] Write `test_mincpik.cpp`
+- [ ] Verify all tests pass
 
 ---
 

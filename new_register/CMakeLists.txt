@@ -226,6 +226,7 @@ ExternalProject_Add(minc2-simple-static
     GIT_REPOSITORY https://github.com/NIST-MNI/minc2-simple.git
     GIT_TAG        develop
     GIT_SHALLOW    TRUE
+    UPDATE_DISCONNECTED TRUE
     INSTALL_DIR    ${MINC2_SIMPLE_INSTALL_PREFIX}
     DEPENDS        ${_MINC2_DEPENDS}
     CMAKE_ARGS
@@ -255,19 +256,47 @@ if(DEFINED minc2-simple-static_LIB_DIR)
     link_directories(${minc2-simple-static_LIB_DIR})
 endif()
 
+# --- nr_core: GPU-free static library shared by new_register and new_mincpik ---
+set(NR_CORE_SOURCES
+    src/Volume.cpp
+    src/ColourMap.cpp
+    src/Transform.cpp
+    src/TagWrapper.cpp
+    src/AppConfig.cpp
+    src/SliceRenderer.cpp
+)
+
+add_library(nr_core STATIC ${NR_CORE_SOURCES})
+target_include_directories(nr_core PUBLIC
+    include
+    ${glm_SOURCE_DIR}
+    ${eigen_INCLUDE_DIR}
+    ${minc2-simple-static_INCLUDE_DIR}
+    ${MINC2_INCLUDE_DIR}
+)
+target_link_libraries(nr_core PUBLIC
+    ${minc2-simple-static_LIB}
+    ${MINC2_LIB}
+    ${NETCDF_LIBRARY}
+    ${HDF5_C_LIBRARIES}
+    nlohmann_json::nlohmann_json
+    glm
+)
+add_dependencies(nr_core Eigen)
+if(NOT _USE_SYSTEM_MINC)
+    add_dependencies(nr_core libminc minc2-simple-static)
+else()
+    add_dependencies(nr_core minc2-simple-static)
+endif()
+
 # --- Sources (explicit list instead of GLOB_RECURSE) ---
 set(SOURCES
     src/main.cpp
     src/AppState.cpp
-    src/AppConfig.cpp
-    src/ColourMap.cpp
     src/Interface.cpp
     src/Prefetcher.cpp
     src/QCState.cpp
-    src/TagWrapper.cpp
-    src/Transform.cpp
     src/ViewManager.cpp
-    src/Volume.cpp
     src/BackendFactory.cpp
 )
 
@@ -296,17 +325,12 @@ endif()
 # --- Executable ---
 add_executable(new_register ${SOURCES})
 
-# Add Eigen as a dependency - must be built before new_register
-add_dependencies(new_register Eigen)
-
 # --- Include Directories ---
+# nr_core PUBLIC includes already provide: include/, glm, eigen, minc2
 target_include_directories(new_register PRIVATE
-    include
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
-    ${glm_SOURCE_DIR}  # GLM is header-only
-    ${eigen_INCLUDE_DIR}  # Eigen from ExternalProject (in build dir)
-    ${minc2-simple-static_SOURCE_DIR}/src  # minc2-simple headers
+    ${minc2-simple-static_SOURCE_DIR}/src  # minc2-simple headers (for extern "C" include)
     ${cxxopts_SOURCE_DIR}/include  # cxxopts headers
 )
 
@@ -324,33 +348,17 @@ if(ENABLE_METAL)
     target_compile_definitions(new_register PRIVATE HAS_METAL=1)
 endif()
 
-# Ensure ExternalProjects are built before the main target
-if(NOT _USE_SYSTEM_MINC)
-    add_dependencies(new_register libminc minc2-simple-static)
-else()
-    add_dependencies(new_register minc2-simple-static)
-endif()
-
 # --- Linking ---
-# Note: Using library file paths instead of targets since ExternalProject creates
-# UTILITY targets that cannot be linked with target_link_libraries
+# nr_core provides Volume, ColourMap, Transform, TagWrapper, AppConfig, SliceRenderer
+# and their transitive MINC/HDF5/GLM/Eigen/JSON dependencies.
 
 message("NETCDF_LIBRARY=${NETCDF_LIBRARY}")
 target_link_libraries(new_register PRIVATE
+    nr_core
     imgui
-    ${minc2-simple-static_LIB}
-    ${MINC2_LIB}
-    ${NETCDF_LIBRARY}
-    ${HDF5_C_LIBRARIES}
-    nlohmann_json::nlohmann_json
-    glm
     glfw
     Threads::Threads
     ${CMAKE_DL_LIBS}
-)
-target_include_directories(new_register PRIVATE
-    ${MINC2_INCLUDE_DIR}
-    ${minc2-simple-static_INCLUDE_DIR}
 )
 if(ENABLE_VULKAN)
     target_link_libraries(new_register PRIVATE Vulkan::Vulkan)
@@ -366,6 +374,20 @@ endif()
 
 
 INSTALL(TARGETS new_register DESTINATION bin)
+
+# --- new_mincpik: headless mosaic image generator ---
+add_executable(new_mincpik src/mincpik/mincpik_main.cpp)
+target_link_libraries(new_mincpik PRIVATE
+    nr_core
+)
+target_include_directories(new_mincpik PRIVATE
+    ${cxxopts_SOURCE_DIR}/include
+    ${minc2-simple-static_SOURCE_DIR}/src
+)
+if(CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "10.0")
+    target_link_libraries(new_mincpik PRIVATE stdc++fs)
+endif()
+INSTALL(TARGETS new_mincpik DESTINATION bin)
 
 # --- Testing ---
 enable_testing()

@@ -145,7 +145,7 @@ Do not use.
    - Check `register_UI.globals` or `config.h` if modifying configuration logic.
 3. **Atomic & Safe Changes:**
    - do not touch any code in legacy directory, use it only as a reference
-   - new code should use c++23, with all modern features
+   - new code should use C++17 (the CMake standard is set to 17), with modern features available in that standard
 4. **Verification:**
    - **Compile:** Always attempt to compile after changes: `make`.
    - **Test:** If modifying logic, write a small test case or run existing tests.
@@ -164,19 +164,21 @@ Do not use.
 
 ## 6. Modern Rewrite (new_register)
 
-This is a rewrite of the `register` application using modern C++23, Vulkan, ImGui (Docking), GLFW and Glaze for reading and writing configuration in .json files.
+This is a rewrite of the `register` application using C++17, Vulkan, ImGui (Docking), GLFW and nlohmann/json for reading and writing configuration in .json files.
+
+> **See also:** [`research.md`](research.md) for a comprehensive codebase review, architecture diagram, module analysis, test coverage, and risk assessment.
 
 **Dependencies:**
-- `minc2-simple` (statically linked, provided in `legacy/minc2-simple`)
+- `minc2-simple` (FetchContent from GitHub, develop branch)
 - `ImGui` (fetched via CMake)
 - `GLFW` (system)
 - `Vulkan` (system)
-- `Glaze` for handling json files
+- `nlohmann/json` (v3.11.3, FetchContent) for handling json files
 
 **Structure:**
-- `new_register/src/`: Source files (`main.cpp`, `Volume.cpp`, `VulkanHelpers.cpp`)
-- `new_register/include/`: Headers
-- `new_register/tests/`: Test files
+- `new_register/src/`: Source files (15 `.cpp` files)
+- `new_register/include/`: Headers (15 `.h`/`.hpp` files)
+- `new_register/tests/`: Test files (14 test suites)
 
 **Build Instructions:**
 - `cd new_register/build`
@@ -189,14 +191,14 @@ This is a rewrite of the `register` application using modern C++23, Vulkan, ImGu
 - Multi-volume slice viewer with crosshairs, colour maps, zoom/pan, overlay compositing, and JSON config persistence.
 
 **Coding Standards (New Project):**
-- C++23 allowed.
+- C++17 (CMakeLists.txt sets `CMAKE_CXX_STANDARD 17`).
 - `std::vector`, `std::string` allowed.
 - `PascalCase` for classes, `camelCase` for methods/variables.
 - use `std::cerr` for printing debugging mesages or something more moden
 
 ## 7. C++23 Modernization (new_register)
 
-The codebase is being modernized from C-style patterns to C++23. Phases 1-2 are complete (unique_ptr, std::array). Remaining phases:
+The codebase currently targets C++17 (`CMAKE_CXX_STANDARD 17`). A future upgrade to C++23 is planned. Phases 1-2 are complete (unique_ptr, std::array). Remaining phases (blocked on C++23 upgrade):
 
 ### Phase 3: Range-Based For and C++23 Ranges
 - ColourMap.cpp: Replace manual for loops with `std::views::iota` + lambda
