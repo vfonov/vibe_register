@@ -413,6 +413,10 @@ int main(int argc, char** argv)
             {
                 params[i].valueMin = (*perVolOpts[i].range)[0];
                 params[i].valueMax = (*perVolOpts[i].range)[1];
+                // Below-range voxels should be transparent, not clamped to the
+                // lowest LUT colour.  This matches new_register's behaviour.
+                params[i].underColourMode = kSliceClampTransparent;
+                params[i].overColourMode  = kSliceClampTransparent;
             }
             if (i < alphas.size())
                 params[i].overlayAlpha = alphas[i];
