@@ -134,6 +134,101 @@ static std::vector<int> evenlySpacedSlices(const Volume& vol, int viewIndex, int
 }
 
 // ---------------------------------------------------------------------------
+// Aspect-ratio correction
+// ---------------------------------------------------------------------------
+
+/// Determine which two volume axes correspond to the in-plane (U, V)
+/// directions for a given view.
+///   viewIndex 0 (axial):    U=X(0), V=Y(1)
+///   viewIndex 1 (sagittal): U=Y(1), V=Z(2)
+///   viewIndex 2 (coronal):  U=X(0), V=Z(2)
+static void viewAxes(int viewIndex, int& axisU, int& axisV)
+{
+    if (viewIndex == 0)      { axisU = 0; axisV = 1; }
+    else if (viewIndex == 1) { axisU = 1; axisV = 2; }
+    else                     { axisU = 0; axisV = 2; }
+}
+
+/// Resample a rendered slice so that its pixel dimensions reflect the
+/// physical (world-space) voxel aspect ratio.  When voxels are non-uniform
+/// (e.g. 1 mm in-plane but 3 mm slice thickness), the raw pixel buffer has
+/// an incorrect aspect ratio.  This function scales up the under-represented
+/// axis using nearest-neighbour interpolation so that the output pixels are
+/// square in world space, matching new_register's display.
+///
+/// @param slice       The raw rendered slice (1 voxel = 1 pixel).
+/// @param vol         The reference volume (provides step sizes).
+/// @param viewIndex   0=axial, 1=sagittal, 2=coronal.
+/// @return A new RenderedSlice with corrected dimensions (or the original
+///         if no correction is needed).
+static RenderedSlice resampleToPhysicalAspect(
+    const RenderedSlice& slice,
+    const Volume& vol,
+    int viewIndex)
+{
+    int axisU, axisV;
+    viewAxes(viewIndex, axisU, axisV);
+
+    double stepU = std::abs(vol.step[axisU]);
+    double stepV = std::abs(vol.step[axisV]);
+    if (stepU < 1e-12 || stepV < 1e-12)
+        return slice;
+
+    // Physical extents (mm)
+    double physW = slice.width  * stepU;
+    double physH = slice.height * stepV;
+
+    // Target pixel dimensions: keep the larger pixel dimension, scale up
+    // the other so that outW/outH == physW/physH  (i.e. square pixels in
+    // world space).
+    int outW, outH;
+    if (stepU > stepV)
+    {
+        // U voxels are physically wider → scale up pixel width
+        outW = static_cast<int>(std::round(slice.width * (stepU / stepV)));
+        outH = slice.height;
+    }
+    else if (stepV > stepU)
+    {
+        // V voxels are physically taller → scale up pixel height
+        outW = slice.width;
+        outH = static_cast<int>(std::round(slice.height * (stepV / stepU)));
+    }
+    else
+    {
+        // Already uniform
+        return slice;
+    }
+
+    if (outW < 1) outW = 1;
+    if (outH < 1) outH = 1;
+    if (outW == slice.width && outH == slice.height)
+        return slice;
+
+    RenderedSlice out;
+    out.width  = outW;
+    out.height = outH;
+    out.pixels.resize(outW * outH);
+
+    double scaleX = static_cast<double>(slice.width)  / outW;
+    double scaleY = static_cast<double>(slice.height) / outH;
+
+    for (int y = 0; y < outH; ++y)
+    {
+        int srcY = static_cast<int>(y * scaleY);
+        if (srcY >= slice.height) srcY = slice.height - 1;
+        for (int x = 0; x < outW; ++x)
+        {
+            int srcX = static_cast<int>(x * scaleX);
+            if (srcX >= slice.width) srcX = slice.width - 1;
+            out.pixels[y * outW + x] = slice.pixels[srcY * slice.width + srcX];
+        }
+    }
+
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // Mosaic assembly
 // ---------------------------------------------------------------------------
 
@@ -559,6 +654,7 @@ int main(int argc, char** argv)
 
             for (int sliceIdx : sliceCoords[vi])
             {
+                RenderedSlice raw;
                 if (useOverlay)
                 {
                     std::vector<const Volume*> volPtrs;
@@ -566,14 +662,17 @@ int main(int argc, char** argv)
                         volPtrs.push_back(&v);
 
                     const TransformResult* xfm = xfmResult.valid ? &xfmResult : nullptr;
-                    row.slices.push_back(
-                        renderOverlaySlice(volPtrs, params, vi, sliceIdx, xfm));
+                    raw = renderOverlaySlice(volPtrs, params, vi, sliceIdx, xfm);
                 }
                 else
                 {
-                    row.slices.push_back(
-                        renderSlice(volumes[0], params[0], vi, sliceIdx));
+                    raw = renderSlice(volumes[0], params[0], vi, sliceIdx);
                 }
+
+                // Correct for non-uniform voxel spacing so that output
+                // pixels are square in world space (matches new_register).
+                row.slices.push_back(
+                    resampleToPhysicalAspect(raw, refVol, vi));
             }
 
             rows.push_back(std::move(row));
