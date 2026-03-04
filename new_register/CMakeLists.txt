@@ -36,8 +36,36 @@ if(ENABLE_OPENGL2)
 endif()
 
 # 2.5 HDF5 (Required by minc2 headers)
-SET(HDF5_NO_FIND_PACKAGE_CONFIG_FILE ON)
-FIND_PACKAGE(HDF5 REQUIRED COMPONENTS C )
+# Allow config-mode discovery (hdf5-config.cmake) so that CMAKE_PREFIX_PATH
+# works for non-standard install prefixes (e.g. /opt/minc/1.9.18).
+# Module-mode (FindHDF5) is the automatic fallback when no config file exists.
+find_package(HDF5 REQUIRED COMPONENTS C)
+
+# Safety net: if FindHDF5 found the library but not the headers (common when
+# h5cc is not on PATH and no config-mode file exists), derive include dir
+# from the library path (e.g. /opt/minc/1.9.18/lib -> /opt/minc/1.9.18/include).
+if(HDF5_FOUND AND NOT HDF5_INCLUDE_DIRS)
+    foreach(_hdf5_lib IN LISTS HDF5_C_LIBRARIES)
+        if(_hdf5_lib MATCHES "^(.+)/lib[^/]*$")
+            set(_hdf5_prefix "${CMAKE_MATCH_1}")
+            if(EXISTS "${_hdf5_prefix}/include/hdf5.h")
+                set(HDF5_INCLUDE_DIRS "${_hdf5_prefix}/include")
+                message(STATUS "HDF5: derived include dir from library path: ${HDF5_INCLUDE_DIRS}")
+                break()
+            # Debian/Ubuntu multi-arch: lib/x86_64-linux-gnu -> include/hdf5/serial
+            elseif(EXISTS "${_hdf5_prefix}/../include/hdf5/serial/hdf5.h")
+                get_filename_component(_hdf5_inc "${_hdf5_prefix}/../include/hdf5/serial" ABSOLUTE)
+                set(HDF5_INCLUDE_DIRS "${_hdf5_inc}")
+                message(STATUS "HDF5: derived include dir (Debian multi-arch): ${HDF5_INCLUDE_DIRS}")
+                break()
+            endif()
+        endif()
+    endforeach()
+    if(NOT HDF5_INCLUDE_DIRS)
+        message(FATAL_ERROR "HDF5 found but HDF5_INCLUDE_DIRS is empty. "
+            "Set CMAKE_PREFIX_PATH or HDF5_ROOT to the HDF5 install prefix.")
+    endif()
+endif()
 
 # For MINC1 support
 FIND_PACKAGE(NETCDF REQUIRED)
@@ -183,7 +211,7 @@ else()
         -DHDF5_hdf5_LIBRARY_RELEASE:FILEPATH=${HDF5_hdf5_LIBRARY_RELEASE}
         -DHDF5_hdf5_LIBRARY_DEBUG:FILEPATH=${HDF5_hdf5_LIBRARY_DEBUG}
     )
-    if(NetCDF_FOUND)
+    if(NETCDF_FOUND)
         list(APPEND _LIBMINC_ARGS
             -DLIBMINC_MINC1_SUPPORT:BOOL=ON
             -DNETCDF_INCLUDE_DIR:STRING=${NETCDF_INCLUDE_DIR}
