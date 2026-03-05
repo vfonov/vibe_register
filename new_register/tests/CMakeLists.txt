@@ -101,11 +101,19 @@ add_test(NAME TagLoadTest COMMAND test_tag_load
 add_nr_test(test_volume_info
     LINKS  ${TEST_LIBS} glm
 )
+add_dependencies(test_volume_info minc2-simple-static)
+if(NOT _USE_SYSTEM_MINC)
+    add_dependencies(test_volume_info libminc)
+endif()
 add_test(NAME VolumeInfoTest COMMAND test_volume_info ${TEST_DATA_DIR})
 
 add_nr_test(test_minc_dims
     LINKS  ${TEST_LIBS} glm
 )
+add_dependencies(test_minc_dims minc2-simple-static)
+if(NOT _USE_SYSTEM_MINC)
+    add_dependencies(test_minc_dims libminc)
+endif()
 add_test(NAME MincDimsTest COMMAND test_minc_dims ${TEST_DATA_DIR})
 
 # ------------------------------------------------------------------

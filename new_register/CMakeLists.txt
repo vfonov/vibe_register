@@ -223,7 +223,7 @@ else()
 
     ExternalProject_Add(libminc
         GIT_REPOSITORY https://github.com/BIC-MNI/libminc.git
-        GIT_TAG        develop
+        GIT_TAG        modernize_cmake
         GIT_SHALLOW    TRUE
         INSTALL_DIR    ${LIBMINC_INSTALL_PREFIX}
         CMAKE_ARGS ${_LIBMINC_ARGS}
@@ -265,7 +265,7 @@ ExternalProject_Add(minc2-simple-static
         -DBUILD_TESTING:BOOL=OFF
         -DBUILD_MINC2_SIMPLE_SHARED:BOOL=OFF
         -DCMAKE_C_FLAGS:STRING=-I${HDF5_INCLUDE_DIRS} # HACK to make it find hdf5.h 
-    BUILD_BYPRODUCTS ${MINC2_SIMPLE_INSTALL_PREFIX}/lib/libminc2_simple.a
+    BUILD_BYPRODUCTS ${MINC2_SIMPLE_INSTALL_PREFIX}/lib/libminc2-simple-static.a
 )
 if(NOT _USE_SYSTEM_MINC)
 add_dependencies(minc2-simple-static libminc)
