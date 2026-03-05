@@ -396,6 +396,7 @@ add_executable(new_mincpik
     src/mincpik/mosaic.cpp
     src/mincpik/text_render.cpp
     src/mincpik/mincpik_cli.cpp
+    src/mincpik/colour_bar.cpp
 )
 target_link_libraries(new_mincpik PRIVATE
     nr_core

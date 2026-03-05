@@ -25,6 +25,7 @@
 #include "SliceRenderer.h"
 #include "Volume.h"
 
+#include "colour_bar.h"
 #include "mosaic.h"
 #include "text_render.h"
 
@@ -507,6 +508,135 @@ int main(int argc, char** argv)
             PASS();
         else
             FAIL("size=" + std::to_string(vals.size()));
+    }
+
+    // --- Test 13: renderContinuousBar vertical ---
+    {
+        TEST("renderContinuousBar vertical produces gradient + labels");
+        const ColourLut& lut = colourMapLut(ColourMapType::HotMetal);
+        RenderedSlice bar = renderContinuousBar(lut, 0.0, 100.0, 200,
+                                                 0xFFFFFFFF, 1, false);
+        bool ok = bar.width > 0 && bar.height > 0 && !bar.pixels.empty();
+        if (ok)
+        {
+            // Check that gradient strip has diverse colours (not all same)
+            bool diverse = false;
+            uint32_t first = bar.pixels[0];
+            for (size_t i = 1; i < bar.pixels.size(); ++i)
+            {
+                if (bar.pixels[i] != first && bar.pixels[i] != 0x00000000)
+                {
+                    diverse = true;
+                    break;
+                }
+            }
+            if (diverse) PASS();
+            else FAIL("gradient strip has no colour diversity");
+        }
+        else
+        {
+            FAIL("empty bar: " + std::to_string(bar.width) + "x"
+                 + std::to_string(bar.height));
+        }
+    }
+
+    // --- Test 14: renderContinuousBar horizontal ---
+    {
+        TEST("renderContinuousBar horizontal produces output");
+        const ColourLut& lut = colourMapLut(ColourMapType::GrayScale);
+        RenderedSlice bar = renderContinuousBar(lut, -10.0, 10.0, 300,
+                                                 0xFFFFFFFF, 1, true);
+        if (bar.width > 0 && bar.height > 0 && !bar.pixels.empty())
+            PASS();
+        else
+            FAIL("empty bar");
+    }
+
+    // --- Test 15: renderContinuousBar with zero extent returns empty ---
+    {
+        TEST("renderContinuousBar zero extent returns empty");
+        const ColourLut& lut = colourMapLut(ColourMapType::GrayScale);
+        RenderedSlice bar = renderContinuousBar(lut, 0.0, 1.0, 0,
+                                                 0xFFFFFFFF, 1, false);
+        if (bar.width == 0 && bar.height == 0 && bar.pixels.empty())
+            PASS();
+        else
+            FAIL("expected empty");
+    }
+
+    // --- Test 16: renderLabelBar vertical ---
+    {
+        TEST("renderLabelBar vertical with 3 labels");
+        std::unordered_map<int, LabelInfo> labels;
+
+        LabelInfo l1; l1.r = 255; l1.g = 0;   l1.b = 0;   l1.a = 255; l1.name = "CSF";
+        LabelInfo l2; l2.r = 0;   l2.g = 255; l2.b = 0;   l2.a = 255; l2.name = "GM";
+        LabelInfo l3; l3.r = 0;   l3.g = 0;   l3.b = 255; l3.a = 255; l3.name = "WM";
+        labels[1] = l1;
+        labels[2] = l2;
+        labels[3] = l3;
+
+        RenderedSlice bar = renderLabelBar(labels, 0xFFFFFFFF, 1, 200, 400, false);
+        bool ok = bar.width > 0 && bar.height > 0 && !bar.pixels.empty();
+        if (ok)
+        {
+            // Check that the red swatch colour (0xFF0000FF packed as 0xAABBGGRR)
+            // appears somewhere in the output
+            uint32_t redPacked = 0xFF0000FF;  // R=255, G=0, B=0, A=255
+            bool foundRed = false;
+            for (auto px : bar.pixels)
+            {
+                if (px == redPacked) { foundRed = true; break; }
+            }
+            if (foundRed) PASS();
+            else FAIL("red swatch not found in output");
+        }
+        else
+        {
+            FAIL("empty label bar");
+        }
+    }
+
+    // --- Test 17: renderLabelBar horizontal ---
+    {
+        TEST("renderLabelBar horizontal with 2 labels");
+        std::unordered_map<int, LabelInfo> labels;
+
+        LabelInfo l1; l1.r = 128; l1.g = 128; l1.b = 0;   l1.a = 255; l1.name = "Region A";
+        LabelInfo l2; l2.r = 0;   l2.g = 128; l2.b = 128; l2.a = 255; l2.name = "Region B";
+        labels[1] = l1;
+        labels[2] = l2;
+
+        RenderedSlice bar = renderLabelBar(labels, 0xFFFFFFFF, 1, 400, 200, true);
+        if (bar.width > 0 && bar.height > 0 && !bar.pixels.empty())
+            PASS();
+        else
+            FAIL("empty label bar");
+    }
+
+    // --- Test 18: renderLabelBar empty map returns empty ---
+    {
+        TEST("renderLabelBar empty map returns empty");
+        std::unordered_map<int, LabelInfo> labels;
+        RenderedSlice bar = renderLabelBar(labels, 0xFFFFFFFF, 1, 200, 200, false);
+        if (bar.width == 0 && bar.height == 0 && bar.pixels.empty())
+            PASS();
+        else
+            FAIL("expected empty");
+    }
+
+    // --- Test 19: renderLabelBar skips label ID 0 ---
+    {
+        TEST("renderLabelBar skips background label 0");
+        std::unordered_map<int, LabelInfo> labels;
+        LabelInfo bg; bg.r = 0; bg.g = 0; bg.b = 0; bg.a = 255; bg.name = "Background";
+        labels[0] = bg;
+        RenderedSlice bar = renderLabelBar(labels, 0xFFFFFFFF, 1, 200, 200, false);
+        // Only label 0, which is skipped -> should be empty
+        if (bar.width == 0 && bar.height == 0 && bar.pixels.empty())
+            PASS();
+        else
+            FAIL("expected empty (only bg label)");
     }
 
     // --- Summary ---

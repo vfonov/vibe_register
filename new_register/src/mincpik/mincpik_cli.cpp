@@ -58,11 +58,14 @@ void printUsage()
         "\n"
         "Annotation:\n"
         "      --title <text>   Title text rendered above the mosaic\n"
-        "      --fg <colour>    Foreground colour for title (default: white)\n"
+        "      --fg <colour>    Foreground colour for title/bar (default: white)\n"
         "                       Hex: #RRGGBB, #RGB, RRGGBB, RGB\n"
         "                       Named: white, black, red, green, blue,\n"
         "                              yellow, cyan, magenta, gray, orange\n"
         "      --font-scale <N> Integer scale for 12px font (default: auto)\n"
+        "      --bar <side>     Show colour bar: 'right' or 'bottom'\n"
+        "                       Continuous gradient with min/mid/max labels,\n"
+        "                       or discrete legend for label volumes\n"
         "\n"
         "Transform:\n"
         "  -t, --tags <file>    Load .tag file for registration\n"
@@ -318,6 +321,25 @@ std::optional<ParsedArgs> parseArgs(int argc, char** argv)
             if (!requireValue(i, argc, "--font-scale"))
                 return std::nullopt;
             args.fontScale = std::stoi(argv[i]);
+            continue;
+        }
+
+        if (arg == "--bar")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--bar"))
+                return std::nullopt;
+            std::string_view side = argv[i];
+            if (side == "right")
+                args.barSide = BarSide::Right;
+            else if (side == "bottom")
+                args.barSide = BarSide::Bottom;
+            else
+            {
+                std::cerr << "Error: --bar must be 'right' or 'bottom', got '"
+                          << side << "'.\n";
+                return std::nullopt;
+            }
             continue;
         }
 

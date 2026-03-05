@@ -10,6 +10,9 @@
 
 #include "ColourMap.h"
 
+/// Which side of the mosaic to place the colour bar, or None to omit it.
+enum class BarSide { None, Right, Bottom };
+
 /// Per-volume display options.  Accumulated while walking argv and flushed
 /// to the per-volume vector each time a positional volume file is seen.
 struct PerVolOpts
@@ -57,6 +60,9 @@ struct ParsedArgs
     std::string title;
     std::string fgColourStr = "white";
     std::optional<int> fontScale;
+
+    // Colour bar
+    BarSide barSide = BarSide::None;
 
     // Volumes and their per-volume options
     std::vector<std::string> volumeFiles;

@@ -164,7 +164,7 @@ add_test(NAME TransformTest COMMAND test_transform)
 # ------------------------------------------------------------------
 
 add_nr_test(test_mincpik
-    SOURCES   mincpik/text_render.cpp mincpik/mosaic.cpp
+    SOURCES   mincpik/text_render.cpp mincpik/mosaic.cpp mincpik/colour_bar.cpp
     INCLUDES  ${COMMON_INCLUDES} ${SRC_DIR}/mincpik
     LINKS     nr_core
 )

@@ -24,6 +24,7 @@
 #include "Volume.h"
 
 #include "mincpik_cli.h"
+#include "colour_bar.h"
 #include "mosaic.h"
 #include "text_render.h"
 
@@ -371,26 +372,27 @@ int main(int argc, char** argv)
             curY += rowLayouts[r].maxSliceHeight + gap;
         }
 
+        // --- Foreground colour and font scale (shared by title and bar) ---
+        uint32_t fgColour = parseFgColour(args.fgColourStr);
+
+        // Determine font scale: explicit --font-scale, or auto-size
+        // to ~4% of mosaic height (clamped 1x-8x).
+        int fontSc = 1;
+        if (args.fontScale.has_value())
+        {
+            fontSc = std::max(1, *args.fontScale);
+        }
+        else
+        {
+            fontSc = std::max(1, std::min(8,
+                static_cast<int>(std::round(totalHeight * 0.04 / 12.0))));
+        }
+
         // --- Optional title annotation ---
         // Render the title text and prepend it to the mosaic, expanding
         // the buffer vertically at the top.
         if (!args.title.empty())
         {
-            uint32_t fgColour = parseFgColour(args.fgColourStr);
-
-            // Determine font scale: explicit --font-scale, or auto-size
-            // to ~4% of mosaic height (clamped 1x-8x).
-            int fontSc = 1;
-            if (args.fontScale.has_value())
-            {
-                fontSc = std::max(1, *args.fontScale);
-            }
-            else
-            {
-                fontSc = std::max(1, std::min(8,
-                    static_cast<int>(std::round(totalHeight * 0.04 / 12.0))));
-            }
-
             RenderedSlice titleSlice = renderTextRow(args.title, fgColour, fontSc);
 
             if (titleSlice.width > 0 && titleSlice.height > 0)
@@ -429,6 +431,111 @@ int main(int argc, char** argv)
                     std::cerr << "[mincpik] Title added: scale=" << fontSc
                               << " titleH=" << titleSlice.height
                               << " newMosaic=" << totalWidth << "x" << totalHeight << "\n";
+            }
+        }
+
+        // --- Optional colour bar ---
+        if (args.barSide != BarSide::None)
+        {
+            bool horizontal = (args.barSide == BarSide::Bottom);
+            bool isLabel = volumes[0].isLabelVolume()
+                        && !volumes[0].getLabelLUT().empty();
+
+            RenderedSlice barSlice;
+
+            if (isLabel)
+            {
+                int budgetW = horizontal ? totalWidth : static_cast<int>(totalWidth * 0.25);
+                int budgetH = horizontal ? static_cast<int>(totalHeight * 0.25) : totalHeight;
+                barSlice = renderLabelBar(
+                    volumes[0].getLabelLUT(), fgColour, fontSc,
+                    budgetW, budgetH, horizontal);
+            }
+            else
+            {
+                int extent = horizontal ? totalWidth : totalHeight;
+                barSlice = renderContinuousBar(
+                    colourMapLut(params[0].colourMap),
+                    params[0].valueMin, params[0].valueMax,
+                    extent, fgColour, fontSc, horizontal);
+            }
+
+            if (barSlice.width > 0 && barSlice.height > 0)
+            {
+                if (horizontal)
+                {
+                    // Append bar below the mosaic
+                    int newHeight = totalHeight + gap + barSlice.height;
+                    int newWidth = std::max(totalWidth, barSlice.width);
+
+                    std::vector<uint32_t> newMosaic(newWidth * newHeight, 0xFF000000);
+
+                    // Copy existing mosaic
+                    for (int y = 0; y < totalHeight; ++y)
+                    {
+                        std::memcpy(
+                            &newMosaic[y * newWidth],
+                            &mosaic[y * totalWidth],
+                            totalWidth * sizeof(uint32_t));
+                    }
+
+                    // Blit bar centered horizontally below
+                    int barX = std::max(0, (newWidth - barSlice.width) / 2);
+                    int barY = totalHeight + gap;
+                    for (int y = 0; y < barSlice.height; ++y)
+                    {
+                        for (int x = 0; x < barSlice.width && (barX + x) < newWidth; ++x)
+                        {
+                            uint32_t px = barSlice.pixels[y * barSlice.width + x];
+                            if ((px >> 24) != 0)
+                                newMosaic[(barY + y) * newWidth + barX + x] = px;
+                        }
+                    }
+
+                    mosaic = std::move(newMosaic);
+                    totalWidth = newWidth;
+                    totalHeight = newHeight;
+                }
+                else
+                {
+                    // Append bar to the right of the mosaic
+                    int newWidth = totalWidth + gap + barSlice.width;
+                    int newHeight = std::max(totalHeight, barSlice.height);
+
+                    std::vector<uint32_t> newMosaic(newWidth * newHeight, 0xFF000000);
+
+                    // Copy existing mosaic
+                    for (int y = 0; y < totalHeight; ++y)
+                    {
+                        std::memcpy(
+                            &newMosaic[y * newWidth],
+                            &mosaic[y * totalWidth],
+                            totalWidth * sizeof(uint32_t));
+                    }
+
+                    // Blit bar centered vertically on the right
+                    int barX = totalWidth + gap;
+                    int barY = std::max(0, (newHeight - barSlice.height) / 2);
+                    for (int y = 0; y < barSlice.height; ++y)
+                    {
+                        for (int x = 0; x < barSlice.width && (barX + x) < newWidth; ++x)
+                        {
+                            uint32_t px = barSlice.pixels[y * barSlice.width + x];
+                            if ((px >> 24) != 0)
+                                newMosaic[(barY + y) * newWidth + barX + x] = px;
+                        }
+                    }
+
+                    mosaic = std::move(newMosaic);
+                    totalWidth = newWidth;
+                    totalHeight = newHeight;
+                }
+
+                if (debug)
+                    std::cerr << "[mincpik] Colour bar added ("
+                              << (horizontal ? "bottom" : "right")
+                              << "): " << barSlice.width << "x" << barSlice.height
+                              << " -> " << totalWidth << "x" << totalHeight << "\n";
             }
         }
 
