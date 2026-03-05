@@ -409,7 +409,6 @@ target_link_libraries(new_mincpik PRIVATE
     nr_core
 )
 target_include_directories(new_mincpik PRIVATE
-    ${cxxopts_SOURCE_DIR}/include
     ${minc2-simple-static_SOURCE_DIR}/src
 )
 if(CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "10.0")

@@ -7,17 +7,18 @@
 /// Zero GPU / X11 / Wayland / GLFW / ImGui dependencies.
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <numeric>
+#include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
-
-#include "cxxopts.hpp"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -241,6 +242,381 @@ static void blitSlice(
 }
 
 // ---------------------------------------------------------------------------
+// CLI argument parsing (replaces cxxopts)
+// ---------------------------------------------------------------------------
+
+/// Per-volume display options.  Accumulated while walking argv and flushed
+/// to the per-volume vector each time a positional volume file is seen.
+struct PerVolOpts
+{
+    std::optional<ColourMapType> colourMap;
+    std::optional<std::array<double, 2>> range;
+    bool isLabel = false;
+    std::optional<std::string> labelDescFile;
+};
+
+/// All parsed command-line arguments.
+struct ParsedArgs
+{
+    // Global flags
+    bool help  = false;
+    bool debug = false;
+
+    // Output
+    std::string outputPath;
+    std::optional<int> width;
+    int gap = 2;
+
+    // Slice counts
+    int nAxial    = 1;
+    int nSagittal = 1;
+    int nCoronal  = 1;
+
+    // Slice-at world coordinates
+    std::string axialAt;
+    std::string sagittalAt;
+    std::string coronalAt;
+
+    // Layout
+    int rows = 1;
+
+    // Config / transform
+    std::string configPath;
+    std::string tagsPath;
+    std::string xfmPath;
+
+    // Per-volume alpha
+    std::string alphaStr;
+
+    // Volumes and their per-volume options
+    std::vector<std::string> volumeFiles;
+    std::vector<PerVolOpts>  perVolOpts;
+};
+
+/// Print usage / help text to stdout.
+static void printUsage()
+{
+    std::cout <<
+        "Usage: new_mincpik [OPTIONS] [VOLUMES...]\n"
+        "\n"
+        "Headless mosaic image generator for MINC2 volumes.\n"
+        "\n"
+        "Volume display options (apply to the NEXT volume file):\n"
+        "  -G, --gray           GrayScale colour map\n"
+        "  -H, --hot            HotMetal colour map\n"
+        "  -S, --spectral       Spectral colour map\n"
+        "  -r, --red            Red colour map\n"
+        "  -g, --green          Green colour map\n"
+        "  -b, --blue           Blue colour map\n"
+        "      --lut <name>     Named colour map (see list below)\n"
+        "      --range <min,max>  Value range for next volume\n"
+        "  -l, --label          Mark next volume as label volume\n"
+        "  -L, --labels <file>  Label description file for next volume\n"
+        "\n"
+        "Slice selection:\n"
+        "      --axial <N>      Number of axial slices (default: 1)\n"
+        "      --sagittal <N>   Number of sagittal slices (default: 1)\n"
+        "      --coronal <N>    Number of coronal slices (default: 1)\n"
+        "      --axial-at <Z,...>    World Z coordinates (comma-separated)\n"
+        "      --sagittal-at <X,...> World X coordinates (comma-separated)\n"
+        "      --coronal-at <Y,...>  World Y coordinates (comma-separated)\n"
+        "\n"
+        "Layout:\n"
+        "      --rows <N>       Arrange each plane's slices across N rows\n"
+        "\n"
+        "Output:\n"
+        "  -o, --output <path>  Output PNG path (required)\n"
+        "      --width <px>     Scale output to this width in pixels\n"
+        "      --gap <px>       Cell gap in pixels (default: 2)\n"
+        "\n"
+        "Transform:\n"
+        "  -t, --tags <file>    Load .tag file for registration\n"
+        "      --xfm <file>     Load .xfm linear transform file\n"
+        "\n"
+        "Misc:\n"
+        "  -c, --config <file>  Load config.json\n"
+        "      --alpha <a,...>  Per-volume overlay alpha (comma-separated)\n"
+        "  -d, --debug          Enable debug output\n"
+        "  -h, --help           Show this help message\n"
+        "\n";
+
+    std::cout << "Available colour maps (for --lut):\n";
+    for (int cm = 0; cm < colourMapCount(); ++cm)
+        std::cout << "  " << colourMapName(static_cast<ColourMapType>(cm)) << "\n";
+
+    std::cout << "\nExamples:\n"
+              << "  new_mincpik --gray vol1.mnc -r vol2.mnc --coronal 5 -o mosaic.png\n"
+              << "  new_mincpik vol.mnc --coronal 12 --rows 3 -o mosaic.png\n";
+}
+
+/// Require a value argument after a flag, printing an error and returning
+/// false if we've run past the end of argv.
+static bool requireValue(int i, int argc, const char* flag)
+{
+    if (i >= argc)
+    {
+        std::cerr << "Error: " << flag << " requires a value.\n";
+        return false;
+    }
+    return true;
+}
+
+/// Parse all command-line arguments in a single pass.
+/// Returns ParsedArgs on success.  On error, prints a message to stderr
+/// and returns std::nullopt.
+static std::optional<ParsedArgs> parseArgs(int argc, char** argv)
+{
+    ParsedArgs args;
+
+    // Pending per-volume state, flushed when a positional arg is seen.
+    std::optional<ColourMapType> pendingLut;
+    bool pendingLabel = false;
+    std::optional<std::string> pendingLabelDesc;
+    std::optional<double> pendingMin, pendingMax;
+
+    for (int i = 1; i < argc; ++i)
+    {
+        std::string_view arg = argv[i];
+
+        // -- Boolean flags (no value) --
+
+        if (arg == "-h" || arg == "--help")
+        {
+            args.help = true;
+            continue;
+        }
+        if (arg == "-d" || arg == "--debug")
+        {
+            args.debug = true;
+            continue;
+        }
+
+        // -- Per-volume colour map shorthands (no value) --
+
+        if (arg == "-G" || arg == "--gray")     { pendingLut = ColourMapType::GrayScale; continue; }
+        if (arg == "-H" || arg == "--hot")      { pendingLut = ColourMapType::HotMetal;  continue; }
+        if (arg == "-S" || arg == "--spectral") { pendingLut = ColourMapType::Spectral;  continue; }
+        if (arg == "-r" || arg == "--red")      { pendingLut = ColourMapType::Red;       continue; }
+        if (arg == "-g" || arg == "--green")    { pendingLut = ColourMapType::Green;     continue; }
+        if (arg == "-b" || arg == "--blue")     { pendingLut = ColourMapType::Blue;      continue; }
+        if (arg == "-l" || arg == "--label")    { pendingLabel = true;                   continue; }
+
+        // -- Valued flags (consume next arg) --
+
+        if (arg == "--lut")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--lut"))
+                return std::nullopt;
+            auto cmOpt = colourMapByName(argv[i]);
+            if (cmOpt)
+            {
+                pendingLut = *cmOpt;
+            }
+            else
+            {
+                std::cerr << "Unknown colour map: " << argv[i] << "\n"
+                          << "Available maps:";
+                for (int cm = 0; cm < colourMapCount(); ++cm)
+                    std::cerr << " " << colourMapName(static_cast<ColourMapType>(cm));
+                std::cerr << "\n";
+                return std::nullopt;
+            }
+            continue;
+        }
+
+        if (arg == "--range")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--range"))
+                return std::nullopt;
+            auto vals = parseDoubleList(argv[i]);
+            if (vals.size() >= 2)
+            {
+                pendingMin = vals[0];
+                pendingMax = vals[1];
+            }
+            continue;
+        }
+
+        if (arg == "-L" || arg == "--labels")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--labels"))
+                return std::nullopt;
+            pendingLabelDesc = argv[i];
+            continue;
+        }
+
+        if (arg == "-o" || arg == "--output")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--output"))
+                return std::nullopt;
+            args.outputPath = argv[i];
+            continue;
+        }
+
+        if (arg == "--width")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--width"))
+                return std::nullopt;
+            args.width = std::stoi(argv[i]);
+            continue;
+        }
+
+        if (arg == "--gap")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--gap"))
+                return std::nullopt;
+            args.gap = std::stoi(argv[i]);
+            continue;
+        }
+
+        if (arg == "--axial")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--axial"))
+                return std::nullopt;
+            args.nAxial = std::stoi(argv[i]);
+            continue;
+        }
+
+        if (arg == "--sagittal")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--sagittal"))
+                return std::nullopt;
+            args.nSagittal = std::stoi(argv[i]);
+            continue;
+        }
+
+        if (arg == "--coronal")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--coronal"))
+                return std::nullopt;
+            args.nCoronal = std::stoi(argv[i]);
+            continue;
+        }
+
+        if (arg == "--axial-at")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--axial-at"))
+                return std::nullopt;
+            args.axialAt = argv[i];
+            continue;
+        }
+
+        if (arg == "--sagittal-at")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--sagittal-at"))
+                return std::nullopt;
+            args.sagittalAt = argv[i];
+            continue;
+        }
+
+        if (arg == "--coronal-at")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--coronal-at"))
+                return std::nullopt;
+            args.coronalAt = argv[i];
+            continue;
+        }
+
+        if (arg == "--rows")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--rows"))
+                return std::nullopt;
+            args.rows = std::stoi(argv[i]);
+            continue;
+        }
+
+        if (arg == "-t" || arg == "--tags")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--tags"))
+                return std::nullopt;
+            args.tagsPath = argv[i];
+            continue;
+        }
+
+        if (arg == "--xfm")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--xfm"))
+                return std::nullopt;
+            args.xfmPath = argv[i];
+            continue;
+        }
+
+        if (arg == "-c" || arg == "--config")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--config"))
+                return std::nullopt;
+            args.configPath = argv[i];
+            continue;
+        }
+
+        if (arg == "--alpha")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--alpha"))
+                return std::nullopt;
+            args.alphaStr = argv[i];
+            continue;
+        }
+
+        // -- Unknown flag --
+
+        if (arg.size() > 1 && arg[0] == '-')
+        {
+            std::cerr << "Error: unknown option: " << arg << "\n"
+                      << "Run 'new_mincpik --help' for usage.\n";
+            return std::nullopt;
+        }
+
+        // -- Positional: volume file --
+        // Flush any pending per-volume options.
+
+        PerVolOpts pvo;
+        if (pendingLut)
+        {
+            pvo.colourMap = *pendingLut;
+            pendingLut.reset();
+        }
+        if (pendingLabel)
+        {
+            pvo.isLabel = true;
+            pendingLabel = false;
+        }
+        if (pendingLabelDesc)
+        {
+            pvo.labelDescFile = *pendingLabelDesc;
+            pendingLabelDesc.reset();
+        }
+        if (pendingMin && pendingMax)
+        {
+            pvo.range = std::array<double, 2>{*pendingMin, *pendingMax};
+            pendingMin.reset();
+            pendingMax.reset();
+        }
+
+        args.volumeFiles.push_back(std::string(arg));
+        args.perVolOpts.push_back(std::move(pvo));
+    }
+
+    return args;
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
@@ -248,236 +624,49 @@ int main(int argc, char** argv)
 {
     try
     {
-        cxxopts::Options opts("new_mincpik",
-            "Headless mosaic image generator for MINC2 volumes");
+        auto parsed = parseArgs(argc, argv);
+        if (!parsed)
+            return 1;
 
-        opts.add_options()
-            // Volume display options
-            ("G,gray",     "GrayScale colour map for next volume")
-            ("H,hot",      "HotMetal colour map for next volume")
-            ("S,spectral", "Spectral colour map for next volume")
-            ("r,red",      "Red colour map for next volume")
-            ("g,green",    "Green colour map for next volume")
-            ("b,blue",     "Blue colour map for next volume")
-            ("lut",        "Named colour map for next volume",
-                           cxxopts::value<std::string>())
-            ("range",      "Value range <min>,<max> for next volume",
-                           cxxopts::value<std::string>())
-            ("l,label",    "Mark next volume as label volume")
-            ("L,labels",   "Label description file for next volume",
-                           cxxopts::value<std::string>())
+        auto& args = *parsed;
 
-            // Slice selection
-            ("axial",       "Number of axial slices (default: 1)",
-                            cxxopts::value<int>()->default_value("1"))
-            ("sagittal",    "Number of sagittal slices (default: 1)",
-                            cxxopts::value<int>()->default_value("1"))
-            ("coronal",     "Number of coronal slices (default: 1)",
-                            cxxopts::value<int>()->default_value("1"))
-            ("axial-at",    "World Z coordinates (comma-separated)",
-                            cxxopts::value<std::string>())
-            ("sagittal-at", "World X coordinates (comma-separated)",
-                            cxxopts::value<std::string>())
-            ("coronal-at",  "World Y coordinates (comma-separated)",
-                            cxxopts::value<std::string>())
-
-            // Layout
-            ("rows",        "Arrange each plane's slices across N rows",
-                            cxxopts::value<int>()->default_value("1"))
-
-            // Output
-            ("o,output",    "Output PNG path (required)",
-                            cxxopts::value<std::string>())
-            ("width",       "Scale output to this width in pixels",
-                            cxxopts::value<int>())
-            ("gap",         "Cell gap in pixels (default: 2)",
-                            cxxopts::value<int>()->default_value("2"))
-
-            // Transform
-            ("t,tags",      "Load .tag file for registration",
-                            cxxopts::value<std::string>())
-            ("xfm",         "Load .xfm linear transform file",
-                            cxxopts::value<std::string>())
-
-            // Misc
-            ("c,config",    "Load config.json",
-                            cxxopts::value<std::string>())
-            ("alpha",       "Per-volume overlay alpha (comma-separated)",
-                            cxxopts::value<std::string>())
-            ("d,debug",     "Enable debug output")
-            ("h,help",      "Show this help message")
-
-            // Positional
-            ("positional",  "Volume files",
-                            cxxopts::value<std::vector<std::string>>());
-
-        opts.parse_positional({"positional"});
-        auto result = opts.parse(argc, argv);
-
-        if (result.count("help"))
+        if (args.help)
         {
-            std::cout << opts.help() << "\n"
-                      << "Available colour maps (for --lut):\n";
-            for (int cm = 0; cm < colourMapCount(); ++cm)
-                std::cout << "  " << colourMapName(static_cast<ColourMapType>(cm)) << "\n";
-            std::cout << "\nExamples:\n"
-                      << "  new_mincpik --gray vol1.mnc -r vol2.mnc --coronal 5 -o mosaic.png\n"
-                      << "  new_mincpik vol.mnc --coronal 12 --rows 3 -o mosaic.png\n";
+            printUsage();
             return 0;
         }
 
-        bool debug = result.count("debug") > 0;
+        bool debug = args.debug;
 
-        if (!result.count("output"))
+        if (args.outputPath.empty())
         {
             std::cerr << "Error: --output (-o) is required.\n"
                       << "Run 'new_mincpik --help' for usage.\n";
             return 1;
         }
-        std::string outputPath = result["output"].as<std::string>();
 
-        // Collect volume files
-        std::vector<std::string> volumeFiles;
-        if (result.count("positional"))
-            volumeFiles = result["positional"].as<std::vector<std::string>>();
-
-        if (volumeFiles.empty())
+        if (args.volumeFiles.empty())
         {
             std::cerr << "Error: no volume files specified.\n"
                       << "Run 'new_mincpik --help' for usage.\n";
             return 1;
         }
 
-        // --- Parse per-volume flags from argv (same pattern as new_register) ---
-        // We walk argv to associate --lut/--red/etc., --range, --label, --labels
-        // with the next positional volume file.
-
-        struct PerVolOpts
-        {
-            std::optional<ColourMapType> colourMap;
-            std::optional<std::array<double, 2>> range;
-            bool isLabel = false;
-            std::optional<std::string> labelDescFile;
-        };
-        std::vector<PerVolOpts> perVolOpts(volumeFiles.size());
-
-        {
-            std::optional<ColourMapType> pendingLut;
-            bool pendingLabel = false;
-            std::optional<std::string> pendingLabelDesc;
-            std::optional<double> pendingMin, pendingMax;
-            int volIdx = 0;
-
-            for (int i = 1; i < argc; ++i)
-            {
-                std::string_view arg = argv[i];
-
-                // Skip known valued flags
-                if (arg == "--lut" || arg == "-L" || arg == "--labels" ||
-                    arg == "--range" || arg == "-o" || arg == "--output" ||
-                    arg == "-c" || arg == "--config" || arg == "-t" || arg == "--tags" ||
-                    arg == "--xfm" || arg == "--alpha" || arg == "--width" ||
-                    arg == "--gap" || arg == "--axial" || arg == "--sagittal" ||
-                    arg == "--coronal" || arg == "--axial-at" ||
-                    arg == "--sagittal-at" || arg == "--coronal-at" ||
-                    arg == "--rows")
-                {
-                    // Handle LUT/labels/range specially; skip other valued args
-                    if (arg == "--lut")
-                    {
-                        ++i;
-                        auto cmOpt = colourMapByName(argv[i]);
-                        if (cmOpt)
-                            pendingLut = *cmOpt;
-                        else
-                        {
-                            std::cerr << "Unknown colour map: " << argv[i] << "\n"
-                                      << "Available maps:";
-                            for (int cm = 0; cm < colourMapCount(); ++cm)
-                                std::cerr << " " << colourMapName(static_cast<ColourMapType>(cm));
-                            std::cerr << "\n";
-                            return 1;
-                        }
-                    }
-                    else if (arg == "-L" || arg == "--labels")
-                    {
-                        ++i;
-                        pendingLabelDesc = argv[i];
-                    }
-                    else if (arg == "--range")
-                    {
-                        ++i;
-                        auto vals = parseDoubleList(argv[i]);
-                        if (vals.size() >= 2)
-                        {
-                            pendingMin = vals[0];
-                            pendingMax = vals[1];
-                        }
-                    }
-                    else
-                    {
-                        ++i;  // skip value
-                    }
-                    continue;
-                }
-
-                // Colour map shorthand flags
-                if (arg == "-r" || arg == "--red")     { pendingLut = ColourMapType::Red; continue; }
-                if (arg == "-g" || arg == "--green")   { pendingLut = ColourMapType::Green; continue; }
-                if (arg == "-b" || arg == "--blue")    { pendingLut = ColourMapType::Blue; continue; }
-                if (arg == "-G" || arg == "--gray")    { pendingLut = ColourMapType::GrayScale; continue; }
-                if (arg == "-H" || arg == "--hot")     { pendingLut = ColourMapType::HotMetal; continue; }
-                if (arg == "-S" || arg == "--spectral") { pendingLut = ColourMapType::Spectral; continue; }
-                if (arg == "-l" || arg == "--label")   { pendingLabel = true; continue; }
-
-                // Skip boolean flags
-                if (arg == "-d" || arg == "--debug" || arg == "-h" || arg == "--help")
-                    continue;
-
-                // Must be a positional volume file
-                if (volIdx < static_cast<int>(perVolOpts.size()))
-                {
-                    if (pendingLut)
-                    {
-                        perVolOpts[volIdx].colourMap = *pendingLut;
-                        pendingLut.reset();
-                    }
-                    if (pendingLabel)
-                    {
-                        perVolOpts[volIdx].isLabel = true;
-                        pendingLabel = false;
-                    }
-                    if (pendingLabelDesc)
-                    {
-                        perVolOpts[volIdx].labelDescFile = *pendingLabelDesc;
-                        pendingLabelDesc.reset();
-                    }
-                    if (pendingMin && pendingMax)
-                    {
-                        perVolOpts[volIdx].range = std::array<double, 2>{*pendingMin, *pendingMax};
-                        pendingMin.reset();
-                        pendingMax.reset();
-                    }
-                    ++volIdx;
-                }
-            }
-        }
-
         // --- Load volumes ---
         std::vector<Volume> volumes;
-        volumes.reserve(volumeFiles.size());
+        volumes.reserve(args.volumeFiles.size());
 
-        for (size_t i = 0; i < volumeFiles.size(); ++i)
+        for (size_t i = 0; i < args.volumeFiles.size(); ++i)
         {
             Volume vol;
             if (debug)
-                std::cerr << "[mincpik] Loading " << volumeFiles[i] << "...\n";
-            vol.load(volumeFiles[i]);
+                std::cerr << "[mincpik] Loading " << args.volumeFiles[i] << "...\n";
+            vol.load(args.volumeFiles[i]);
 
-            if (perVolOpts[i].isLabel)
+            if (args.perVolOpts[i].isLabel)
                 vol.setLabelVolume(true);
-            if (perVolOpts[i].labelDescFile)
-                vol.loadLabelDescriptionFile(*perVolOpts[i].labelDescFile);
+            if (args.perVolOpts[i].labelDescFile)
+                vol.loadLabelDescriptionFile(*args.perVolOpts[i].labelDescFile);
 
             volumes.push_back(std::move(vol));
         }
@@ -487,8 +676,8 @@ int main(int argc, char** argv)
 
         // Per-volume alpha from --alpha flag
         std::vector<float> alphas;
-        if (result.count("alpha"))
-            alphas = parseFloatList(result["alpha"].as<std::string>());
+        if (!args.alphaStr.empty())
+            alphas = parseFloatList(args.alphaStr);
 
         for (size_t i = 0; i < volumes.size(); ++i)
         {
@@ -497,14 +686,14 @@ int main(int argc, char** argv)
             params[i].colourMap = ColourMapType::GrayScale;
             params[i].overlayAlpha = 1.0f;
 
-            if (perVolOpts[i].colourMap)
-                params[i].colourMap = *perVolOpts[i].colourMap;
-            else if (perVolOpts[i].isLabel)
+            if (args.perVolOpts[i].colourMap)
+                params[i].colourMap = *args.perVolOpts[i].colourMap;
+            else if (args.perVolOpts[i].isLabel)
                 params[i].colourMap = ColourMapType::Viridis;
-            if (perVolOpts[i].range)
+            if (args.perVolOpts[i].range)
             {
-                params[i].valueMin = (*perVolOpts[i].range)[0];
-                params[i].valueMax = (*perVolOpts[i].range)[1];
+                params[i].valueMin = (*args.perVolOpts[i].range)[0];
+                params[i].valueMax = (*args.perVolOpts[i].range)[1];
                 // Below-range voxels should be transparent, not clamped to the
                 // lowest LUT colour.  This matches new_register's behaviour.
                 params[i].underColourMode = kSliceClampTransparent;
@@ -515,21 +704,21 @@ int main(int argc, char** argv)
         }
 
         // --- Config overrides ---
-        if (result.count("config"))
+        if (!args.configPath.empty())
         {
             try
             {
-                AppConfig cfg = loadConfig(result["config"].as<std::string>());
+                AppConfig cfg = loadConfig(args.configPath);
                 for (size_t i = 0; i < cfg.volumes.size() && i < volumes.size(); ++i)
                 {
                     // Config provides defaults; CLI flags above override
-                    if (!perVolOpts[i].colourMap)
+                    if (!args.perVolOpts[i].colourMap)
                     {
                         auto cmOpt = colourMapByName(cfg.volumes[i].colourMap);
                         if (cmOpt)
                             params[i].colourMap = *cmOpt;
                     }
-                    if (!perVolOpts[i].range)
+                    if (!args.perVolOpts[i].range)
                     {
                         if (cfg.volumes[i].valueMin)
                             params[i].valueMin = *cfg.volumes[i].valueMin;
@@ -546,11 +735,11 @@ int main(int argc, char** argv)
 
         // --- Transform (optional) ---
         TransformResult xfmResult;
-        if (result.count("tags") && volumes.size() >= 2)
+        if (!args.tagsPath.empty() && volumes.size() >= 2)
         {
             // Load tag file, compute transform
             TagWrapper tags;
-            tags.load(result["tags"].as<std::string>());
+            tags.load(args.tagsPath);
             if (tags.tagCount() >= kMinPointsLinear)
             {
                 auto vol1Tags = tags.points();
@@ -565,10 +754,10 @@ int main(int argc, char** argv)
                 }
             }
         }
-        if (result.count("xfm") && volumes.size() >= 2)
+        if (!args.xfmPath.empty() && volumes.size() >= 2)
         {
             glm::dmat4 mat;
-            if (readXfmFile(result["xfm"].as<std::string>(), mat))
+            if (readXfmFile(args.xfmPath, mat))
             {
                 xfmResult.valid = true;
                 xfmResult.type = TransformType::LSQ12;
@@ -590,39 +779,35 @@ int main(int argc, char** argv)
         const Volume& refVol = volumes[0];
 
         // User-specified world coordinates take priority
-        if (result.count("axial-at"))
+        if (!args.axialAt.empty())
         {
-            auto coords = parseDoubleList(result["axial-at"].as<std::string>());
+            auto coords = parseDoubleList(args.axialAt);
             for (double c : coords)
                 sliceCoords[0].push_back(worldToSliceVoxel(refVol, 0, c));
         }
-        if (result.count("sagittal-at"))
+        if (!args.sagittalAt.empty())
         {
-            auto coords = parseDoubleList(result["sagittal-at"].as<std::string>());
+            auto coords = parseDoubleList(args.sagittalAt);
             for (double c : coords)
                 sliceCoords[1].push_back(worldToSliceVoxel(refVol, 1, c));
         }
-        if (result.count("coronal-at"))
+        if (!args.coronalAt.empty())
         {
-            auto coords = parseDoubleList(result["coronal-at"].as<std::string>());
+            auto coords = parseDoubleList(args.coronalAt);
             for (double c : coords)
                 sliceCoords[2].push_back(worldToSliceVoxel(refVol, 2, c));
         }
 
         // Fall back to evenly spaced slices
-        int nAxial    = result["axial"].as<int>();
-        int nSagittal = result["sagittal"].as<int>();
-        int nCoronal  = result["coronal"].as<int>();
-
         if (sliceCoords[0].empty())
-            sliceCoords[0] = evenlySpacedSlices(refVol, 0, nAxial);
+            sliceCoords[0] = evenlySpacedSlices(refVol, 0, args.nAxial);
         if (sliceCoords[1].empty())
-            sliceCoords[1] = evenlySpacedSlices(refVol, 1, nSagittal);
+            sliceCoords[1] = evenlySpacedSlices(refVol, 1, args.nSagittal);
         if (sliceCoords[2].empty())
-            sliceCoords[2] = evenlySpacedSlices(refVol, 2, nCoronal);
+            sliceCoords[2] = evenlySpacedSlices(refVol, 2, args.nCoronal);
 
-        int gap = result["gap"].as<int>();
-        int nRows = std::max(1, result["rows"].as<int>());
+        int gap = args.gap;
+        int nRows = std::max(1, args.rows);
 
         // --- Render all slices ---
         // Layout: rows = planes (axial, sagittal, coronal)
@@ -780,9 +965,9 @@ int main(int argc, char** argv)
         int finalW = totalWidth;
         int finalH = totalHeight;
 
-        if (result.count("width"))
+        if (args.width.has_value())
         {
-            int targetW = result["width"].as<int>();
+            int targetW = *args.width;
             if (targetW > 0 && targetW != totalWidth)
             {
                 double scale = static_cast<double>(targetW) / totalWidth;
@@ -810,16 +995,16 @@ int main(int argc, char** argv)
 
         // --- Write PNG ---
         int stride = finalW * 4;  // 4 bytes per pixel (RGBA)
-        int ok = stbi_write_png(outputPath.c_str(), finalW, finalH, 4,
+        int ok = stbi_write_png(args.outputPath.c_str(), finalW, finalH, 4,
                                 outPixels, stride);
         if (!ok)
         {
-            std::cerr << "Error: failed to write " << outputPath << "\n";
+            std::cerr << "Error: failed to write " << args.outputPath << "\n";
             return 1;
         }
 
         if (debug)
-            std::cerr << "[mincpik] Wrote " << outputPath << " ("
+            std::cerr << "[mincpik] Wrote " << args.outputPath << " ("
                       << finalW << "x" << finalH << ")\n";
 
         return 0;
