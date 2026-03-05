@@ -281,6 +281,10 @@ int main(int argc, char** argv)
             ("coronal-at",  "World Y coordinates (comma-separated)",
                             cxxopts::value<std::string>())
 
+            // Layout
+            ("rows",        "Arrange each plane's slices across N rows",
+                            cxxopts::value<int>()->default_value("1"))
+
             // Output
             ("o,output",    "Output PNG path (required)",
                             cxxopts::value<std::string>())
@@ -316,8 +320,9 @@ int main(int argc, char** argv)
                       << "Available colour maps (for --lut):\n";
             for (int cm = 0; cm < colourMapCount(); ++cm)
                 std::cout << "  " << colourMapName(static_cast<ColourMapType>(cm)) << "\n";
-            std::cout << "\nExample:\n"
-                      << "  new_mincpik --gray vol1.mnc -r vol2.mnc --coronal 5 -o mosaic.png\n";
+            std::cout << "\nExamples:\n"
+                      << "  new_mincpik --gray vol1.mnc -r vol2.mnc --coronal 5 -o mosaic.png\n"
+                      << "  new_mincpik vol.mnc --coronal 12 --rows 3 -o mosaic.png\n";
             return 0;
         }
 
@@ -374,7 +379,8 @@ int main(int argc, char** argv)
                     arg == "--xfm" || arg == "--alpha" || arg == "--width" ||
                     arg == "--gap" || arg == "--axial" || arg == "--sagittal" ||
                     arg == "--coronal" || arg == "--axial-at" ||
-                    arg == "--sagittal-at" || arg == "--coronal-at")
+                    arg == "--sagittal-at" || arg == "--coronal-at" ||
+                    arg == "--rows")
                 {
                     // Handle LUT/labels/range specially; skip other valued args
                     if (arg == "--lut")
@@ -616,10 +622,13 @@ int main(int argc, char** argv)
             sliceCoords[2] = evenlySpacedSlices(refVol, 2, nCoronal);
 
         int gap = result["gap"].as<int>();
+        int nRows = std::max(1, result["rows"].as<int>());
 
         // --- Render all slices ---
         // Layout: rows = planes (axial, sagittal, coronal)
         //         columns = slices within each plane
+        // When --rows N is given, each plane's slices are split across N
+        // sub-rows (ceiling division for uneven counts).
         // We only include rows that have at least one slice.
 
         struct SliceRow
@@ -640,8 +649,8 @@ int main(int argc, char** argv)
             if (sliceCoords[vi].empty())
                 continue;
 
-            SliceRow row;
-            row.viewIndex = vi;
+            // Render all slices for this plane first
+            std::vector<RenderedSlice> allSlices;
 
             for (int sliceIdx : sliceCoords[vi])
             {
@@ -662,11 +671,28 @@ int main(int argc, char** argv)
 
                 // Correct for non-uniform voxel spacing so that output
                 // pixels are square in world space (matches new_register).
-                row.slices.push_back(
+                allSlices.push_back(
                     resampleToPhysicalAspect(raw, refVol, vi));
             }
 
-            rows.push_back(std::move(row));
+            // Split into nRows sub-rows
+            int total = static_cast<int>(allSlices.size());
+            int perRow = (total + nRows - 1) / nRows;  // ceiling division
+
+            for (int r = 0; r < nRows; ++r)
+            {
+                int start = r * perRow;
+                if (start >= total)
+                    break;
+                int end = std::min(start + perRow, total);
+
+                SliceRow row;
+                row.viewIndex = vi;
+                for (int s = start; s < end; ++s)
+                    row.slices.push_back(std::move(allSlices[s]));
+
+                rows.push_back(std::move(row));
+            }
         }
 
         if (rows.empty())

@@ -261,6 +261,146 @@ int main(int argc, char** argv)
             FAIL("some pixels have non-opaque alpha");
     }
 
+    // --- Test 8: Row-splitting logic (--rows N) ---
+    // Render 6 coronal slices, split into 1 row vs 2 rows, verify counts.
+    {
+        TEST("row splitting with nRows=1 vs nRows=2");
+
+        // Render 6 coronal slices
+        int nSlices = 6;
+        int dimCoronal = vol.dimensions.y; // coronal = view 2
+        std::vector<RenderedSlice> allSlices;
+        for (int i = 0; i < nSlices; ++i)
+        {
+            int sliceIdx = dimCoronal * (i + 1) / (nSlices + 1);
+            VolumeRenderParams params;
+            params.valueMin = vol.min_value;
+            params.valueMax = vol.max_value;
+            params.colourMap = ColourMapType::GrayScale;
+            allSlices.push_back(renderSlice(vol, params, 2, sliceIdx));
+        }
+
+        // nRows=1: all 6 in a single row
+        {
+            int nRows = 1;
+            int total = static_cast<int>(allSlices.size());
+            int perRow = (total + nRows - 1) / nRows;
+            int rowCount = 0;
+            int maxColsInRow = 0;
+            for (int r = 0; r < nRows; ++r)
+            {
+                int start = r * perRow;
+                if (start >= total) break;
+                int end = std::min(start + perRow, total);
+                ++rowCount;
+                maxColsInRow = std::max(maxColsInRow, end - start);
+            }
+            if (rowCount == 1 && maxColsInRow == 6)
+                PASS();
+            else
+                FAIL("nRows=1 expected 1 row with 6 cols, got " +
+                     std::to_string(rowCount) + " rows, max " +
+                     std::to_string(maxColsInRow) + " cols");
+        }
+
+        // nRows=2: 3 slices per sub-row -> 2 rows
+        {
+            TEST("row splitting nRows=2 yields 2 rows of 3");
+            int nRows = 2;
+            int total = static_cast<int>(allSlices.size());
+            int perRow = (total + nRows - 1) / nRows;
+            int rowCount = 0;
+            std::vector<int> colCounts;
+            for (int r = 0; r < nRows; ++r)
+            {
+                int start = r * perRow;
+                if (start >= total) break;
+                int end = std::min(start + perRow, total);
+                ++rowCount;
+                colCounts.push_back(end - start);
+            }
+            if (rowCount == 2 && colCounts[0] == 3 && colCounts[1] == 3)
+                PASS();
+            else
+            {
+                std::string msg = "nRows=2 expected 2 rows of 3, got " +
+                    std::to_string(rowCount) + " rows [";
+                for (size_t i = 0; i < colCounts.size(); ++i)
+                {
+                    if (i > 0) msg += ",";
+                    msg += std::to_string(colCounts[i]);
+                }
+                msg += "]";
+                FAIL(msg);
+            }
+        }
+
+        // nRows=3: 2 slices per sub-row -> 3 rows
+        {
+            TEST("row splitting nRows=3 yields 3 rows of 2");
+            int nRows = 3;
+            int total = static_cast<int>(allSlices.size());
+            int perRow = (total + nRows - 1) / nRows;
+            int rowCount = 0;
+            std::vector<int> colCounts;
+            for (int r = 0; r < nRows; ++r)
+            {
+                int start = r * perRow;
+                if (start >= total) break;
+                int end = std::min(start + perRow, total);
+                ++rowCount;
+                colCounts.push_back(end - start);
+            }
+            if (rowCount == 3 && colCounts[0] == 2 && colCounts[1] == 2 && colCounts[2] == 2)
+                PASS();
+            else
+            {
+                std::string msg = "nRows=3 expected 3 rows of 2, got " +
+                    std::to_string(rowCount) + " rows [";
+                for (size_t i = 0; i < colCounts.size(); ++i)
+                {
+                    if (i > 0) msg += ",";
+                    msg += std::to_string(colCounts[i]);
+                }
+                msg += "]";
+                FAIL(msg);
+            }
+        }
+
+        // nRows=4: ceiling(6/4)=2 per row -> 3 rows (last has remainder)
+        {
+            TEST("row splitting nRows=4 yields 3 rows (2,2,2)");
+            int nRows = 4;
+            int total = static_cast<int>(allSlices.size());
+            int perRow = (total + nRows - 1) / nRows;  // ceil(6/4)=2
+            int rowCount = 0;
+            std::vector<int> colCounts;
+            for (int r = 0; r < nRows; ++r)
+            {
+                int start = r * perRow;
+                if (start >= total) break;
+                int end = std::min(start + perRow, total);
+                ++rowCount;
+                colCounts.push_back(end - start);
+            }
+            // perRow = ceil(6/4) = 2, so rows: [0..2), [2..4), [4..6) => 3 rows of 2
+            if (rowCount == 3 && colCounts[0] == 2 && colCounts[1] == 2 && colCounts[2] == 2)
+                PASS();
+            else
+            {
+                std::string msg = "nRows=4 expected 3 rows of 2, got " +
+                    std::to_string(rowCount) + " rows [";
+                for (size_t i = 0; i < colCounts.size(); ++i)
+                {
+                    if (i > 0) msg += ",";
+                    msg += std::to_string(colCounts[i]);
+                }
+                msg += "]";
+                FAIL(msg);
+            }
+        }
+    }
+
     // --- Summary ---
     std::cerr << "\n" << testsPassed << " passed, " << testsFailed << " failed\n";
     return testsFailed > 0 ? 1 : 0;
