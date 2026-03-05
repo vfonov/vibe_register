@@ -9,10 +9,10 @@
 ///   4. renderOverlaySlice produces correct dimensions with 2 volumes
 ///   5. Mosaic-style multi-slice rendering (multiple views)
 ///   6. stb_easy_font text measurement and quad generation
-///   7. Title colour parsing (parseFgColour logic)
+///   7. Title colour parsing (parseFgColour)
+///   8. parseDoubleList / parseFloatList
 
 #include <cassert>
-#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -24,7 +24,9 @@
 #include "ColourMap.h"
 #include "SliceRenderer.h"
 #include "Volume.h"
-#include "stb_easy_font.h"
+
+#include "mosaic.h"
+#include "text_render.h"
 
 static int testsPassed = 0;
 static int testsFailed = 0;
@@ -406,144 +408,105 @@ int main(int argc, char** argv)
         }
     }
 
-    // --- Test 9: stb_easy_font text measurement ---
+    // --- Test 9: renderTextRow produces non-empty output ---
     {
-        TEST("stb_easy_font_width returns positive for non-empty text");
-        char text[] = "Hello World";
-        int w = stb_easy_font_width(text);
-        if (w > 0)
-            PASS();
-        else
-            FAIL("stb_easy_font_width returned " + std::to_string(w));
-    }
-
-    {
-        TEST("stb_easy_font_height returns 12 for single-line text");
-        char text[] = "Test";
-        int h = stb_easy_font_height(text);
-        if (h == 12)
-            PASS();
-        else
-            FAIL("stb_easy_font_height returned " + std::to_string(h) + " (expected 12)");
-    }
-
-    {
-        TEST("stb_easy_font_height returns 24 for two-line text");
-        char text[] = "Line1\nLine2";
-        int h = stb_easy_font_height(text);
-        if (h == 24)
-            PASS();
-        else
-            FAIL("stb_easy_font_height returned " + std::to_string(h) + " (expected 24)");
-    }
-
-    // --- Test 10: stb_easy_font_print generates quads ---
-    {
-        TEST("stb_easy_font_print generates quads for 'ABC'");
-        char text[] = "ABC";
-        std::vector<char> vbuf(4096);
-        unsigned char color[4] = {255, 255, 255, 255};
-        int numQuads = stb_easy_font_print(0.0f, 0.0f, text, color,
-                                           vbuf.data(), static_cast<int>(vbuf.size()));
-        if (numQuads > 0)
-            PASS();
-        else
-            FAIL("stb_easy_font_print returned " + std::to_string(numQuads) + " quads");
-    }
-
-    // --- Test 11: Quad rasterization produces filled pixels ---
-    // Replicate the core rasterization logic from renderTextRow to verify
-    // that quads from stb_easy_font can be rasterized to a pixel buffer.
-    {
-        TEST("quad rasterization produces non-zero pixels");
-        char text[] = "X";
-        int nativeW = stb_easy_font_width(text) + 2;
-        int nativeH = stb_easy_font_height(text) + 2;
-
-        std::vector<char> vbuf(2048);
-        unsigned char color[4] = {255, 255, 255, 255};
-        int numQuads = stb_easy_font_print(1.0f, 1.0f, text, color,
-                                           vbuf.data(), static_cast<int>(vbuf.size()));
-
-        // Rasterize quads into a buffer
-        std::vector<uint32_t> buf(nativeW * nativeH, 0);
-        uint32_t fg = 0xFFFFFFFF;  // opaque white
-
-        for (int q = 0; q < numQuads; ++q)
+        TEST("renderTextRow produces non-empty output");
+        RenderedSlice textSlice = renderTextRow("Hello World", 0xFFFFFFFF, 1);
+        if (textSlice.width > 0 && textSlice.height > 0 && !textSlice.pixels.empty())
         {
-            float minX = 1e9f, minY = 1e9f, maxX = -1e9f, maxY = -1e9f;
-            for (int v = 0; v < 4; ++v)
+            // Check that some pixels are non-zero (text was drawn)
+            bool anyFilled = false;
+            for (auto px : textSlice.pixels)
             {
-                int off = (q * 4 + v) * 16;
-                float vx, vy;
-                std::memcpy(&vx, &vbuf[off + 0], sizeof(float));
-                std::memcpy(&vy, &vbuf[off + 4], sizeof(float));
-                if (vx < minX) minX = vx;
-                if (vx > maxX) maxX = vx;
-                if (vy < minY) minY = vy;
-                if (vy > maxY) maxY = vy;
+                if (px != 0) { anyFilled = true; break; }
             }
-
-            int x0 = std::max(0, static_cast<int>(std::floor(minX)));
-            int y0 = std::max(0, static_cast<int>(std::floor(minY)));
-            int x1 = std::min(nativeW, static_cast<int>(std::ceil(maxX)));
-            int y1 = std::min(nativeH, static_cast<int>(std::ceil(maxY)));
-
-            for (int py = y0; py < y1; ++py)
-                for (int px = x0; px < x1; ++px)
-                    buf[py * nativeW + px] = fg;
+            if (anyFilled)
+                PASS();
+            else
+                FAIL("renderTextRow pixels all zero");
         }
-
-        // Count non-zero pixels
-        int filledCount = 0;
-        for (auto px : buf)
-            if (px != 0) ++filledCount;
-
-        if (filledCount > 0)
-            PASS();
         else
-            FAIL("no pixels were filled from quad rasterization");
+        {
+            FAIL("renderTextRow returned empty slice");
+        }
     }
 
-    // --- Test 12: Colour parsing logic ---
-    // Inline verification of the hex and named colour parsing that
-    // parseFgColour() implements in mincpik_main.cpp.
+    // --- Test 10: renderTextRow with scale factor ---
     {
-        TEST("hex colour #FF0000 parses to red");
-        // Pack as 0xAABBGGRR (little-endian RGBA)
-        auto pack = [](uint8_t r, uint8_t g, uint8_t b) -> uint32_t
-        {
-            return static_cast<uint32_t>(r)
-                 | (static_cast<uint32_t>(g) << 8)
-                 | (static_cast<uint32_t>(b) << 16)
-                 | (0xFFu << 24);
-        };
+        TEST("renderTextRow scale=2 doubles dimensions");
+        RenderedSlice s1 = renderTextRow("X", 0xFFFFFFFF, 1);
+        RenderedSlice s2 = renderTextRow("X", 0xFFFFFFFF, 2);
 
-        // Verify the packing matches our expected format
-        uint32_t red = pack(255, 0, 0);
-        uint8_t r = red & 0xFF;
-        uint8_t g = (red >> 8) & 0xFF;
-        uint8_t b = (red >> 16) & 0xFF;
-        uint8_t a = (red >> 24) & 0xFF;
+        if (s1.width > 0 && s2.width == s1.width * 2 && s2.height == s1.height * 2)
+            PASS();
+        else
+            FAIL("scale=1: " + std::to_string(s1.width) + "x" + std::to_string(s1.height) +
+                 "  scale=2: " + std::to_string(s2.width) + "x" + std::to_string(s2.height));
+    }
 
+    // --- Test 11: parseFgColour ---
+    {
+        TEST("parseFgColour hex #FF0000 -> red");
+        uint32_t c = parseFgColour("#FF0000");
+        uint8_t r = c & 0xFF;
+        uint8_t g = (c >> 8) & 0xFF;
+        uint8_t b = (c >> 16) & 0xFF;
+        uint8_t a = (c >> 24) & 0xFF;
         if (r == 255 && g == 0 && b == 0 && a == 255)
             PASS();
         else
-            FAIL("pack(255,0,0) = 0x" + std::to_string(red) +
-                 " R=" + std::to_string(r) + " G=" + std::to_string(g) +
+            FAIL("R=" + std::to_string(r) + " G=" + std::to_string(g) +
                  " B=" + std::to_string(b) + " A=" + std::to_string(a));
     }
 
     {
-        TEST("short hex #F0F expands correctly");
-        // #F0F -> R=0xFF, G=0x00, B=0xFF
-        uint8_t r = 0xF * 17;  // 255
-        uint8_t g = 0x0 * 17;  // 0
-        uint8_t b = 0xF * 17;  // 255
+        TEST("parseFgColour short hex #F0F -> magenta");
+        uint32_t c = parseFgColour("#F0F");
+        uint8_t r = c & 0xFF;
+        uint8_t g = (c >> 8) & 0xFF;
+        uint8_t b = (c >> 16) & 0xFF;
         if (r == 255 && g == 0 && b == 255)
             PASS();
         else
-            FAIL("short hex expansion wrong");
+            FAIL("R=" + std::to_string(r) + " G=" + std::to_string(g) +
+                 " B=" + std::to_string(b));
+    }
+
+    {
+        TEST("parseFgColour named 'green'");
+        uint32_t c = parseFgColour("green");
+        uint8_t r = c & 0xFF;
+        uint8_t g = (c >> 8) & 0xFF;
+        uint8_t b = (c >> 16) & 0xFF;
+        if (r == 0 && g == 255 && b == 0)
+            PASS();
+        else
+            FAIL("R=" + std::to_string(r) + " G=" + std::to_string(g) +
+                 " B=" + std::to_string(b));
+    }
+
+    // --- Test 12: parseDoubleList / parseFloatList ---
+    {
+        TEST("parseDoubleList '1.5,2.5,3.5'");
+        auto vals = parseDoubleList("1.5,2.5,3.5");
+        if (vals.size() == 3 &&
+            std::abs(vals[0] - 1.5) < 1e-9 &&
+            std::abs(vals[1] - 2.5) < 1e-9 &&
+            std::abs(vals[2] - 3.5) < 1e-9)
+            PASS();
+        else
+            FAIL("size=" + std::to_string(vals.size()));
+    }
+
+    {
+        TEST("parseFloatList '0.5,1.0'");
+        auto vals = parseFloatList("0.5,1.0");
+        if (vals.size() == 2 &&
+            std::abs(vals[0] - 0.5f) < 1e-6f &&
+            std::abs(vals[1] - 1.0f) < 1e-6f)
+            PASS();
+        else
+            FAIL("size=" + std::to_string(vals.size()));
     }
 
     // --- Summary ---

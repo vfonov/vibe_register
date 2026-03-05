@@ -391,12 +391,18 @@ endif()
 INSTALL(TARGETS new_register DESTINATION bin)
 
 # --- new_mincpik: headless mosaic image generator ---
-add_executable(new_mincpik src/mincpik/mincpik_main.cpp)
+add_executable(new_mincpik
+    src/mincpik/mincpik_main.cpp
+    src/mincpik/mosaic.cpp
+    src/mincpik/text_render.cpp
+    src/mincpik/mincpik_cli.cpp
+)
 target_link_libraries(new_mincpik PRIVATE
     nr_core
 )
 target_include_directories(new_mincpik PRIVATE
     ${minc2-simple-static_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/mincpik
 )
 if(CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "10.0")
     target_link_libraries(new_mincpik PRIVATE stdc++fs)
