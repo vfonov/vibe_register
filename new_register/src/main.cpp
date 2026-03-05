@@ -1,18 +1,19 @@
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <array>
 #include <vector>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <cstdio>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
-
-#include "cxxopts.hpp"
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -42,78 +43,323 @@ static void glfwErrorCallback(int error, const char* description)
         std::cerr << "[glfw] Error " << error << ": " << description << "\n";
 }
 
+// ---------------------------------------------------------------------------
+// CLI argument parsing (replaces cxxopts)
+// ---------------------------------------------------------------------------
+
+/// Per-volume display options.  Accumulated while walking argv and flushed
+/// to the per-volume vector each time a positional volume file is seen.
+struct PerVolOpts
+{
+    std::optional<ColourMapType> colourMap;
+    std::optional<std::array<double, 2>> range;
+    bool isLabel = false;
+    std::optional<std::string> labelDescFile;
+};
+
+/// All parsed command-line arguments.
+struct ParsedArgs
+{
+    bool help  = false;
+    bool debug = false;
+    bool test  = false;
+
+    std::string configPath;
+    std::string backendName;
+    std::string tagsPath;
+    std::string qcInputPath;
+    std::string qcOutputPath;
+
+    bool syncAll    = false;
+    bool syncCursor = false;
+    bool syncZoom   = false;
+    bool syncPan    = false;
+
+    std::vector<std::string> volumeFiles;
+    std::vector<PerVolOpts>  perVolOpts;
+};
+
+/// Print usage / help text to stdout.
+static void printUsage()
+{
+    std::cout <<
+        "Usage: new_register [OPTIONS] [VOLUMES...]\n"
+        "\n"
+        "Medical imaging volume viewer.\n"
+        "\n"
+        "Volume display options (apply to the NEXT volume file):\n"
+        "  -G, --gray           GrayScale colour map\n"
+        "  -H, --hot            HotMetal colour map\n"
+        "  -S, --spectral       Spectral colour map\n"
+        "  -r, --red            Red colour map\n"
+        "  -g, --green          Green colour map\n"
+        "  -b, --blue           Blue colour map\n"
+        "      --lut <name>     Named colour map (see list below)\n"
+        "      --range <min,max>  Value range for next volume\n"
+        "  -l, --label          Mark next volume as label volume\n"
+        "  -L, --labels <file>  Label description file for next volume\n"
+        "\n"
+        "General:\n"
+        "  -c, --config <path>  Load config from <path>\n"
+        "  -B, --backend <name> Graphics backend: auto, vulkan, opengl2\n"
+        "  -t, --tags <file>    Load combined two-volume .tag file\n"
+        "  -d, --debug          Enable debug output\n"
+        "  -h, --help           Show this help message\n"
+        "      --test           Launch with a generated test volume\n"
+        "\n"
+        "QC mode:\n"
+        "      --qc <csv>       Enable QC mode with input CSV\n"
+        "      --qc-output <csv>  Output CSV for QC verdicts (required with --qc)\n"
+        "\n"
+        "Synchronization:\n"
+        "      --sync           Synchronize all (cursor, zoom, pan)\n"
+        "      --sync-cursor    Synchronize cursor position across volumes\n"
+        "      --sync-zoom      Synchronize zoom level across volumes\n"
+        "      --sync-pan       Synchronize pan position across volumes\n"
+        "\n"
+        "Backends:\n"
+        "  vulkan   Vulkan (default where available, best performance)\n"
+        "  opengl2  OpenGL 2.1 (legacy, works over SSH/X11)\n"
+        "  auto     Auto-detect best available (default)\n"
+        "\n";
+
+    std::cout << "Available colour maps (for --lut):\n";
+    for (int cm = 0; cm < colourMapCount(); ++cm)
+        std::cout << "  " << colourMapName(static_cast<ColourMapType>(cm)) << "\n";
+
+    std::cout << "\nLUT and range flags apply to the next volume file on the command line.\n"
+              << "Example: new_register --gray --range 0,100 vol1.mnc -r vol2.mnc\n";
+}
+
+/// Require a value argument after a flag, printing an error and returning
+/// false if we've run past the end of argv.
+static bool requireValue(int i, int argc, const char* flag)
+{
+    if (i >= argc)
+    {
+        std::cerr << "Error: " << flag << " requires a value.\n";
+        return false;
+    }
+    return true;
+}
+
+/// Parse all command-line arguments in a single pass.
+/// Returns ParsedArgs on success.  On error, prints a message to stderr
+/// and returns std::nullopt.
+static std::optional<ParsedArgs> parseArgs(int argc, char** argv)
+{
+    ParsedArgs args;
+
+    // Pending per-volume state, flushed when a positional arg is seen.
+    std::optional<ColourMapType> pendingLut;
+    bool pendingLabel = false;
+    std::optional<std::string> pendingLabelDesc;
+    std::optional<double> pendingMin, pendingMax;
+
+    for (int i = 1; i < argc; ++i)
+    {
+        std::string_view arg = argv[i];
+
+        // -- Boolean flags (no value) --
+
+        if (arg == "-h" || arg == "--help")    { args.help = true;  continue; }
+        if (arg == "-d" || arg == "--debug")   { args.debug = true; continue; }
+        if (arg == "--test")                   { args.test = true;  continue; }
+
+        if (arg == "--sync")        { args.syncAll = true;    continue; }
+        if (arg == "--sync-cursor") { args.syncCursor = true; continue; }
+        if (arg == "--sync-zoom")   { args.syncZoom = true;   continue; }
+        if (arg == "--sync-pan")    { args.syncPan = true;    continue; }
+
+        // -- Per-volume colour map shorthands (no value) --
+
+        if (arg == "-G" || arg == "--gray")     { pendingLut = ColourMapType::GrayScale; continue; }
+        if (arg == "-H" || arg == "--hot")      { pendingLut = ColourMapType::HotMetal;  continue; }
+        if (arg == "-S" || arg == "--spectral") { pendingLut = ColourMapType::Spectral;  continue; }
+        if (arg == "-r" || arg == "--red")      { pendingLut = ColourMapType::Red;       continue; }
+        if (arg == "-g" || arg == "--green")    { pendingLut = ColourMapType::Green;     continue; }
+        if (arg == "-b" || arg == "--blue")     { pendingLut = ColourMapType::Blue;      continue; }
+        if (arg == "-l" || arg == "--label")    { pendingLabel = true;                   continue; }
+
+        // -- Valued flags (consume next arg) --
+
+        if (arg == "--lut")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--lut"))
+                return std::nullopt;
+            auto cmOpt = colourMapByName(argv[i]);
+            if (cmOpt)
+            {
+                pendingLut = *cmOpt;
+            }
+            else
+            {
+                std::cerr << "Unknown colour map: " << argv[i] << "\n"
+                          << "Available maps:";
+                for (int cm = 0; cm < colourMapCount(); ++cm)
+                    std::cerr << " " << colourMapName(static_cast<ColourMapType>(cm));
+                std::cerr << "\n";
+                return std::nullopt;
+            }
+            continue;
+        }
+
+        if (arg == "--range")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--range"))
+                return std::nullopt;
+            std::string rangeStr = argv[i];
+            auto commaPos = rangeStr.find(',');
+            if (commaPos == std::string::npos)
+            {
+                std::cerr << "Error: --range must be in format <min>,<max> (e.g., --range 0,100)\n";
+                return std::nullopt;
+            }
+            pendingMin = std::stod(rangeStr.substr(0, commaPos));
+            pendingMax = std::stod(rangeStr.substr(commaPos + 1));
+            continue;
+        }
+
+        if (arg == "-L" || arg == "--labels")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--labels"))
+                return std::nullopt;
+            pendingLabelDesc = argv[i];
+            continue;
+        }
+
+        if (arg == "-c" || arg == "--config")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--config"))
+                return std::nullopt;
+            args.configPath = argv[i];
+            continue;
+        }
+
+        if (arg == "-B" || arg == "--backend")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--backend"))
+                return std::nullopt;
+            args.backendName = argv[i];
+            continue;
+        }
+
+        if (arg == "-t" || arg == "--tags")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--tags"))
+                return std::nullopt;
+            args.tagsPath = argv[i];
+            continue;
+        }
+
+        if (arg == "--qc")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--qc"))
+                return std::nullopt;
+            args.qcInputPath = argv[i];
+            continue;
+        }
+
+        if (arg == "--qc-output")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--qc-output"))
+                return std::nullopt;
+            args.qcOutputPath = argv[i];
+            continue;
+        }
+
+        // -- Unknown flag --
+
+        if (arg.size() > 1 && arg[0] == '-')
+        {
+            std::cerr << "Error: unknown option: " << arg << "\n"
+                      << "Run 'new_register --help' for usage.\n";
+            return std::nullopt;
+        }
+
+        // -- Positional: volume file --
+        // Flush any pending per-volume options.
+
+        PerVolOpts pvo;
+        if (pendingLut)
+        {
+            pvo.colourMap = *pendingLut;
+            pendingLut.reset();
+        }
+        if (pendingLabel)
+        {
+            pvo.isLabel = true;
+            pendingLabel = false;
+        }
+        if (pendingLabelDesc)
+        {
+            pvo.labelDescFile = *pendingLabelDesc;
+            pendingLabelDesc.reset();
+        }
+        if (pendingMin && pendingMax)
+        {
+            pvo.range = std::array<double, 2>{*pendingMin, *pendingMax};
+            pendingMin.reset();
+            pendingMax.reset();
+        }
+
+        args.volumeFiles.push_back(std::string(arg));
+        args.perVolOpts.push_back(std::move(pvo));
+    }
+
+    // Warn about unused pending per-volume state
+    if (pendingLut.has_value())
+        std::cerr << "Warning: LUT flag at end of arguments has no volume to apply to\n";
+    if (pendingLabel)
+        std::cerr << "Warning: --label flag at end of arguments has no volume to apply to\n";
+    if (pendingLabelDesc)
+        std::cerr << "Warning: --labels flag at end of arguments has no volume to apply to\n";
+    if (pendingMin || pendingMax)
+        std::cerr << "Warning: --range "
+                  << (pendingMin ? std::to_string(*pendingMin) : "?")
+                  << "," << (pendingMax ? std::to_string(*pendingMax) : "?")
+                  << " at end of arguments has no volume to apply to\n";
+
+    return args;
+}
+
+// ---------------------------------------------------------------------------
+// main
+// ---------------------------------------------------------------------------
+
 int main(int argc, char** argv)
 {
     try
     {
-        cxxopts::Options opts("new_register", "Medical imaging volume viewer");
+        auto parsed = parseArgs(argc, argv);
+        if (!parsed)
+            return 1;
 
-        opts.add_options()
-            ("c,config", "Load config from <path>", cxxopts::value<std::string>())
-            ("B,backend", "Graphics backend: auto, vulkan, opengl2", cxxopts::value<std::string>())
-            ("t,tags", "Load combined two-volume .tag file", cxxopts::value<std::string>())
-            ("h,help", "Show this help message")
-            ("d,debug", "Enable debug output")
-            ("test", "Launch with a generated test volume")
-            ("lut", "Set colour map for the next volume", cxxopts::value<std::string>())
-            ("r,red", "Set Red colour map for the next volume")
-            ("g,green", "Set Green colour map for the next volume")
-            ("b,blue", "Set Blue colour map for the next volume")
-            ("G,gray", "Set GrayScale colour map for the next volume")
-            ("H,hot", "Set HotMetal colour map for the next volume")
-            ("S,spectral", "Set Spectral colour map for the next volume")
-            ("l,label", "Mark next volume as label/segmentation volume")
-            ("L,labels", "Load label description file for next volume", cxxopts::value<std::string>())
-            ("range", "Set value range for next volume as <min>,<max> (e.g., --range 0,100)", cxxopts::value<std::string>())
-            ("qc", "Enable QC mode with input CSV", cxxopts::value<std::string>())
-            ("qc-output", "Output CSV for QC verdicts (required with --qc)", cxxopts::value<std::string>())
-            ("sync", "Synchronize all (cursor, zoom, pan)")
-            ("sync-cursor", "Synchronize cursor position across volumes")
-            ("sync-zoom", "Synchronize zoom level across volumes")
-            ("sync-pan", "Synchronize pan position across volumes")
-            ("positional", "Volume files", cxxopts::value<std::vector<std::string>>());
+        auto& args = *parsed;
 
-        opts.parse_positional({"positional"});
-
-        auto result = opts.parse(argc, argv);
-
-        if (result.count("help"))
+        if (args.help)
         {
-            std::cout << opts.help() << "\n"
-                      << "Backends:\n"
-                      << "  vulkan   Vulkan (default where available, best performance)\n"
-                      << "  opengl2  OpenGL 2.1 (legacy, works over SSH/X11)\n"
-                      << "  auto     Auto-detect best available (default)\n"
-                      << "\nAvailable colour maps (for --lut):\n";
-            for (int cm = 0; cm < colourMapCount(); ++cm)
-                std::cout << "  " << colourMapName(static_cast<ColourMapType>(cm)) << "\n";
-            std::cout << "\nLUT and range flags apply to the next volume file on the command line.\n"
-                      << "Example: new_register --gray --range 0,100 vol1.mnc -r vol2.mnc\n";
+            printUsage();
             return 0;
         }
 
-        std::string cliConfigPath;
-        if (result.count("config"))
-            cliConfigPath = result["config"].as<std::string>();
+        std::string cliConfigPath = args.configPath;
+        std::string cliBackendName = args.backendName;
+        std::string cliTagPath = args.tagsPath;
 
-        std::string cliBackendName;
-        if (result.count("backend"))
-            cliBackendName = result["backend"].as<std::string>();
+        bool useTestData = args.test;
+        debugLoggingEnabled().store(args.debug);
 
-        std::string cliTagPath;
-        if (result.count("tags"))
-            cliTagPath = result["tags"].as<std::string>();
-
-        bool useTestData = result.count("test") > 0;
-        debugLoggingEnabled().store(result.count("debug") > 0);
-
-        std::string qcInputPath;
-        if (result.count("qc"))
-            qcInputPath = result["qc"].as<std::string>();
-
-        std::string qcOutputPath;
-        if (result.count("qc-output"))
-            qcOutputPath = result["qc-output"].as<std::string>();
+        std::string qcInputPath = args.qcInputPath;
+        std::string qcOutputPath = args.qcOutputPath;
 
         if (!qcInputPath.empty() && qcOutputPath.empty())
         {
@@ -121,157 +367,11 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        bool cliSyncAll    = result.count("sync") > 0;
-        bool cliSyncCursor = result.count("sync-cursor") > 0 || cliSyncAll;
-        bool cliSyncZoom   = result.count("sync-zoom") > 0   || cliSyncAll;
-        bool cliSyncPan    = result.count("sync-pan") > 0    || cliSyncAll;
+        bool cliSyncCursor = args.syncCursor || args.syncAll;
+        bool cliSyncZoom   = args.syncZoom   || args.syncAll;
+        bool cliSyncPan    = args.syncPan    || args.syncAll;
 
-        std::vector<std::string> volumeFiles;
-        std::vector<std::optional<std::string>> cliLutPerVolume;
-        std::vector<bool> cliLabelVolumePerVolume;
-        std::vector<std::optional<std::string>> cliLabelDescPerVolume;
-        std::vector<std::optional<std::array<double, 2>>> cliRangePerVolume;
-
-        std::optional<std::string> pendingLut;
-        bool pendingLabelVolume = false;
-        std::optional<std::string> pendingLabelDesc;
-        std::optional<double> pendingMin;
-        std::optional<double> pendingMax;
-
-        if (result.count("positional"))
-            volumeFiles = result["positional"].as<std::vector<std::string>>();
-
-        for (size_t i = 0; i < volumeFiles.size(); ++i)
-        {
-            cliLutPerVolume.push_back(std::nullopt);
-            cliLabelVolumePerVolume.push_back(false);
-            cliLabelDescPerVolume.push_back(std::nullopt);
-            cliRangePerVolume.push_back(std::nullopt);
-        }
-
-        for (int i = 1; i < argc; ++i)
-        {
-            std::string_view arg = argv[i];
-            bool isLutFlag = false;
-
-            if (arg == "--lut" || arg == "-lut")
-            {
-                std::string lutName = argv[++i];
-                if (!colourMapByName(lutName).has_value())
-                {
-                    std::cerr << "Unknown colour map: " << lutName << "\n"
-                              << "Available maps:";
-                    for (int cm = 0; cm < colourMapCount(); ++cm)
-                        std::cerr << " " << colourMapName(static_cast<ColourMapType>(cm));
-                    std::cerr << "\n";
-                    return 1;
-                }
-                pendingLut = std::move(lutName);
-                continue;
-            }
-
-            if (arg == "-r" || arg == "--red" || arg == "-g" || arg == "--green" ||
-                arg == "-b" || arg == "--blue" || arg == "-G" || arg == "--gray" ||
-                arg == "-H" || arg == "--hot" || arg == "-S" || arg == "--spectral")
-            {
-                std::string lutName;
-                if (arg == "-r" || arg == "--red") lutName = "Red";
-                else if (arg == "-g" || arg == "--green") lutName = "Green";
-                else if (arg == "-b" || arg == "--blue") lutName = "Blue";
-                else if (arg == "-G" || arg == "--gray") lutName = "GrayScale";
-                else if (arg == "-H" || arg == "--hot") lutName = "HotMetal";
-                else if (arg == "-S" || arg == "--spectral") lutName = "Spectral";
-                pendingLut = lutName;
-                isLutFlag = true;
-            }
-
-            if (arg == "-l" || arg == "--label")
-            {
-                pendingLabelVolume = true;
-                continue;
-            }
-
-            if (arg == "-L" || arg == "--labels")
-            {
-                pendingLabelDesc = argv[++i];
-                continue;
-            }
-
-            if (arg == "--range")
-            {
-                std::string rangeStr = argv[++i];
-                auto commaPos = rangeStr.find(',');
-                if (commaPos == std::string::npos)
-                {
-                    std::cerr << "Error: --range must be in format <min>,<max> (e.g., --range 0,100)\n";
-                    return 1;
-                }
-                pendingMin = std::stod(rangeStr.substr(0, commaPos));
-                pendingMax = std::stod(rangeStr.substr(commaPos + 1));
-                continue;
-            }
-
-            if (isLutFlag || pendingLabelVolume || pendingLabelDesc || pendingMin || pendingMax)
-            {
-                for (size_t vi = 0; vi < volumeFiles.size(); ++vi)
-                {
-                    if (cliLutPerVolume[vi].has_value()) continue;
-                    if (pendingLut)
-                    {
-                        cliLutPerVolume[vi] = pendingLut;
-                        pendingLut.reset();
-                    }
-                    if (pendingLabelVolume)
-                    {
-                        cliLabelVolumePerVolume[vi] = true;
-                        pendingLabelVolume = false;
-                    }
-                    if (pendingLabelDesc)
-                    {
-                        cliLabelDescPerVolume[vi] = pendingLabelDesc;
-                        pendingLabelDesc.reset();
-                    }
-                    if (pendingMin || pendingMax)
-                    {
-                        if (!cliRangePerVolume[vi].has_value())
-                            cliRangePerVolume[vi] = std::array<double, 2>{0.0, 1.0};
-                        if (pendingMin)
-                        {
-                            (*cliRangePerVolume[vi])[0] = *pendingMin;
-                            pendingMin.reset();
-                        }
-                        if (pendingMax)
-                        {
-                            (*cliRangePerVolume[vi])[1] = *pendingMax;
-                            pendingMax.reset();
-                        }
-                    }
-                    break;
-                }
-            }
-        }
-
-        if (pendingLut.has_value())
-        {
-            std::cerr << "Warning: LUT flag at end of arguments has no volume to apply to\n";
-        }
-
-        if (pendingLabelVolume)
-        {
-            std::cerr << "Warning: --label flag at end of arguments has no volume to apply to\n";
-        }
-
-        if (pendingLabelDesc)
-        {
-            std::cerr << "Warning: --labels flag at end of arguments has no volume to apply to\n";
-        }
-
-        if (pendingMin || pendingMax)
-        {
-            std::cerr << "Warning: --range " << (pendingMin ? std::to_string(*pendingMin) : "?") 
-                      << "," << (pendingMax ? std::to_string(*pendingMax) : "?")
-                      << " at end of arguments has no volume to apply to\n";
-        }
+        std::vector<std::string> volumeFiles = std::move(args.volumeFiles);
 
         // --- Backend selection ---
         BackendType backendType;
@@ -715,38 +815,36 @@ int main(int argc, char** argv)
             if (cliSyncPan)    state.syncPan_ = true;
 
             // CLI LUT flags override config colour maps.
-            for (size_t vi = 0; vi < cliLutPerVolume.size() && vi < static_cast<size_t>(state.volumeCount()); ++vi)
+            for (size_t vi = 0; vi < args.perVolOpts.size() && vi < static_cast<size_t>(state.volumeCount()); ++vi)
             {
-                if (cliLutPerVolume[vi].has_value())
+                if (args.perVolOpts[vi].colourMap.has_value())
                 {
-                    auto cmOpt = colourMapByName(*cliLutPerVolume[vi]);
-                    if (cmOpt)
-                        state.viewStates_[vi].colourMap = *cmOpt;
+                    state.viewStates_[vi].colourMap = *args.perVolOpts[vi].colourMap;
                 }
             }
 
             // CLI range flags: override value range.
-            for (size_t vi = 0; vi < cliRangePerVolume.size() && vi < static_cast<size_t>(state.volumeCount()); ++vi)
+            for (size_t vi = 0; vi < args.perVolOpts.size() && vi < static_cast<size_t>(state.volumeCount()); ++vi)
             {
-                if (cliRangePerVolume[vi].has_value())
+                if (args.perVolOpts[vi].range.has_value())
                 {
-                    state.viewStates_[vi].valueRange = *cliRangePerVolume[vi];
+                    state.viewStates_[vi].valueRange = *args.perVolOpts[vi].range;
                 }
             }
 
             // CLI label flags: mark volumes as label volumes and load LUTs.
-            for (size_t vi = 0; vi < cliLabelVolumePerVolume.size() && vi < static_cast<size_t>(state.volumeCount()); ++vi)
+            for (size_t vi = 0; vi < args.perVolOpts.size() && vi < static_cast<size_t>(state.volumeCount()); ++vi)
             {
-                if (cliLabelVolumePerVolume[vi])
+                if (args.perVolOpts[vi].isLabel)
                 {
                     state.volumes_[vi].setLabelVolume(true);
                     // Default to Viridis for label volumes unless an explicit LUT was given.
-                    if (!cliLutPerVolume[vi].has_value())
+                    if (!args.perVolOpts[vi].colourMap.has_value())
                         state.viewStates_[vi].colourMap = ColourMapType::Viridis;
                 }
-                if (cliLabelDescPerVolume[vi].has_value())
+                if (args.perVolOpts[vi].labelDescFile.has_value())
                 {
-                    state.volumes_[vi].loadLabelDescriptionFile(*cliLabelDescPerVolume[vi]);
+                    state.volumes_[vi].loadLabelDescriptionFile(*args.perVolOpts[vi].labelDescFile);
                 }
             }
 

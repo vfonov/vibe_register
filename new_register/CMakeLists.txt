@@ -127,18 +127,6 @@ set(GLM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLM_BUILD_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glm)
 
-# 3.8. cxxopts (Command-line argument parsing, single-header)
-# Header-only library - no build needed
-FetchContent_Declare(
-    cxxopts
-    GIT_REPOSITORY https://github.com/jarro2783/cxxopts.git
-    GIT_TAG        v3.2.1
-    GIT_SHALLOW    TRUE
-)
-set(CXXOPTS_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(CXXOPTS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(CXXOPTS_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(cxxopts)
 
 # 3.8. Eigen3 (Linear algebra: SVD, matrix solvers — used by Transform)
 # Use ExternalProject_Add to build in build directory only
@@ -359,7 +347,6 @@ target_include_directories(new_register PRIVATE
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
     ${minc2-simple-static_SOURCE_DIR}/src  # minc2-simple headers (for extern "C" include)
-    ${cxxopts_SOURCE_DIR}/include  # cxxopts headers
 )
 
 # --- Compile Definitions ---
