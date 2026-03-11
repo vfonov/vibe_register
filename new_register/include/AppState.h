@@ -149,6 +149,11 @@ public:
     void loadTagsForVolume(int index);
     void initializeViewStates();
 
+    /// Resolve duplicate basenames in volumeNames_ by progressively
+    /// prepending parent directory components from volumePaths_ until
+    /// every entry is unique.  Call after all volumes have been added.
+    void disambiguateVolumeNames();
+
     /// Save both volumes' tags into a single two-volume .tag file at combinedTagPath_.
     /// Requires at least 2 loaded volumes.  Uses volume 0's labels.
     /// @return true on success, false on failure.

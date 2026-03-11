@@ -5,6 +5,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string_view>
+#include <unordered_map>
 
 #include "AppConfig.h"
 #include "Transform.h"
@@ -55,6 +56,69 @@ void AppState::loadVolume(const std::string& path) {
     volumePaths_.push_back(path);
     volumeNames_.push_back(
         std::filesystem::path(path).filename().string());
+}
+
+void AppState::disambiguateVolumeNames()
+{
+    const int n = static_cast<int>(volumeNames_.size());
+    if (n < 2)
+        return;
+
+    // Find groups of indices that share the same display name.
+    std::unordered_map<std::string, std::vector<int>> groups;
+    for (int i = 0; i < n; ++i)
+        groups[volumeNames_[i]].push_back(i);
+
+    for (auto& [name, indices] : groups)
+    {
+        if (indices.size() < 2)
+            continue;
+
+        // Progressively prepend parent directory components from the
+        // full path until every name in this group is unique.
+        // Start with depth=1 (one parent dir + filename).
+        for (int depth = 1; depth <= 64; ++depth)
+        {
+            // Build candidate names at this depth.
+            std::vector<std::string> candidates(indices.size());
+            for (size_t k = 0; k < indices.size(); ++k)
+            {
+                std::filesystem::path p(volumePaths_[indices[k]]);
+                // Collect up to (depth) parent components + filename.
+                std::vector<std::string> parts;
+                parts.push_back(p.filename().string());
+                std::filesystem::path parent = p.parent_path();
+                for (int d = 0; d < depth && parent.has_filename(); ++d)
+                {
+                    parts.push_back(parent.filename().string());
+                    parent = parent.parent_path();
+                }
+                // Assemble in forward order (parent/.../filename).
+                std::string result;
+                for (auto it = parts.rbegin(); it != parts.rend(); ++it)
+                {
+                    if (!result.empty())
+                        result += '/';
+                    result += *it;
+                }
+                candidates[k] = std::move(result);
+            }
+
+            // Check if all candidates in this group are now unique.
+            bool allUnique = true;
+            for (size_t a = 0; a < candidates.size() && allUnique; ++a)
+                for (size_t b = a + 1; b < candidates.size() && allUnique; ++b)
+                    if (candidates[a] == candidates[b])
+                        allUnique = false;
+
+            if (allUnique)
+            {
+                for (size_t k = 0; k < indices.size(); ++k)
+                    volumeNames_[indices[k]] = std::move(candidates[k]);
+                break;
+            }
+        }
+    }
 }
 
 void AppState::loadTagsForVolume(int index) {
@@ -370,6 +434,7 @@ void AppState::loadVolumeSet(const std::vector<std::string>& paths) {
         }
     }
 
+    disambiguateVolumeNames();
     initializeViewStates();
 }
 

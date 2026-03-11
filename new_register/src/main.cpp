@@ -478,6 +478,10 @@ int main(int argc, char** argv)
                 }
             }
 
+            // Resolve duplicate basenames (e.g. 1/vol.mnc and 2/vol.mnc)
+            // so that each ImGui window gets a unique title.
+            state.disambiguateVolumeNames();
+
             // Load tags: if --tags was specified, use combined tag file;
             // otherwise fall back to per-volume auto-discovery.
             if (!cliTagPath.empty()) {
