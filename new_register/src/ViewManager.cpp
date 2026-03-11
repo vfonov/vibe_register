@@ -44,8 +44,18 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
     
     if (state.useLogTransform)
     {
-        logRangeMin = std::log10(rangeMin);
-        logRangeMax = std::log10(rangeMax);
+        // Prevent crash when rangeMin <= 0.0 (log10 undefined for non-positive values)
+        // Set lower threshold to -10 (corresponds to log10(1e-10))
+        float logLowerThreshold = -10.0f;
+        if (rangeMin <= 0.0f)
+            logRangeMin = logLowerThreshold;
+        else
+            logRangeMin = std::log10(rangeMin);
+        
+        if (rangeMax <= 0.0f)
+            logRangeMax = logLowerThreshold;
+        else
+            logRangeMax = std::log10(rangeMax);
     }
 
     float rangeSpan = logRangeMax - logRangeMin;
@@ -104,8 +114,8 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
         // Apply log transform if enabled
         if (state.useLogTransform)
         {
-            // Values below 0 use under-colour setting
-            if (val < 0.0f)
+            // Values <= 0 use under-colour setting
+            if (val <= 0.0f)
             {
                 if (underTransparent)
                     return 0x00000000;
@@ -558,8 +568,8 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
                     // Apply log transform if enabled
                     if (info.useLogTransform)
                     {
-                        // Values below 0 use under-colour setting
-                        if (raw < 0.0f)
+                        // Values <= 0 use under-colour setting
+                        if (raw <= 0.0f)
                         {
                             if (info.underTransparent)
                                 continue;
