@@ -41,15 +41,11 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
     // Log-transform the range if log transform is enabled
     float logRangeMin = rangeMin;
     float logRangeMax = rangeMax;
-    float logOffset = 0.0f;
     
     if (state.useLogTransform)
     {
-        // Add offset of 1 to handle values in range [0, X]
-        // This maps [0, rangeMax] to [log10(1), log10(rangeMax+1)]
-        logOffset = 1.0f;
-        logRangeMin = std::log10(rangeMin + logOffset);
-        logRangeMax = std::log10(rangeMax + logOffset);
+        logRangeMin = std::log10(rangeMin);
+        logRangeMax = std::log10(rangeMax);
     }
 
     float rangeSpan = logRangeMax - logRangeMin;
@@ -108,7 +104,14 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
         // Apply log transform if enabled
         if (state.useLogTransform)
         {
-            displayVal = std::log10(val + logOffset);
+            // Values below 0 use under-colour setting
+            if (val < 0.0f)
+            {
+                if (underTransparent)
+                    return 0x00000000;
+                return underColour;
+            }
+            displayVal = std::log10(val);
         }
 
         // Handle label volumes: use colour map if selected, otherwise use label LUT
@@ -329,13 +332,11 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         // Log-transform the range if log transform is enabled
         float logRangeMin = info.rangeMin;
         float logRangeMax = info.rangeMax;
-        float logOffset = 0.0f;
         
         if (st.useLogTransform)
         {
-            logOffset = 1.0f;
-            logRangeMin = std::log10(info.rangeMin + logOffset);
-            logRangeMax = std::log10(info.rangeMax + logOffset);
+            logRangeMin = std::log10(info.rangeMin);
+            logRangeMax = std::log10(info.rangeMax);
         }
 
         float span = logRangeMax - logRangeMin;
@@ -552,11 +553,20 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
                                  0xFF000000;
                     }
                 } else {
-                    // Apply log transform if enabled
                     float displayVal = raw;
+
+                    // Apply log transform if enabled
                     if (info.useLogTransform)
                     {
-                        displayVal = std::log10(raw + 1.0f);  // +1 offset to handle values >= 0
+                        // Values below 0 use under-colour setting
+                        if (raw < 0.0f)
+                        {
+                            if (info.underTransparent)
+                                continue;
+                            packed = info.underColour;
+                            goto skip_lut_lookup;
+                        }
+                        displayVal = std::log10(raw);
                     }
 
                     if (displayVal < info.logRangeMin) {
@@ -571,6 +581,9 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
                         if (lutIdx > 255) lutIdx = 255;
                         packed = info.mainLut[lutIdx];
                     }
+
+skip_lut_lookup:
+                    ;
                 }
 
                 if ((packed >> 24) == 0)

@@ -34,12 +34,11 @@ RenderedSlice renderSlice(
     // Log-transform the range if log transform is enabled
     float logRangeMin = rangeMin;
     float logRangeMax = rangeMax;
+    
     if (params.useLogTransform)
     {
-        if (rangeMin > 0.0f)
-            logRangeMin = std::log10(rangeMin);
-        if (rangeMax > 0.0f)
-            logRangeMax = std::log10(rangeMax);
+        logRangeMin = std::log10(rangeMin);
+        logRangeMax = std::log10(rangeMax);
     }
 
     float rangeSpan = logRangeMax - logRangeMin;
@@ -91,9 +90,9 @@ RenderedSlice renderSlice(
         // Log transform (applied before colour mapping)
         if (params.useLogTransform)
         {
-            if (val <= 0.0f)
+            // Values below 0 use under-colour setting
+            if (val < 0.0f)
             {
-                // Non-positive values use under-colour setting
                 if (underTransparent)
                     return 0x00000000;
                 return underColour;
