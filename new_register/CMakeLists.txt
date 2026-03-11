@@ -211,7 +211,7 @@ else()
 
     ExternalProject_Add(libminc
         GIT_REPOSITORY https://github.com/BIC-MNI/libminc.git
-        GIT_TAG        modernize_cmake
+        GIT_TAG        develop-1.9.18
         GIT_SHALLOW    TRUE
         INSTALL_DIR    ${LIBMINC_INSTALL_PREFIX}
         CMAKE_ARGS ${_LIBMINC_ARGS}
