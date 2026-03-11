@@ -30,7 +30,19 @@ RenderedSlice renderSlice(
 
     float rangeMin = static_cast<float>(params.valueMin);
     float rangeMax = static_cast<float>(params.valueMax);
-    float rangeSpan = rangeMax - rangeMin;
+
+    // Log-transform the range if log transform is enabled
+    float logRangeMin = rangeMin;
+    float logRangeMax = rangeMax;
+    if (params.useLogTransform)
+    {
+        if (rangeMin > 0.0f)
+            logRangeMin = std::log10(rangeMin);
+        if (rangeMax > 0.0f)
+            logRangeMax = std::log10(rangeMax);
+    }
+
+    float rangeSpan = logRangeMax - logRangeMin;
     if (rangeSpan < 1e-12f)
         rangeSpan = 1e-12f;
     float invSpan = 1.0f / rangeSpan;
@@ -131,11 +143,11 @@ RenderedSlice renderSlice(
         }
 
         // Regular volume: colour map with under/over clamping
-        if (displayVal < rangeMin)
+        if (displayVal < logRangeMin)
             return underTransparent ? 0x00000000 : underColour;
-        if (displayVal > rangeMax)
+        if (displayVal > logRangeMax)
             return overTransparent ? 0x00000000 : overColour;
-        int idx = static_cast<int>((displayVal - rangeMin) * invSpan * 255.0f + 0.5f);
+        int idx = static_cast<int>((displayVal - logRangeMin) * invSpan * 255.0f + 0.5f);
         if (idx > 255)
             idx = 255;
         return mainLut[idx];
@@ -248,6 +260,7 @@ RenderedSlice renderOverlaySlice(
         glm::ivec3 dims;
         int dimXY;
         float rangeMin, rangeMax, invSpan;
+        float logRangeMin, logRangeMax;  // Log-transformed range values
         const uint32_t* mainLut;
         uint32_t underColour, overColour;
         bool underTransparent, overTransparent;
@@ -304,10 +317,24 @@ RenderedSlice renderOverlaySlice(
         info.dimXY = vol.dimensions.x * vol.dimensions.y;
         info.rangeMin = static_cast<float>(p.valueMin);
         info.rangeMax = static_cast<float>(p.valueMax);
-        float span = info.rangeMax - info.rangeMin;
+
+        // Log-transform the range if log transform is enabled
+        float logRangeMin = info.rangeMin;
+        float logRangeMax = info.rangeMax;
+        if (p.useLogTransform)
+        {
+            if (info.rangeMin > 0.0f)
+                logRangeMin = std::log10(info.rangeMin);
+            if (info.rangeMax > 0.0f)
+                logRangeMax = std::log10(info.rangeMax);
+        }
+
+        float span = logRangeMax - logRangeMin;
         if (span < 1e-12f)
             span = 1e-12f;
         info.invSpan = 1.0f / span;
+        info.logRangeMin = logRangeMin;
+        info.logRangeMax = logRangeMax;
         info.mainLut = colourMapLut(p.colourMap).table.data();
         info.alpha = p.overlayAlpha;
 
@@ -545,13 +572,13 @@ RenderedSlice renderOverlaySlice(
                                  0xFF000000;
                     }
                 }
-                else if (displayVal < info.rangeMin)
+                else if (displayVal < info.logRangeMin)
                 {
                     if (info.underTransparent)
                         continue;
                     packed = info.underColour;
                 }
-                else if (displayVal > info.rangeMax)
+                else if (displayVal > info.logRangeMax)
                 {
                     if (info.overTransparent)
                         continue;
@@ -560,7 +587,7 @@ RenderedSlice renderOverlaySlice(
                 else
                 {
                     int lutIdx = static_cast<int>(
-                        (displayVal - info.rangeMin) * info.invSpan * 255.0f + 0.5f);
+                        (displayVal - info.logRangeMin) * info.invSpan * 255.0f + 0.5f);
                     if (lutIdx > 255)
                         lutIdx = 255;
                     packed = info.mainLut[lutIdx];
