@@ -727,6 +727,31 @@ int Interface::renderVolumeColumn(int vi) {
 
                     ImGui::PopID();
                 }
+
+                // Log transform checkbox (between colour map and value range)
+                bool isLabelVol = vol.isLabelVolume();
+                bool logEnabled = state.useLogTransform;
+
+                if (isLabelVol)
+                    ImGui::BeginDisabled(true);
+
+                if (ImGui::Checkbox("Log Transform", &logEnabled))
+                {
+                    state.useLogTransform = logEnabled;
+                    viewManager_.updateSliceTexture(vi, 0);
+                    viewManager_.updateSliceTexture(vi, 1);
+                    viewManager_.updateSliceTexture(vi, 2);
+                    if (state_.hasOverlay())
+                        viewManager_.updateAllOverlayTextures();
+                }
+
+                if (isLabelVol)
+                {
+                    ImGui::EndDisabled();
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Log transform unavailable for label volumes");
+                }
+
                 ImGui::Separator();
 
                 bool changed = false;

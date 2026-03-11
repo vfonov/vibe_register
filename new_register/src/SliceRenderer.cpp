@@ -74,10 +74,25 @@ RenderedSlice renderSlice(
 
     // Lambda: map a raw voxel value to a packed 0xAABBGGRR colour.
     auto voxelToColour = [&](float val) -> uint32_t {
+        float displayVal = val;
+
+        // Log transform (applied before colour mapping)
+        if (params.useLogTransform)
+        {
+            if (val <= 0.0f)
+            {
+                // Non-positive values use under-colour setting
+                if (underTransparent)
+                    return 0x00000000;
+                return underColour;
+            }
+            displayVal = std::log10(val);
+        }
+
         // Label volumes
         if (vol.isLabelVolume())
         {
-            int labelId = static_cast<int>(std::round(val));
+            int labelId = static_cast<int>(std::round(displayVal));
             if (labelId == 0)
                 return 0x00000000;  // transparent background
 
@@ -116,11 +131,11 @@ RenderedSlice renderSlice(
         }
 
         // Regular volume: colour map with under/over clamping
-        if (val < rangeMin)
+        if (displayVal < rangeMin)
             return underTransparent ? 0x00000000 : underColour;
-        if (val > rangeMax)
+        if (displayVal > rangeMax)
             return overTransparent ? 0x00000000 : overColour;
-        int idx = static_cast<int>((val - rangeMin) * invSpan * 255.0f + 0.5f);
+        int idx = static_cast<int>((displayVal - rangeMin) * invSpan * 255.0f + 0.5f);
         if (idx > 255)
             idx = 255;
         return mainLut[idx];
@@ -244,6 +259,7 @@ RenderedSlice renderOverlaySlice(
         bool useColourMapForLabel = false;
         std::unordered_map<int, int> labelToIndex;
         size_t labelCacheSize = 0;
+        bool useLogTransform = false;
     };
 
     int numMaps = colourMapCount();
@@ -332,6 +348,9 @@ RenderedSlice renderOverlaySlice(
                 info.labelCacheSize = uniqueLabels.size();
             }
         }
+
+        // Log transform setting
+        info.useLogTransform = p.useLogTransform;
 
         infos.push_back(std::move(info));
     }
@@ -447,10 +466,35 @@ RenderedSlice renderOverlaySlice(
 
                 float raw = info.vdata[tz * info.dimXY + ty * info.dims.x + tx];
 
-                uint32_t packed;
-                if (info.isLabelVolume)
+                // Apply log transform if enabled
+                float displayVal = raw;
+                bool logSkipPixel = false;
+                uint32_t logSkipColour = 0;
+
+                if (info.useLogTransform)
                 {
-                    int labelId = static_cast<int>(std::round(raw));
+                    if (raw <= 0.0f)
+                    {
+                        // Non-positive values use under-colour setting
+                        if (info.underTransparent)
+                            continue;
+                        logSkipColour = info.underColour;
+                        logSkipPixel = true;
+                    }
+                    else
+                    {
+                        displayVal = std::log10(raw);
+                    }
+                }
+
+                uint32_t packed;
+                if (logSkipPixel)
+                {
+                    packed = logSkipColour;
+                }
+                else if (info.isLabelVolume && !info.useLogTransform)
+                {
+                    int labelId = static_cast<int>(std::round(displayVal));
                     if (labelId == 0)
                         continue;
 
@@ -501,13 +545,13 @@ RenderedSlice renderOverlaySlice(
                                  0xFF000000;
                     }
                 }
-                else if (raw < info.rangeMin)
+                else if (displayVal < info.rangeMin)
                 {
                     if (info.underTransparent)
                         continue;
                     packed = info.underColour;
                 }
-                else if (raw > info.rangeMax)
+                else if (displayVal > info.rangeMax)
                 {
                     if (info.overTransparent)
                         continue;
@@ -516,7 +560,7 @@ RenderedSlice renderOverlaySlice(
                 else
                 {
                     int lutIdx = static_cast<int>(
-                        (raw - info.rangeMin) * info.invSpan * 255.0f + 0.5f);
+                        (displayVal - info.rangeMin) * info.invSpan * 255.0f + 0.5f);
                     if (lutIdx > 255)
                         lutIdx = 255;
                     packed = info.mainLut[lutIdx];

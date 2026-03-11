@@ -23,6 +23,7 @@ struct VolumeRenderParams
     float overlayAlpha = 1.0f;
     int underColourMode = kSliceClampCurrent;
     int overColourMode  = kSliceClampCurrent;
+    bool useLogTransform = false;
 };
 
 /// Result of rendering a single slice — a CPU pixel buffer.

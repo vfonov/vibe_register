@@ -268,6 +268,7 @@ void AppState::initializeViewStates() {
 
         state.valueRange[0] = vol.min_value;
         state.valueRange[1] = vol.max_value;
+        state.useLogTransform = false;
 
         for (int v = 0; v < 3; ++v) {
             state.zoom[v] = 1.0f;
@@ -330,6 +331,8 @@ void AppState::applyConfig(const AppConfig& cfg, int defaultWindowWidth, int def
             state.panV[0] = vc->panV[0];
             state.panV[1] = vc->panV[1];
             state.panV[2] = vc->panV[2];
+
+            state.useLogTransform = vc->useLogTransform;
         }
     }
 }

@@ -19,6 +19,9 @@ void to_json(nlohmann::json& j, const VolumeConfig& v)
     j["zoom"] = v.zoom;
     j["pan_u"] = v.panU;
     j["pan_v"] = v.panV;
+    j["is_label_volume"] = v.isLabelVolume;
+    if (v.labelDescriptionFile) j["label_description_file"] = *v.labelDescriptionFile;
+    j["use_log_transform"] = v.useLogTransform;
 }
 
 void from_json(const nlohmann::json& j, VolumeConfig& v)
@@ -31,6 +34,9 @@ void from_json(const nlohmann::json& j, VolumeConfig& v)
     if (j.contains("zoom"))          j.at("zoom").get_to(v.zoom);
     if (j.contains("pan_u"))         j.at("pan_u").get_to(v.panU);
     if (j.contains("pan_v"))         j.at("pan_v").get_to(v.panV);
+    if (j.contains("is_label_volume")) j.at("is_label_volume").get_to(v.isLabelVolume);
+    if (j.contains("label_description_file")) v.labelDescriptionFile = j.at("label_description_file").get<std::string>();
+    if (j.contains("use_log_transform")) j.at("use_log_transform").get_to(v.useLogTransform);
 }
 
 void to_json(nlohmann::json& j, const QCColumnConfig& c)

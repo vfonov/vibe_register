@@ -27,6 +27,7 @@ struct VolumeConfig
     std::array<double, 3> panV = {0.5, 0.5, 0.5};
     bool isLabelVolume = false;                  // Volume contains label/segmentation data
     std::optional<std::string> labelDescriptionFile;  // Path to label colour/name lookup table
+    bool useLogTransform = false;                // Apply log10 transform before colour mapping
 };
 
 /// Global application defaults.

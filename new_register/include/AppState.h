@@ -41,6 +41,8 @@ struct VolumeViewState {
 
     int underColourMode = kClampCurrent;
     int overColourMode = kClampCurrent;
+
+    bool useLogTransform = false;
 };
 
 struct OverlayState {
