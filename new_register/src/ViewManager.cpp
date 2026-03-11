@@ -37,7 +37,22 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
 
     float rangeMin = static_cast<float>(state.valueRange[0]);
     float rangeMax = static_cast<float>(state.valueRange[1]);
-    float rangeSpan = rangeMax - rangeMin;
+
+    // Log-transform the range if log transform is enabled
+    float logRangeMin = rangeMin;
+    float logRangeMax = rangeMax;
+    float logOffset = 0.0f;
+    
+    if (state.useLogTransform)
+    {
+        // Add offset of 1 to handle values in range [0, X]
+        // This maps [0, rangeMax] to [log10(1), log10(rangeMax+1)]
+        logOffset = 1.0f;
+        logRangeMin = std::log10(rangeMin + logOffset);
+        logRangeMax = std::log10(rangeMax + logOffset);
+    }
+
+    float rangeSpan = logRangeMax - logRangeMin;
     if (rangeSpan < 1e-12f)
         rangeSpan = 1e-12f;
     float invSpan = 1.0f / rangeSpan;
@@ -88,9 +103,17 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
     }
 
     auto voxelToColour = [&](float val) -> uint32_t {
+        float displayVal = val;
+
+        // Apply log transform if enabled
+        if (state.useLogTransform)
+        {
+            displayVal = std::log10(val + logOffset);
+        }
+
         // Handle label volumes: use colour map if selected, otherwise use label LUT
         if (vol.isLabelVolume()) {
-            int labelId = static_cast<int>(std::round(val));
+            int labelId = static_cast<int>(std::round(displayVal));
             if (labelId == 0) {
                 return 0x00000000;  // transparent background
             }
@@ -126,11 +149,11 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
         }
 
         // Regular volume: use colour map
-        if (val < rangeMin)
+        if (displayVal < logRangeMin)
             return underTransparent ? 0x00000000 : underColour;
-        if (val > rangeMax)
+        if (displayVal > logRangeMax)
             return overTransparent ? 0x00000000 : overColour;
-        int idx = static_cast<int>((val - rangeMin) * invSpan * 255.0f + 0.5f);
+        int idx = static_cast<int>((displayVal - logRangeMin) * invSpan * 255.0f + 0.5f);
         if (idx > 255)
             idx = 255;
         return mainLut[idx];
@@ -240,6 +263,7 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         glm::ivec3 dims;             // target volume dimensions
         int dimXY;                   // dims.x * dims.y
         float rangeMin, rangeMax, invSpan;
+        float logRangeMin, logRangeMax;  // Log-transformed range values
         const uint32_t* mainLut;
         uint32_t underColour, overColour;
         bool underTransparent, overTransparent;
@@ -247,6 +271,7 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         bool useTPSInverse = false;  // true if TPS per-pixel inversion needed
         glm::dmat4 targetWorldToVox; // for TPS path: target vol worldToVoxel
         bool isLabelVolume = false;  // true if this is a label/segmentation volume
+        bool useLogTransform = false;  // Apply log10 transform before colour mapping
         const std::unordered_map<int, LabelInfo>* labelLUT = nullptr;  // label colour lookup
         bool useColourMapForLabel = false;  // use colour map instead of label LUT
         std::unordered_map<int, int> labelToIndex;  // label ID to colour map index
@@ -300,9 +325,26 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         info.dimXY = vol.dimensions.x * vol.dimensions.y;
         info.rangeMin = static_cast<float>(st.valueRange[0]);
         info.rangeMax = static_cast<float>(st.valueRange[1]);
-        float span = info.rangeMax - info.rangeMin;
+
+        // Log-transform the range if log transform is enabled
+        float logRangeMin = info.rangeMin;
+        float logRangeMax = info.rangeMax;
+        float logOffset = 0.0f;
+        
+        if (st.useLogTransform)
+        {
+            logOffset = 1.0f;
+            logRangeMin = std::log10(info.rangeMin + logOffset);
+            logRangeMax = std::log10(info.rangeMax + logOffset);
+        }
+
+        float span = logRangeMax - logRangeMin;
         if (span < 1e-12f) span = 1e-12f;
         info.invSpan = 1.0f / span;
+        info.logRangeMin = logRangeMin;
+        info.logRangeMax = logRangeMax;
+        info.useLogTransform = st.useLogTransform;
+
         info.mainLut = colourMapLut(st.colourMap).table.data();
         info.alpha = st.overlayAlpha;
 
@@ -509,17 +551,26 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
                                  (static_cast<uint32_t>(gray) << 16) |
                                  0xFF000000;
                     }
-                } else if (raw < info.rangeMin) {
-                    if (info.underTransparent) continue;
-                    packed = info.underColour;
-                } else if (raw > info.rangeMax) {
-                    if (info.overTransparent) continue;
-                    packed = info.overColour;
                 } else {
-                    int lutIdx = static_cast<int>(
-                        (raw - info.rangeMin) * info.invSpan * 255.0f + 0.5f);
-                    if (lutIdx > 255) lutIdx = 255;
-                    packed = info.mainLut[lutIdx];
+                    // Apply log transform if enabled
+                    float displayVal = raw;
+                    if (info.useLogTransform)
+                    {
+                        displayVal = std::log10(raw + 1.0f);  // +1 offset to handle values >= 0
+                    }
+
+                    if (displayVal < info.logRangeMin) {
+                        if (info.underTransparent) continue;
+                        packed = info.underColour;
+                    } else if (displayVal > info.logRangeMax) {
+                        if (info.overTransparent) continue;
+                        packed = info.overColour;
+                    } else {
+                        int lutIdx = static_cast<int>(
+                            (displayVal - info.logRangeMin) * info.invSpan * 255.0f + 0.5f);
+                        if (lutIdx > 255) lutIdx = 255;
+                        packed = info.mainLut[lutIdx];
+                    }
                 }
 
                 if ((packed >> 24) == 0)
