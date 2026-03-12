@@ -269,6 +269,7 @@ void AppState::initializeViewStates() {
         state.valueRange[0] = vol.min_value;
         state.valueRange[1] = vol.max_value;
         state.useLogTransform = false;
+        state.invertColourMap = false;
 
         for (int v = 0; v < 3; ++v) {
             state.zoom[v] = 1.0f;
@@ -333,6 +334,7 @@ void AppState::applyConfig(const AppConfig& cfg, int defaultWindowWidth, int def
             state.panV[2] = vc->panV[2];
 
             state.useLogTransform = vc->useLogTransform;
+            state.invertColourMap = vc->invertColourMap;
         }
     }
 }

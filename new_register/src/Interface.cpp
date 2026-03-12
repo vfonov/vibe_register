@@ -608,6 +608,7 @@ int Interface::renderVolumeColumn(int vi) {
                     ImGui::PushID(vi + 1000);
 
                     static const ColourMapType quickMaps[] = {
+                        ColourMapType::Viridis,
                         ColourMapType::GrayScale,
                         ColourMapType::Red,
                         ColourMapType::Green,
@@ -653,24 +654,18 @@ int Interface::renderVolumeColumn(int vi) {
                         ImVec2 pMin = cursor;
                         ImVec2 pMax(cursor.x + swatchSize, cursor.y + swatchSize);
 
-                        if (cmType == ColourMapType::Spectral) {
-                            const ColourLut& lut = colourMapLut(ColourMapType::Spectral);
-                            int nStrips = static_cast<int>(swatchSize);
-                            for (int s = 0; s < nStrips; ++s) {
-                                float t = static_cast<float>(s) / static_cast<float>(nStrips - 1);
-                                int idx = static_cast<int>(t * 255.0f + 0.5f);
-                                if (idx > 255)
-                                    idx = 255;
-                                uint32_t packed = lut.table[idx];
-                                float x0 = pMin.x + static_cast<float>(s);
-                                float x1 = x0 + 1.0f;
-                                dl->AddRectFilled(ImVec2(x0, pMin.y), ImVec2(x1, pMax.y), packed);
-                            }
-                        } else {
-                            ColourMapRGBA rep = colourMapRepresentative(cmType);
-                            ImU32 col = ImGui::ColorConvertFloat4ToU32(
-                                ImVec4(rep.r, rep.g, rep.b, 1.0f));
-                            dl->AddRectFilled(pMin, pMax, col);
+                        // Render all swatches with gradient (using LUT)
+                        const ColourLut& lut = colourMapLut(cmType);
+                        int nStrips = static_cast<int>(swatchSize);
+                        for (int s = 0; s < nStrips; ++s) {
+                            float t = static_cast<float>(s) / static_cast<float>(nStrips - 1);
+                            int idx = static_cast<int>(t * 255.0f + 0.5f);
+                            if (idx > 255)
+                                idx = 255;
+                            uint32_t packed = lut.table[idx];
+                            float x0 = pMin.x + static_cast<float>(s);
+                            float x1 = x0 + 1.0f;
+                            dl->AddRectFilled(ImVec2(x0, pMin.y), ImVec2(x1, pMax.y), packed);
                         }
 
                         if (isActive) {
@@ -728,6 +723,19 @@ int Interface::renderVolumeColumn(int vi) {
                     ImGui::PopID();
                 }
 
+                // Invert colour map checkbox
+                bool invertEnabled = state.invertColourMap;
+                if (ImGui::Checkbox("Invert", &invertEnabled))
+                {
+                    state.invertColourMap = invertEnabled;
+                    viewManager_.updateSliceTexture(vi, 0);
+                    viewManager_.updateSliceTexture(vi, 1);
+                    viewManager_.updateSliceTexture(vi, 2);
+                    if (state_.hasOverlay())
+                        viewManager_.updateAllOverlayTextures();
+                }
+
+                ImGui::SameLine();
                 ImGui::Separator();
 
                 bool changed = false;

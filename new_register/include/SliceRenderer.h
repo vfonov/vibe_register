@@ -24,6 +24,7 @@ struct VolumeRenderParams
     int underColourMode = kSliceClampCurrent;
     int overColourMode  = kSliceClampCurrent;
     bool useLogTransform = false;
+    bool invertColourMap = false;
 };
 
 /// Result of rendering a single slice — a CPU pixel buffer.

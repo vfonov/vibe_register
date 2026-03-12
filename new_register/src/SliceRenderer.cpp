@@ -21,7 +21,77 @@ RenderedSlice renderSlice(
         return result;
 
     // Hoist LUT pointer and colour count
-    const uint32_t* mainLut = colourMapLut(params.colourMap).table.data();
+    // Use effective colour map if invert is enabled
+    ColourMapType effectiveMap = params.colourMap;
+    if (params.invertColourMap)
+    {
+        // Map to negative/inverted version
+        switch (params.colourMap)
+        {
+        case ColourMapType::GrayScale:
+            effectiveMap = ColourMapType::HotMetalNeg;
+            break;
+        case ColourMapType::HotMetal:
+            effectiveMap = ColourMapType::HotMetalNeg;
+            break;
+        case ColourMapType::HotMetalNeg:
+            effectiveMap = ColourMapType::HotMetal;
+            break;
+        case ColourMapType::ColdMetal:
+            effectiveMap = ColourMapType::ColdMetalNeg;
+            break;
+        case ColourMapType::ColdMetalNeg:
+            effectiveMap = ColourMapType::ColdMetal;
+            break;
+        case ColourMapType::GreenMetal:
+            effectiveMap = ColourMapType::GreenMetalNeg;
+            break;
+        case ColourMapType::GreenMetalNeg:
+            effectiveMap = ColourMapType::GreenMetal;
+            break;
+        case ColourMapType::LimeMetal:
+            effectiveMap = ColourMapType::LimeMetalNeg;
+            break;
+        case ColourMapType::LimeMetalNeg:
+            effectiveMap = ColourMapType::LimeMetal;
+            break;
+        case ColourMapType::RedMetal:
+            effectiveMap = ColourMapType::RedMetalNeg;
+            break;
+        case ColourMapType::RedMetalNeg:
+            effectiveMap = ColourMapType::RedMetal;
+            break;
+        case ColourMapType::PurpleMetal:
+            effectiveMap = ColourMapType::PurpleMetalNeg;
+            break;
+        case ColourMapType::PurpleMetalNeg:
+            effectiveMap = ColourMapType::PurpleMetal;
+            break;
+        case ColourMapType::Viridis:
+            effectiveMap = ColourMapType::Magma;
+            break;
+        case ColourMapType::Magma:
+            effectiveMap = ColourMapType::Viridis;
+            break;
+        case ColourMapType::Jet:
+            effectiveMap = ColourMapType::Turbo;
+            break;
+        case ColourMapType::Turbo:
+            effectiveMap = ColourMapType::Jet;
+            break;
+        case ColourMapType::Inferno:
+            effectiveMap = ColourMapType::Plasma;
+            break;
+        case ColourMapType::Plasma:
+            effectiveMap = ColourMapType::Inferno;
+            break;
+        default:
+            effectiveMap = params.colourMap;
+            break;
+        }
+    }
+
+    const uint32_t* mainLut = colourMapLut(effectiveMap).table.data();
     int numMaps = colourMapCount();
 
     int dimX = vol.dimensions.x;

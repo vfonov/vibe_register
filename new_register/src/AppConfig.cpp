@@ -22,6 +22,7 @@ void to_json(nlohmann::json& j, const VolumeConfig& v)
     j["is_label_volume"] = v.isLabelVolume;
     if (v.labelDescriptionFile) j["label_description_file"] = *v.labelDescriptionFile;
     j["use_log_transform"] = v.useLogTransform;
+    j["invert_colour_map"] = v.invertColourMap;
 }
 
 void from_json(const nlohmann::json& j, VolumeConfig& v)
@@ -37,6 +38,7 @@ void from_json(const nlohmann::json& j, VolumeConfig& v)
     if (j.contains("is_label_volume")) j.at("is_label_volume").get_to(v.isLabelVolume);
     if (j.contains("label_description_file")) v.labelDescriptionFile = j.at("label_description_file").get<std::string>();
     if (j.contains("use_log_transform")) j.at("use_log_transform").get_to(v.useLogTransform);
+    if (j.contains("invert_colour_map")) j.at("invert_colour_map").get_to(v.invertColourMap);
 }
 
 void to_json(nlohmann::json& j, const QCColumnConfig& c)

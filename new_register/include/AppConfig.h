@@ -28,6 +28,7 @@ struct VolumeConfig
     bool isLabelVolume = false;                  // Volume contains label/segmentation data
     std::optional<std::string> labelDescriptionFile;  // Path to label colour/name lookup table
     bool useLogTransform = false;                // Apply log10 transform before colour mapping
+    bool invertColourMap = false;                // Invert/negate the colour map
 };
 
 /// Global application defaults.
