@@ -132,7 +132,7 @@ RenderedSlice renderSlice(
     bool underTransparent = (underMode == kSliceClampTransparent);
     if (!underTransparent)
     {
-        ColourMapType underMap = params.colourMap;
+        ColourMapType underMap = effectiveMap;
         if (underMode >= 0 && underMode < numMaps)
             underMap = static_cast<ColourMapType>(underMode);
         underColour = colourMapLut(underMap).table[0];
@@ -143,7 +143,7 @@ RenderedSlice renderSlice(
     bool overTransparent = (overMode == kSliceClampTransparent);
     if (!overTransparent)
     {
-        ColourMapType overMap = params.colourMap;
+        ColourMapType overMap = effectiveMap;
         if (overMode >= 0 && overMode < numMaps)
             overMap = static_cast<ColourMapType>(overMode);
         overColour = colourMapLut(overMap).table[255];
@@ -152,7 +152,7 @@ RenderedSlice renderSlice(
     // For label volumes: build label-to-index mapping if a non-default colour
     // map is selected, so labels are rendered via the colour map LUT instead
     // of per-label RGBA.
-    bool useColourMapForLabel = vol.isLabelVolume() && params.colourMap != ColourMapType::GrayScale;
+    bool useColourMapForLabel = vol.isLabelVolume() && effectiveMap != ColourMapType::GrayScale;
     std::unordered_map<int, int> labelToIndex;
     size_t labelCount = 0;
     if (useColourMapForLabel)
