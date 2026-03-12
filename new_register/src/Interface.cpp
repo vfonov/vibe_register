@@ -11,21 +11,144 @@
 #include <cstdio>
 #include <filesystem>
 #include <iostream>
+#include <vector>
 
 #include <GLFW/glfw3.h>
 
 #include "AppConfig.h"
 #include "ColourMap.h"
+#include "GraphicsBackend.h"
 #include "Prefetcher.h"
 #include "QCState.h"
 #include "Transform.h"
 #include "ViewManager.h"
 
+// ---------------------------------------------------------------------------
+// Icon texture helpers
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+/// Generate pixel data for the "Transparent" icon (box with cross line).
+std::vector<uint8_t> generateTransparentIcon(int size)
+{
+    std::vector<uint8_t> pixels(size * size * 4);
+    float half = size / 2.0f;
+    
+    for (int y = 0; y < size; ++y)
+    {
+        for (int x = 0; x < size; ++x)
+        {
+            int idx = (y * size + x) * 4;
+            float nx = (x - half) / half;
+            float ny = (y - half) / half;
+            
+            float distEdge = std::max(std::abs(nx), std::abs(ny));
+            bool onBorder = distEdge > 0.85f && distEdge < 0.95f;
+            
+            float distDiag = std::abs(nx - ny);
+            bool onDiag = distDiag < 0.08f;
+            
+            uint8_t r = 200, g = 200, b = 200, a = 0;
+            
+            if (onBorder)
+            {
+                r = g = b = 180;
+                a = 255;
+            }
+            else if (onDiag)
+            {
+                r = g = b = 150;
+                a = 200;
+            }
+            else
+            {
+                bool checker = ((x / 4) + (y / 4)) % 2 == 0;
+                r = g = b = checker ? 240 : 200;
+                a = 255;
+            }
+            
+            pixels[idx + 0] = r;
+            pixels[idx + 1] = g;
+            pixels[idx + 2] = b;
+            pixels[idx + 3] = a;
+        }
+    }
+    return pixels;
+}
+
+/// Generate pixel data for the "Current" icon (box with circle).
+std::vector<uint8_t> generateCurrentIcon(int size)
+{
+    std::vector<uint8_t> pixels(size * size * 4);
+    float half = size / 2.0f;
+    float radius = size * 0.35f;
+    
+    for (int y = 0; y < size; ++y)
+    {
+        for (int x = 0; x < size; ++x)
+        {
+            int idx = (y * size + x) * 4;
+            float dx = x - half;
+            float dy = y - half;
+            float dist = std::sqrt(dx * dx + dy * dy);
+            
+            float distEdge = std::max(std::abs(dx / half), std::abs(dy / half));
+            bool onBorder = distEdge > 0.85f && distEdge < 0.95f;
+            
+            bool onCircle = std::abs(dist - radius) < 3.0f;
+            
+            uint8_t r = 200, g = 200, b = 200, a = 0;
+            
+            if (onBorder)
+            {
+                r = g = b = 180;
+                a = 255;
+            }
+            else if (onCircle)
+            {
+                r = g = b = 100;
+                a = 255;
+            }
+            else
+            {
+                bool checker = ((x / 4) + (y / 4)) % 2 == 0;
+                r = g = b = checker ? 240 : 200;
+                a = 255;
+            }
+            
+            pixels[idx + 0] = r;
+            pixels[idx + 1] = g;
+            pixels[idx + 2] = b;
+            pixels[idx + 3] = a;
+        }
+    }
+    return pixels;
+}
+
+} // anonymous namespace
+
 Interface::Interface(AppState& state, ViewManager& viewManager, QCState& qcState)
     : state_(state), viewManager_(viewManager), qcState_(qcState) {}
 
+Interface::~Interface() = default;
+
 void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
     interfaceWindow_ = window;
+    
+    // Initialize icon textures if not already done
+    if (!transparentIcon_ || transparentIcon_->id == 0)
+    {
+        std::vector<uint8_t> transparentPixels = generateTransparentIcon(32);
+        transparentIcon_ = backend.createTexture(32, 32, transparentPixels.data());
+    }
+    if (!currentIcon_ || currentIcon_->id == 0)
+    {
+        std::vector<uint8_t> currentPixels = generateCurrentIcon(32);
+        currentIcon_ = backend.createTexture(32, 32, currentPixels.data());
+    }
+    
     int numVolumes = state_.volumeCount();
     bool hasOverlay = state_.hasOverlay();
 
@@ -744,43 +867,95 @@ int Interface::renderVolumeColumn(int vi) {
                     auto clampCombo = [&](const char* tooltip, const char* id,
                                           int& mode, bool isUnder) -> bool {
                         bool ret = false;
-                        if (ImGui::BeginCombo(id, clampColourLabel(mode), ImGuiComboFlags_None)) {
-                            auto item = [&](const char* label, int value) -> void {
+                        
+                        // Build preview label based on current mode
+                        std::string previewLabel;
+                        if (mode == kClampCurrent)
+                            previewLabel = "Current";
+                        else if (mode == kClampTransparent)
+                            previewLabel = "Transparent";
+                        else if (mode >= 0 && mode < colourMapCount())
+                            previewLabel = std::string(colourMapName(static_cast<ColourMapType>(mode)));
+                        else
+                            previewLabel = "Unknown";
+                        
+                        if (ImGui::BeginCombo(id, previewLabel.c_str(), ImGuiComboFlags_None)) {
+                            auto swatchItem = [&](const char* label, uint32_t colour, int value) -> void {
+                                char itemId[32];
+                                snprintf(itemId, sizeof(itemId), "##%d", value);
+                                ImGui::PushID(itemId);
+                                
+                                // Render colour swatch + label
+                                ImVec2 swatchSize(20.0f, 20.0f);
+                                float r = ((colour >>  0) & 0xFF) / 255.0f;
+                                float g = ((colour >>  8) & 0xFF) / 255.0f;
+                                float b = ((colour >> 16) & 0xFF) / 255.0f;
+                                
+                                ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x);
+                                ImGui::ColorButton("##swatch", ImVec4(r, g, b, 1.0f),
+                                                ImGuiColorEditFlags_NoTooltip, swatchSize);
+                                
+                                if (ImGui::IsItemHovered())
+                                    ImGui::SetTooltip("%s", label);
+                                
                                 if (ImGui::Selectable(label, mode == value)) {
                                     mode = value;
                                     ret = true;
                                 }
+                                ImGui::PopID();
                             };
-
-                            auto cmItem = [&](ColourMapType cm) -> void {
+                            
+                            auto cmItem = [&](ColourMapType cm, bool isInverted = false) -> void {
                                 int idx = static_cast<int>(cm);
-                                item(colourMapName(cm).data(), idx);
+                                const ColourLut& lut = colourMapLut(cm);
+                                
+                                // Use first or last entry depending on isUnder
+                                uint32_t colour = isUnder ? lut.table[0] : lut.table[255];
+                                std::string label = std::string(colourMapName(cm));
+                                
+                                swatchItem(label.c_str(), colour, idx);
                             };
-
-                            if (isUnder) {
-                                cmItem(ColourMapType::NegRed);
-                                cmItem(ColourMapType::NegGreen);
-                                cmItem(ColourMapType::NegBlue);
-                                ImGui::Separator();
-                            }
 
                             cmItem(ColourMapType::Red);
                             cmItem(ColourMapType::Green);
                             cmItem(ColourMapType::Blue);
                             ImGui::Separator();
 
-                            item("Current", kClampCurrent);
-                            item("Transparent", kClampTransparent);
+                            // Current icon
+                            ImGui::PushID(kClampCurrent);
+                            if (currentIcon_ && currentIcon_->id != 0) {
+                                ImVec2 iconSize(20.0f, 20.0f);
+                                ImGui::Image(currentIcon_->id, iconSize);
+                                if (ImGui::IsItemHovered())
+                                    ImGui::SetTooltip("Current");
+                            }
+                            if (ImGui::Selectable("Current", mode == kClampCurrent)) {
+                                mode = kClampCurrent;
+                                ret = true;
+                            }
+                            ImGui::PopID();
+                            
+                            // Transparent icon
+                            ImGui::PushID(kClampTransparent);
+                            if (transparentIcon_ && transparentIcon_->id != 0) {
+                                ImVec2 iconSize(20.0f, 20.0f);
+                                ImGui::Image(transparentIcon_->id, iconSize);
+                                if (ImGui::IsItemHovered())
+                                    ImGui::SetTooltip("Transparent");
+                            }
+                            if (ImGui::Selectable("Transparent", mode == kClampTransparent)) {
+                                mode = kClampTransparent;
+                                ret = true;
+                            }
+                            ImGui::PopID();
+                            
                             ImGui::Separator();
 
                             for (int cm = 0; cm < colourMapCount(); ++cm) {
                                 auto cmt = static_cast<ColourMapType>(cm);
                                 if (cmt == ColourMapType::Red ||
                                     cmt == ColourMapType::Green ||
-                                    cmt == ColourMapType::Blue ||
-                                    cmt == ColourMapType::NegRed ||
-                                    cmt == ColourMapType::NegGreen ||
-                                    cmt == ColourMapType::NegBlue)
+                                    cmt == ColourMapType::Blue)
                                     continue;
                                 cmItem(cmt);
                             }

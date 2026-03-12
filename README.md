@@ -14,4 +14,6 @@ There is also a special QC mode
 
 Original register (human coded 1993-2024): https://github.com/BIC-MNI/register , original documentation: https://en.wikibooks.org/wiki/MINC%2FVisualTools%2Fregister
 
+See [FUTURE.md](FUTURE.md) for planned improvements and enhancements.
+
 **YMMV!**

@@ -85,15 +85,6 @@ static const ControlPoint kHotMetal[] = {
     { 1.00f, 1.0f, 1.0f, 1.0f, 1.0f },
 };
 
-// --- Hot Metal Negative ---
-static const ControlPoint kHotMetalNeg[] = {
-    { 0.00f, 1.0f, 1.0f, 1.0f, 1.0f },
-    { 0.25f, 1.0f, 1.0f, 0.5f, 1.0f },
-    { 0.50f, 1.0f, 0.5f, 0.0f, 1.0f },
-    { 0.75f, 0.5f, 0.0f, 0.0f, 1.0f },
-    { 1.00f, 0.0f, 0.0f, 0.0f, 1.0f },
-};
-
 // --- Cold Metal ---
 static const ControlPoint kColdMetal[] = {
     { 0.00f, 0.0f, 0.0f, 0.0f, 1.0f },
@@ -101,15 +92,6 @@ static const ControlPoint kColdMetal[] = {
     { 0.50f, 0.0f, 0.5f, 1.0f, 1.0f },
     { 0.75f, 0.5f, 1.0f, 1.0f, 1.0f },
     { 1.00f, 1.0f, 1.0f, 1.0f, 1.0f },
-};
-
-// --- Cold Metal Negative ---
-static const ControlPoint kColdMetalNeg[] = {
-    { 0.00f, 1.0f, 1.0f, 1.0f, 1.0f },
-    { 0.25f, 0.5f, 1.0f, 1.0f, 1.0f },
-    { 0.50f, 0.0f, 0.5f, 1.0f, 1.0f },
-    { 0.75f, 0.0f, 0.0f, 0.5f, 1.0f },
-    { 1.00f, 0.0f, 0.0f, 0.0f, 1.0f },
 };
 
 // --- Green Metal ---
@@ -121,15 +103,6 @@ static const ControlPoint kGreenMetal[] = {
     { 1.00f, 1.0f, 1.0f, 1.0f, 1.0f },
 };
 
-// --- Green Metal Negative ---
-static const ControlPoint kGreenMetalNeg[] = {
-    { 0.00f, 1.0f, 1.0f, 1.0f, 1.0f },
-    { 0.25f, 0.5f, 1.0f, 1.0f, 1.0f },
-    { 0.50f, 0.0f, 1.0f, 0.5f, 1.0f },
-    { 0.75f, 0.0f, 0.5f, 0.0f, 1.0f },
-    { 1.00f, 0.0f, 0.0f, 0.0f, 1.0f },
-};
-
 // --- Lime Metal ---
 static const ControlPoint kLimeMetal[] = {
     { 0.00f, 0.0f, 0.0f, 0.0f, 1.0f },
@@ -137,15 +110,6 @@ static const ControlPoint kLimeMetal[] = {
     { 0.50f, 0.5f, 1.0f, 0.0f, 1.0f },
     { 0.75f, 1.0f, 1.0f, 0.5f, 1.0f },
     { 1.00f, 1.0f, 1.0f, 1.0f, 1.0f },
-};
-
-// --- Lime Metal Negative ---
-static const ControlPoint kLimeMetalNeg[] = {
-    { 0.00f, 1.0f, 1.0f, 1.0f, 1.0f },
-    { 0.25f, 1.0f, 1.0f, 0.5f, 1.0f },
-    { 0.50f, 0.5f, 1.0f, 0.0f, 1.0f },
-    { 0.75f, 0.0f, 0.5f, 0.0f, 1.0f },
-    { 1.00f, 0.0f, 0.0f, 0.0f, 1.0f },
 };
 
 // --- Red Metal ---
@@ -157,15 +121,6 @@ static const ControlPoint kRedMetal[] = {
     { 1.00f, 1.0f, 1.0f, 1.0f, 1.0f },
 };
 
-// --- Red Metal Negative ---
-static const ControlPoint kRedMetalNeg[] = {
-    { 0.00f, 1.0f, 1.0f, 1.0f, 1.0f },
-    { 0.25f, 1.0f, 0.5f, 1.0f, 1.0f },
-    { 0.50f, 1.0f, 0.0f, 0.5f, 1.0f },
-    { 0.75f, 0.5f, 0.0f, 0.0f, 1.0f },
-    { 1.00f, 0.0f, 0.0f, 0.0f, 1.0f },
-};
-
 // --- Purple Metal ---
 static const ControlPoint kPurpleMetal[] = {
     { 0.00f, 0.0f, 0.0f, 0.0f, 1.0f },
@@ -173,15 +128,6 @@ static const ControlPoint kPurpleMetal[] = {
     { 0.50f, 0.5f, 0.0f, 1.0f, 1.0f },
     { 0.75f, 1.0f, 0.5f, 1.0f, 1.0f },
     { 1.00f, 1.0f, 1.0f, 1.0f, 1.0f },
-};
-
-// --- Purple Metal Negative ---
-static const ControlPoint kPurpleMetalNeg[] = {
-    { 0.00f, 1.0f, 1.0f, 1.0f, 1.0f },
-    { 0.25f, 1.0f, 0.5f, 1.0f, 1.0f },
-    { 0.50f, 0.5f, 0.0f, 1.0f, 1.0f },
-    { 0.75f, 0.0f, 0.0f, 0.5f, 1.0f },
-    { 1.00f, 0.0f, 0.0f, 0.0f, 1.0f },
 };
 
 // --- Spectral (21 control points) ---
@@ -225,24 +171,6 @@ static const ControlPoint kGreen[] = {
 static const ControlPoint kBlue[] = {
     { 0.0f, 0.0f, 0.0f, 0.0f, 1.0f },
     { 1.0f, 0.0f, 0.0f, 1.0f, 1.0f },
-};
-
-// --- Negative Red (red → black) ---
-static const ControlPoint kNegRed[] = {
-    { 0.0f, 1.0f, 0.0f, 0.0f, 1.0f },
-    { 1.0f, 0.0f, 0.0f, 0.0f, 1.0f },
-};
-
-// --- Negative Green (green → black) ---
-static const ControlPoint kNegGreen[] = {
-    { 0.0f, 0.0f, 1.0f, 0.0f, 1.0f },
-    { 1.0f, 0.0f, 0.0f, 0.0f, 1.0f },
-};
-
-// --- Negative Blue (blue → black) ---
-static const ControlPoint kNegBlue[] = {
-    { 0.0f, 0.0f, 0.0f, 1.0f, 1.0f },
-    { 1.0f, 0.0f, 0.0f, 0.0f, 1.0f },
 };
 
 // --- Contour (6 banded segments with discontinuities) ---
@@ -424,28 +352,16 @@ ColourLut buildLut(ColourMapType type)
         return buildFromControlPoints(kGrayScale, countOf(kGrayScale));
     case ColourMapType::HotMetal:
         return buildFromControlPoints(kHotMetal, countOf(kHotMetal));
-    case ColourMapType::HotMetalNeg:
-        return buildFromControlPoints(kHotMetalNeg, countOf(kHotMetalNeg));
     case ColourMapType::ColdMetal:
         return buildFromControlPoints(kColdMetal, countOf(kColdMetal));
-    case ColourMapType::ColdMetalNeg:
-        return buildFromControlPoints(kColdMetalNeg, countOf(kColdMetalNeg));
     case ColourMapType::GreenMetal:
         return buildFromControlPoints(kGreenMetal, countOf(kGreenMetal));
-    case ColourMapType::GreenMetalNeg:
-        return buildFromControlPoints(kGreenMetalNeg, countOf(kGreenMetalNeg));
     case ColourMapType::LimeMetal:
         return buildFromControlPoints(kLimeMetal, countOf(kLimeMetal));
-    case ColourMapType::LimeMetalNeg:
-        return buildFromControlPoints(kLimeMetalNeg, countOf(kLimeMetalNeg));
     case ColourMapType::RedMetal:
         return buildFromControlPoints(kRedMetal, countOf(kRedMetal));
-    case ColourMapType::RedMetalNeg:
-        return buildFromControlPoints(kRedMetalNeg, countOf(kRedMetalNeg));
     case ColourMapType::PurpleMetal:
         return buildFromControlPoints(kPurpleMetal, countOf(kPurpleMetal));
-    case ColourMapType::PurpleMetalNeg:
-        return buildFromControlPoints(kPurpleMetalNeg, countOf(kPurpleMetalNeg));
     case ColourMapType::Spectral:
         return buildFromControlPoints(kSpectral, countOf(kSpectral));
     case ColourMapType::Red:
@@ -454,12 +370,6 @@ ColourLut buildLut(ColourMapType type)
         return buildFromControlPoints(kGreen, countOf(kGreen));
     case ColourMapType::Blue:
         return buildFromControlPoints(kBlue, countOf(kBlue));
-    case ColourMapType::NegRed:
-        return buildFromControlPoints(kNegRed, countOf(kNegRed));
-    case ColourMapType::NegGreen:
-        return buildFromControlPoints(kNegGreen, countOf(kNegGreen));
-    case ColourMapType::NegBlue:
-        return buildFromControlPoints(kNegBlue, countOf(kNegBlue));
     case ColourMapType::Contour:
         return buildFromControlPoints(kContour, countOf(kContour));
     case ColourMapType::Viridis:
@@ -490,26 +400,17 @@ std::string_view colourMapName(ColourMapType type)
     switch (type)
     {
     case ColourMapType::GrayScale:      return "Gray";
-    case ColourMapType::HotMetal:       return "Hot Metal";
-    case ColourMapType::HotMetalNeg:    return "Hot Metal (neg)";
-    case ColourMapType::ColdMetal:      return "Cold Metal";
-    case ColourMapType::ColdMetalNeg:   return "Cold Metal (neg)";
-    case ColourMapType::GreenMetal:     return "Green Metal";
-    case ColourMapType::GreenMetalNeg:  return "Green Metal (neg)";
-    case ColourMapType::LimeMetal:      return "Lime Metal";
-    case ColourMapType::LimeMetalNeg:   return "Lime Metal (neg)";
-    case ColourMapType::RedMetal:       return "Red Metal";
-    case ColourMapType::RedMetalNeg:    return "Red Metal (neg)";
-    case ColourMapType::PurpleMetal:    return "Purple Metal";
-    case ColourMapType::PurpleMetalNeg: return "Purple Metal (neg)";
-    case ColourMapType::Spectral:       return "Spectral";
-    case ColourMapType::Red:            return "Red";
-    case ColourMapType::Green:          return "Green";
-    case ColourMapType::Blue:           return "Blue";
-    case ColourMapType::NegRed:         return "Red (neg)";
-    case ColourMapType::NegGreen:       return "Green (neg)";
-    case ColourMapType::NegBlue:        return "Blue (neg)";
-    case ColourMapType::Contour:        return "Contour";
+    case ColourMapType::HotMetal:    return "Hot Metal";
+    case ColourMapType::ColdMetal:   return "Cold Metal";
+    case ColourMapType::GreenMetal:  return "Green Metal";
+    case ColourMapType::LimeMetal:   return "Lime Metal";
+    case ColourMapType::RedMetal:    return "Red Metal";
+    case ColourMapType::PurpleMetal: return "Purple Metal";
+    case ColourMapType::Spectral:    return "Spectral";
+    case ColourMapType::Red:     return "Red";
+    case ColourMapType::Green:   return "Green";
+    case ColourMapType::Blue:    return "Blue";
+    case ColourMapType::Contour: return "Contour";
     case ColourMapType::Viridis:        return "Viridis";
     case ColourMapType::Jet:            return "Jet";
     case ColourMapType::Magma:          return "Magma";
@@ -560,4 +461,14 @@ const ColourLut& colourMapLut(ColourMapType type)
     if (idx < 0 || idx >= colourMapCount())
         idx = 0;
     return luts[idx];
+}
+
+ColourLut invertColourLut(const ColourLut& original)
+{
+    ColourLut inverted;
+    for (int i = 0; i < kLutSize; ++i)
+    {
+        inverted.table[i] = original.table[kLutSize - 1 - i];
+    }
+    return inverted;
 }

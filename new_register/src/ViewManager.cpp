@@ -26,77 +26,21 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
     VolumeViewState& state = state_.viewStates_[volumeIndex];
 
     // Hoist LUT pointers and colour count outside the pixel loop
-    // Apply invert setting if enabled
-    ColourMapType effectiveMap = state.colourMap;
+    // Use inverted LUT if invert flag is enabled
+    const ColourLut& baseLut = colourMapLut(state.colourMap);
+    ColourLut invertedLut;
+    const uint32_t* mainLut;
+    
     if (state.invertColourMap)
     {
-        // Map to negative/inverted version
-        switch (state.colourMap)
-        {
-        case ColourMapType::GrayScale:
-            effectiveMap = ColourMapType::HotMetalNeg;
-            break;
-        case ColourMapType::HotMetal:
-            effectiveMap = ColourMapType::HotMetalNeg;
-            break;
-        case ColourMapType::HotMetalNeg:
-            effectiveMap = ColourMapType::HotMetal;
-            break;
-        case ColourMapType::ColdMetal:
-            effectiveMap = ColourMapType::ColdMetalNeg;
-            break;
-        case ColourMapType::ColdMetalNeg:
-            effectiveMap = ColourMapType::ColdMetal;
-            break;
-        case ColourMapType::GreenMetal:
-            effectiveMap = ColourMapType::GreenMetalNeg;
-            break;
-        case ColourMapType::GreenMetalNeg:
-            effectiveMap = ColourMapType::GreenMetal;
-            break;
-        case ColourMapType::LimeMetal:
-            effectiveMap = ColourMapType::LimeMetalNeg;
-            break;
-        case ColourMapType::LimeMetalNeg:
-            effectiveMap = ColourMapType::LimeMetal;
-            break;
-        case ColourMapType::RedMetal:
-            effectiveMap = ColourMapType::RedMetalNeg;
-            break;
-        case ColourMapType::RedMetalNeg:
-            effectiveMap = ColourMapType::RedMetal;
-            break;
-        case ColourMapType::PurpleMetal:
-            effectiveMap = ColourMapType::PurpleMetalNeg;
-            break;
-        case ColourMapType::PurpleMetalNeg:
-            effectiveMap = ColourMapType::PurpleMetal;
-            break;
-        case ColourMapType::Viridis:
-            effectiveMap = ColourMapType::Magma;
-            break;
-        case ColourMapType::Magma:
-            effectiveMap = ColourMapType::Viridis;
-            break;
-        case ColourMapType::Jet:
-            effectiveMap = ColourMapType::Turbo;
-            break;
-        case ColourMapType::Turbo:
-            effectiveMap = ColourMapType::Jet;
-            break;
-        case ColourMapType::Inferno:
-            effectiveMap = ColourMapType::Plasma;
-            break;
-        case ColourMapType::Plasma:
-            effectiveMap = ColourMapType::Inferno;
-            break;
-        default:
-            effectiveMap = state.colourMap;
-            break;
-        }
+        invertedLut = invertColourLut(baseLut);
+        mainLut = invertedLut.table.data();
     }
-
-    const uint32_t* mainLut = colourMapLut(effectiveMap).table.data();
+    else
+    {
+        mainLut = baseLut.table.data();
+    }
+    
     int numMaps = colourMapCount();
 
     int w, h;
@@ -139,10 +83,11 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
     bool underTransparent = (underMode == kClampTransparent);
     if (!underTransparent)
     {
-        ColourMapType underMap = effectiveMap;
+        ColourMapType underMap = state.colourMap;
         if (underMode >= 0 && underMode < numMaps)
             underMap = static_cast<ColourMapType>(underMode);
-        underColour = colourMapLut(underMap).table[0];
+        const ColourLut& underLut = colourMapLut(underMap);
+        underColour = state.invertColourMap ? underLut.table[kLutSize - 1] : underLut.table[0];
     }
 
     int overMode = state.overColourMode;
@@ -150,14 +95,15 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
     bool overTransparent = (overMode == kClampTransparent);
     if (!overTransparent)
     {
-        ColourMapType overMap = effectiveMap;
+        ColourMapType overMap = state.colourMap;
         if (overMode >= 0 && overMode < numMaps)
             overMap = static_cast<ColourMapType>(overMode);
-        overColour = colourMapLut(overMap).table[255];
+        const ColourLut& overLut = colourMapLut(overMap);
+        overColour = state.invertColourMap ? overLut.table[0] : overLut.table[255];
     }
 
     // For label volumes: check if we should use colour map instead of label LUT
-    bool useColourMapForLabel = vol.isLabelVolume() && effectiveMap != ColourMapType::GrayScale;
+    bool useColourMapForLabel = vol.isLabelVolume() && state.colourMap != ColourMapType::GrayScale;
     const std::unordered_map<int, int>* labelToIndexPtr = nullptr;
     size_t labelCount = 0;
     if (useColourMapForLabel) {

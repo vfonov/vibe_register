@@ -15,6 +15,7 @@ class Prefetcher;
 class Interface {
 public:
     Interface(AppState& state, ViewManager& viewManager, QCState& qcState);
+    ~Interface();
 
     void render(GraphicsBackend& backend, GLFWwindow* window);
     void saveScreenshot(GraphicsBackend& backend);
@@ -50,6 +51,9 @@ private:
     std::vector<std::string> configFileDialogEntries_;
     std::string configFileDialogCurrentPath_;
     std::string configFileDialogFilename_;
+
+    std::unique_ptr<Texture> transparentIcon_;
+    std::unique_ptr<Texture> currentIcon_;
 
     void renderTagFileDialog();
     void updateTagFileDialogEntries();

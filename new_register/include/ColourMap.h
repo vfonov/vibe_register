@@ -14,24 +14,15 @@ enum class ColourMapType
 {
     GrayScale,
     HotMetal,
-    HotMetalNeg,
     ColdMetal,
-    ColdMetalNeg,
     GreenMetal,
-    GreenMetalNeg,
     LimeMetal,
-    LimeMetalNeg,
     RedMetal,
-    RedMetalNeg,
     PurpleMetal,
-    PurpleMetalNeg,
     Spectral,
     Red,
     Green,
     Blue,
-    NegRed,
-    NegGreen,
-    NegBlue,
     Contour,
     Viridis,
     Jet,
@@ -75,3 +66,7 @@ struct ColourMapRGBA
     float r, g, b, a;
 };
 ColourMapRGBA colourMapRepresentative(ColourMapType type);
+
+/// Generate an inverted version of the given LUT by reversing the colour order.
+/// The inverted LUT maps index i to the original LUT's index (255-i).
+ColourLut invertColourLut(const ColourLut& original);

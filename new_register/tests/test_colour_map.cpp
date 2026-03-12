@@ -79,7 +79,32 @@ int main()
         CHECK(b <= 2, "hot LUT[64] B should be ~0");
     }
 
-    // 4. Red: first black, last pure red.
+    // 4. Inverted Hot Metal: verify invertColourLut reverses the LUT.
+    {
+        const ColourLut& original = colourMapLut(ColourMapType::HotMetal);
+        ColourLut inverted = invertColourLut(original);
+        int r, g, b, a;
+        
+        // First entry of inverted should match last entry of original
+        unpack(inverted.table[0], r, g, b, a);
+        CHECK(r == 255 && g == 255 && b == 255, "inverted hot LUT[0] should be white");
+        
+        // Last entry of inverted should match first entry of original
+        unpack(inverted.table[255], r, g, b, a);
+        CHECK(r == 0 && g == 0 && b == 0, "inverted hot LUT[255] should be black");
+        
+        // Verify symmetry: inverted[i] == original[255-i]
+        for (int i = 0; i < kLutSize; ++i)
+        {
+            int r1, g1, b1, a1, r2, g2, b2, a2;
+            unpack(inverted.table[i], r1, g1, b1, a1);
+            unpack(original.table[kLutSize - 1 - i], r2, g2, b2, a2);
+            CHECK(r1 == r2 && g1 == g2 && b1 == b2 && a1 == a2,
+                  "inverted LUT should be reverse of original");
+        }
+    }
+
+    // 5. Red: first black, last pure red.
     {
         const ColourLut& lut = colourMapLut(ColourMapType::Red);
         int r, g, b, a;
@@ -107,7 +132,7 @@ int main()
         CHECK(r == 0 && g == 0 && b == 255, "blue LUT[255] should be pure blue");
     }
 
-    // 7. Spectral: first black, last light gray.
+    // 8. Spectral: first black, last light gray.
     {
         const ColourLut& lut = colourMapLut(ColourMapType::Spectral);
         int r, g, b, a;
@@ -118,17 +143,6 @@ int main()
         // Last control point is (0.8, 0.8, 0.8) -> 204
         CHECK(std::abs(r - 204) <= 1, "spectral LUT[255] R should be ~204");
         CHECK(r == g && g == b, "spectral LUT[255] should be neutral gray");
-    }
-
-    // 8. Hot Metal Neg: first white, last black (reversed).
-    {
-        const ColourLut& lut = colourMapLut(ColourMapType::HotMetalNeg);
-        int r, g, b, a;
-        unpack(lut.table[0], r, g, b, a);
-        CHECK(r == 255 && g == 255 && b == 255, "hot neg LUT[0] should be white");
-
-        unpack(lut.table[255], r, g, b, a);
-        CHECK(r == 0 && g == 0 && b == 0, "hot neg LUT[255] should be black");
     }
 
     // 9. Contour: should have visible discontinuities.
@@ -147,7 +161,7 @@ int main()
     }
 
     // 10. colourMapCount() should equal the number of types.
-    CHECK(colourMapCount() == 27, "should have 27 colour map types");
+    CHECK(colourMapCount() == 18, "should have 18 colour map types");
 
     // 11. Calling colourMapLut twice should return the same object (cached).
     {
