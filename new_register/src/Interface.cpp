@@ -881,29 +881,28 @@ int Interface::renderVolumeColumn(int vi) {
                         
                         if (ImGui::BeginCombo(id, previewLabel.c_str(), ImGuiComboFlags_None)) {
                             auto swatchItem = [&](const char* label, uint32_t colour, int value) -> void {
-                                char itemId[32];
-                                snprintf(itemId, sizeof(itemId), "##%d", value);
-                                ImGui::PushID(itemId);
-                                
-                                // Render colour swatch + label
-                                ImVec2 swatchSize(20.0f, 20.0f);
-                                float r = ((colour >>  0) & 0xFF) / 255.0f;
-                                float g = ((colour >>  8) & 0xFF) / 255.0f;
-                                float b = ((colour >> 16) & 0xFF) / 255.0f;
-                                
-                                ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x);
-                                ImGui::ColorButton("##swatch", ImVec4(r, g, b, 1.0f),
-                                                ImGuiColorEditFlags_NoTooltip, swatchSize);
-                                
-                                if (ImGui::IsItemHovered())
-                                    ImGui::SetTooltip("%s", label);
-                                
-                                if (ImGui::Selectable(label, mode == value)) {
-                                    mode = value;
-                                    ret = true;
-                                }
-                                ImGui::PopID();
-                            };
+                                 char itemId[32];
+                                 snprintf(itemId, sizeof(itemId), "##%d", value);
+                                 ImGui::PushID(itemId);
+                                 
+                                 // Render colour swatch only (no text)
+                                 ImVec2 swatchSize(20.0f, 20.0f);
+                                 float r = ((colour >>  0) & 0xFF) / 255.0f;
+                                 float g = ((colour >>  8) & 0xFF) / 255.0f;
+                                 float b = ((colour >> 16) & 0xFF) / 255.0f;
+                                 
+                                 bool clicked = ImGui::ColorButton("##swatch", ImVec4(r, g, b, 1.0f),
+                                                 ImGuiColorEditFlags_NoTooltip, swatchSize);
+                                 
+                                 if (ImGui::IsItemHovered())
+                                     ImGui::SetTooltip("%s", label);
+                                 
+                                 if (clicked) {
+                                     mode = value;
+                                     ret = true;
+                                 }
+                                 ImGui::PopID();
+                             };
                             
                             auto cmItem = [&](ColourMapType cm, bool isInverted = false) -> void {
                                 int idx = static_cast<int>(cm);
@@ -922,32 +921,36 @@ int Interface::renderVolumeColumn(int vi) {
                             ImGui::Separator();
 
                             // Current icon
-                            ImGui::PushID(kClampCurrent);
-                            if (currentIcon_ && currentIcon_->id != 0) {
-                                ImVec2 iconSize(20.0f, 20.0f);
-                                ImGui::Image(currentIcon_->id, iconSize);
-                                if (ImGui::IsItemHovered())
-                                    ImGui::SetTooltip("Current");
-                            }
-                            if (ImGui::Selectable("Current", mode == kClampCurrent)) {
-                                mode = kClampCurrent;
-                                ret = true;
-                            }
-                            ImGui::PopID();
-                            
-                            // Transparent icon
-                            ImGui::PushID(kClampTransparent);
-                            if (transparentIcon_ && transparentIcon_->id != 0) {
-                                ImVec2 iconSize(20.0f, 20.0f);
-                                ImGui::Image(transparentIcon_->id, iconSize);
-                                if (ImGui::IsItemHovered())
-                                    ImGui::SetTooltip("Transparent");
-                            }
-                            if (ImGui::Selectable("Transparent", mode == kClampTransparent)) {
-                                mode = kClampTransparent;
-                                ret = true;
-                            }
-                            ImGui::PopID();
+                             ImGui::PushID(kClampCurrent);
+                             bool currentClicked = false;
+                             if (currentIcon_ && currentIcon_->id != 0) {
+                                 ImVec2 iconSize(20.0f, 20.0f);
+                                 ImGui::Image(currentIcon_->id, iconSize);
+                                 if (ImGui::IsItemHovered())
+                                     ImGui::SetTooltip("Current");
+                                 currentClicked = ImGui::IsItemClicked();
+                             }
+                             if (currentClicked) {
+                                 mode = kClampCurrent;
+                                 ret = true;
+                             }
+                             ImGui::PopID();
+                             
+                             // Transparent icon
+                             ImGui::PushID(kClampTransparent);
+                             bool transparentClicked = false;
+                             if (transparentIcon_ && transparentIcon_->id != 0) {
+                                 ImVec2 iconSize(20.0f, 20.0f);
+                                 ImGui::Image(transparentIcon_->id, iconSize);
+                                 if (ImGui::IsItemHovered())
+                                     ImGui::SetTooltip("Transparent");
+                                 transparentClicked = ImGui::IsItemClicked();
+                             }
+                             if (transparentClicked) {
+                                 mode = kClampTransparent;
+                                 ret = true;
+                             }
+                             ImGui::PopID();
                             
                             ImGui::Separator();
 
