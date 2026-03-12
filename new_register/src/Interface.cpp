@@ -728,30 +728,6 @@ int Interface::renderVolumeColumn(int vi) {
                     ImGui::PopID();
                 }
 
-                // Log transform checkbox (between colour map and value range)
-                bool isLabelVol = vol.isLabelVolume();
-                bool logEnabled = state.useLogTransform;
-
-                if (isLabelVol)
-                    ImGui::BeginDisabled(true);
-
-                if (ImGui::Checkbox("Log Transform", &logEnabled))
-                {
-                    state.useLogTransform = logEnabled;
-                    viewManager_.updateSliceTexture(vi, 0);
-                    viewManager_.updateSliceTexture(vi, 1);
-                    viewManager_.updateSliceTexture(vi, 2);
-                    if (state_.hasOverlay())
-                        viewManager_.updateAllOverlayTextures();
-                }
-
-                if (isLabelVol)
-                {
-                    ImGui::EndDisabled();
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Log transform unavailable for label volumes");
-                }
-
                 ImGui::Separator();
 
                 bool changed = false;
@@ -865,8 +841,10 @@ int Interface::renderVolumeColumn(int vi) {
 
                 ImGui::Separator();
 
-                // Label volume controls
+                // Label volume controls and Log10 transform
                 bool isLabel = vol.isLabelVolume();
+                bool logEnabled = state.useLogTransform;
+
                 if (ImGui::Checkbox("Label Volume", &isLabel)) {
                     state_.volumes_[vi].setLabelVolume(isLabel);
                     if (isLabel && state.colourMap != ColourMapType::GrayScale) {
@@ -877,6 +855,29 @@ int Interface::renderVolumeColumn(int vi) {
                     viewManager_.updateSliceTexture(vi, 2);
                     if (state_.hasOverlay())
                         viewManager_.updateAllOverlayTextures();
+                }
+
+                ImGui::SameLine();
+
+                // Log10 checkbox (disabled for label volumes)
+                if (isLabel)
+                    ImGui::BeginDisabled(true);
+
+                if (ImGui::Checkbox("Log10", &logEnabled))
+                {
+                    state.useLogTransform = logEnabled;
+                    viewManager_.updateSliceTexture(vi, 0);
+                    viewManager_.updateSliceTexture(vi, 1);
+                    viewManager_.updateSliceTexture(vi, 2);
+                    if (state_.hasOverlay())
+                        viewManager_.updateAllOverlayTextures();
+                }
+
+                if (isLabel)
+                {
+                    ImGui::EndDisabled();
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Log10 unavailable for label volumes");
                 }
 
                 // Show current label name at cursor position
