@@ -912,29 +912,29 @@ int Interface::renderVolumeColumn(int vi) {
                          
                          // Call BeginCombo with minimal label (we render our own preview)
                          if (ImGui::BeginCombo(id, "##combo", ImGuiComboFlags_NoPreview)) {
-                            auto swatchItem = [&](const char* label, uint32_t colour, int value) -> void {
-                                 char itemId[32];
-                                 snprintf(itemId, sizeof(itemId), "##%d", value);
-                                 ImGui::PushID(itemId);
-                                 
-                                 // Render colour swatch only (no text)
-                                 ImVec2 swatchSize(20.0f, 20.0f);
-                                 float r = ((colour >>  0) & 0xFF) / 255.0f;
-                                 float g = ((colour >>  8) & 0xFF) / 255.0f;
-                                 float b = ((colour >> 16) & 0xFF) / 255.0f;
-                                 
-                                 bool clicked = ImGui::ColorButton("##swatch", ImVec4(r, g, b, 1.0f),
-                                                 ImGuiColorEditFlags_NoTooltip, swatchSize);
-                                 
-                                 if (ImGui::IsItemHovered())
-                                     ImGui::SetTooltip("%s", label);
-                                 
-                                 if (clicked) {
-                                     mode = value;
-                                     ret = true;
-                                 }
-                                 ImGui::PopID();
-                             };
+                             auto swatchItem = [&](const char* label, uint32_t colour, int value) -> void {
+                                  char itemId[32];
+                                  snprintf(itemId, sizeof(itemId), "##%s_%d", isUnder ? "under" : "over", value);
+                                  ImGui::PushID(itemId);
+                                  
+                                  // Render colour swatch only (no text)
+                                  ImVec2 swatchSize(20.0f, 20.0f);
+                                  float r = ((colour >>  0) & 0xFF) / 255.0f;
+                                  float g = ((colour >>  8) & 0xFF) / 255.0f;
+                                  float b = ((colour >> 16) & 0xFF) / 255.0f;
+                                  
+                                  bool clicked = ImGui::ColorButton("##swatch", ImVec4(r, g, b, 1.0f),
+                                                  ImGuiColorEditFlags_NoTooltip, swatchSize);
+                                  
+                                  if (ImGui::IsItemHovered())
+                                      ImGui::SetTooltip("%s", label);
+                                  
+                                  if (clicked) {
+                                      mode = value;
+                                      ret = true;
+                                  }
+                                  ImGui::PopID();
+                              };
                             
                             // Specific color options to show
                             struct ColorOption {
@@ -943,16 +943,16 @@ int Interface::renderVolumeColumn(int vi) {
                                 uint32_t colour; // 0xAABBGGRR format
                             };
                             
-                            static const ColorOption colorOptions[] = {
-                                {"Transparent", kClampTransparent, 0x00000000},
-                                {"Current", kClampCurrent, 0xFFFFFFFF}, // White as placeholder
-                                {"Black", kClampBlack, 0xFF000000},
-                                {"Red", static_cast<int>(ColourMapType::Red), 0xFF0000FF}, // 0xAABBGGRR: Alpha=FF, Blue=00, Green=00, Red=FF
-                                {"Green", static_cast<int>(ColourMapType::Green), 0xFF00FF00}, // Alpha=FF, Blue=00, Green=FF, Red=00
-                                {"Blue", static_cast<int>(ColourMapType::Blue), 0xFFFF0000}, // Alpha=FF, Blue=FF, Green=00, Red=00
-                                {"Yellow", kClampYellow, 0xFFFFFF00}, // Alpha=FF, Blue=00, Green=FF, Red=FF
-                                {"White", kClampWhite, 0xFFFFFFFF} // Alpha=FF, Blue=FF, Green=FF, Red=FF
-                            };
+                             static const ColorOption colorOptions[] = {
+                                 {"Transparent", kClampTransparent, 0x00000000},
+                                 {"Current", kClampCurrent, 0xFFFFFFFF}, // White as placeholder
+                                 {"Black", kClampBlack, 0xFF000000},
+                                 {"Red", static_cast<int>(ColourMapType::Red), 0xFF0000FF}, // 0xAABBGGRR: Alpha=FF, Blue=00, Green=00, Red=FF
+                                 {"Green", static_cast<int>(ColourMapType::Green), 0xFF00FF00}, // Alpha=FF, Blue=00, Green=FF, Red=00
+                                 {"Blue", static_cast<int>(ColourMapType::Blue), 0xFFFF0000}, // Alpha=FF, Blue=FF, Green=00, Red=00
+                                 {"Yellow", kClampYellow, 0xFF00FFFF}, // Alpha=FF, Blue=00, Green=FF, Red=FF
+                                 {"White", kClampWhite, 0xFFFFFFFF} // Alpha=FF, Blue=FF, Green=FF, Red=FF
+                             };
                             
                             for (const auto& option : colorOptions) {
                                 bool selected = (mode == option.modeValue);
