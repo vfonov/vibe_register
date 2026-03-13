@@ -379,6 +379,12 @@ void Interface::saveScreenshot(GraphicsBackend& backend) {
 uint32_t Interface::resolveClampColour(int mode, ColourMapType currentMap, bool isOver) {
     if (mode == kClampTransparent)
         return 0x00000000;
+    else if (mode == kClampBlack)
+        return 0xFF000000; // Opaque black
+    else if (mode == kClampYellow)
+        return 0xFFFFFF00; // Yellow (0xAABBGGRR format: Alpha=FF, Blue=00, Green=FF, Red=FF)
+    else if (mode == kClampWhite)
+        return 0xFFFFFFFF; // Opaque white
 
     ColourMapType mapToUse = currentMap;
     if (mode >= 0 && mode < colourMapCount())
@@ -393,6 +399,12 @@ const char* Interface::clampColourLabel(int mode) {
         return "Current";
     if (mode == kClampTransparent)
         return "Transparent";
+    if (mode == kClampBlack)
+        return "Black";
+    if (mode == kClampYellow)
+        return "Yellow";
+    if (mode == kClampWhite)
+        return "White";
     if (mode >= 0 && mode < colourMapCount())
         return colourMapName(static_cast<ColourMapType>(mode)).data();
     return "Unknown";
@@ -868,18 +880,38 @@ int Interface::renderVolumeColumn(int vi) {
                                           int& mode, bool isUnder) -> bool {
                         bool ret = false;
                         
-                        // Build preview label based on current mode
-                        std::string previewLabel;
-                        if (mode == kClampCurrent)
-                            previewLabel = "Current";
-                        else if (mode == kClampTransparent)
-                            previewLabel = "Transparent";
-                        else if (mode >= 0 && mode < colourMapCount())
-                            previewLabel = std::string(colourMapName(static_cast<ColourMapType>(mode)));
-                        else
-                            previewLabel = "Unknown";
-                        
-                        if (ImGui::BeginCombo(id, previewLabel.c_str(), ImGuiComboFlags_None)) {
+                        // Render preview swatch for closed combo state
+                         ImGui::AlignTextToFramePadding(); // Ensure proper vertical alignment
+                         ImVec2 previewSize(20.0f, 20.0f);
+                         uint32_t previewColour = 0;
+                         
+                         // Determine preview colour based on mode
+                         if (mode == kClampTransparent) {
+                             previewColour = 0x00000000; // Transparent (will show as checkerboard via ColorButton)
+                         } else if (mode == kClampCurrent) {
+                             // For current mode, show a representative swatch - we'll use white as placeholder
+                             // In a full implementation, this might show the actual transferred colour
+                             previewColour = 0xFFFFFFFF; // White
+                         } else if (mode >= 0 && mode < colourMapCount()) {
+                             ColourMapType mapType = static_cast<ColourMapType>(mode);
+                             const ColourLut& lut = colourMapLut(mapType);
+                             // For preview, show the "under" colour (index 0) 
+                             previewColour = lut.table[0];
+                         } else {
+                             previewColour = 0xFF808080; // Gray for unknown
+                         }
+                         
+                         float r = ((previewColour >>  0) & 0xFF) / 255.0f;
+                         float g = ((previewColour >>  8) & 0xFF) / 255.0f;
+                         float b = ((previewColour >> 16) & 0xFF) / 255.0f;
+                         float a = ((previewColour >> 24) & 0xFF) / 255.0f;
+                         
+                         // Render the colour swatch button for preview
+                         ImGui::ColorButton("##preview", ImVec4(r, g, b, a), ImGuiColorEditFlags_NoTooltip, previewSize);
+                         ImGui::SameLine();
+                         
+                         // Call BeginCombo with minimal label (we render our own preview)
+                         if (ImGui::BeginCombo(id, "##combo", ImGuiComboFlags_NoPreview)) {
                             auto swatchItem = [&](const char* label, uint32_t colour, int value) -> void {
                                  char itemId[32];
                                  snprintf(itemId, sizeof(itemId), "##%d", value);
@@ -904,64 +936,37 @@ int Interface::renderVolumeColumn(int vi) {
                                  ImGui::PopID();
                              };
                             
-                            auto cmItem = [&](ColourMapType cm, bool isInverted = false) -> void {
-                                int idx = static_cast<int>(cm);
-                                const ColourLut& lut = colourMapLut(cm);
-                                
-                                // Use first or last entry depending on isUnder
-                                uint32_t colour = isUnder ? lut.table[0] : lut.table[255];
-                                std::string label = std::string(colourMapName(cm));
-                                
-                                swatchItem(label.c_str(), colour, idx);
+                            // Specific color options to show
+                            struct ColorOption {
+                                const char* name;
+                                int modeValue;
+                                uint32_t colour; // 0xAABBGGRR format
                             };
-
-                            cmItem(ColourMapType::Red);
-                            cmItem(ColourMapType::Green);
-                            cmItem(ColourMapType::Blue);
-                            ImGui::Separator();
-
-                            // Current icon
-                             ImGui::PushID(kClampCurrent);
-                             bool currentClicked = false;
-                             if (currentIcon_ && currentIcon_->id != 0) {
-                                 ImVec2 iconSize(20.0f, 20.0f);
-                                 ImGui::Image(currentIcon_->id, iconSize);
-                                 if (ImGui::IsItemHovered())
-                                     ImGui::SetTooltip("Current");
-                                 currentClicked = ImGui::IsItemClicked();
-                             }
-                             if (currentClicked) {
-                                 mode = kClampCurrent;
-                                 ret = true;
-                             }
-                             ImGui::PopID();
-                             
-                             // Transparent icon
-                             ImGui::PushID(kClampTransparent);
-                             bool transparentClicked = false;
-                             if (transparentIcon_ && transparentIcon_->id != 0) {
-                                 ImVec2 iconSize(20.0f, 20.0f);
-                                 ImGui::Image(transparentIcon_->id, iconSize);
-                                 if (ImGui::IsItemHovered())
-                                     ImGui::SetTooltip("Transparent");
-                                 transparentClicked = ImGui::IsItemClicked();
-                             }
-                             if (transparentClicked) {
-                                 mode = kClampTransparent;
-                                 ret = true;
-                             }
-                             ImGui::PopID();
                             
-                            ImGui::Separator();
-
-                            for (int cm = 0; cm < colourMapCount(); ++cm) {
-                                auto cmt = static_cast<ColourMapType>(cm);
-                                if (cmt == ColourMapType::Red ||
-                                    cmt == ColourMapType::Green ||
-                                    cmt == ColourMapType::Blue)
-                                    continue;
-                                cmItem(cmt);
+                            static const ColorOption colorOptions[] = {
+                                {"Transparent", kClampTransparent, 0x00000000},
+                                {"Current", kClampCurrent, 0xFFFFFFFF}, // White as placeholder
+                                {"Black", kClampBlack, 0xFF000000},
+                                {"Red", static_cast<int>(ColourMapType::Red), 0xFF0000FF}, // 0xAABBGGRR: Alpha=FF, Blue=00, Green=00, Red=FF
+                                {"Green", static_cast<int>(ColourMapType::Green), 0xFF00FF00}, // Alpha=FF, Blue=00, Green=FF, Red=00
+                                {"Blue", static_cast<int>(ColourMapType::Blue), 0xFFFF0000}, // Alpha=FF, Blue=FF, Green=00, Red=00
+                                {"Yellow", kClampYellow, 0xFFFFFF00}, // Alpha=FF, Blue=00, Green=FF, Red=FF
+                                {"White", kClampWhite, 0xFFFFFFFF} // Alpha=FF, Blue=FF, Green=FF, Red=FF
+                            };
+                            
+                            for (const auto& option : colorOptions) {
+                                bool selected = (mode == option.modeValue);
+                                swatchItem(option.name, option.colour, option.modeValue);
+                                
+                                // Add separator after specific groups for visual organization
+                                if (option.name == std::string("Transparent") || 
+                                    option.name == std::string("Current") ||
+                                    option.name == std::string("Black") ||
+                                    option.name == std::string("White")) {
+                                    ImGui::Separator();
+                                }
                             }
+                            
                             ImGui::EndCombo();
                         }
                         if (ImGui::IsItemHovered())

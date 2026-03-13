@@ -25,6 +25,9 @@ inline std::atomic<bool>& debugLoggingEnabled()
 
 constexpr int kClampCurrent = -2;
 constexpr int kClampTransparent = -1;
+constexpr int kClampBlack = -3;
+constexpr int kClampYellow = -4;
+constexpr int kClampWhite = -5;
 
 struct VolumeViewState {
     std::unique_ptr<Texture> sliceTextures[3];
