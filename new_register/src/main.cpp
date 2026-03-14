@@ -108,7 +108,7 @@ static void printUsage()
         "  -d, --debug          Enable debug output\n"
         "  -h, --help           Show this help message\n"
         "      --test           Launch with a generated test volume\n"
-        "      --scale <factor> Override screen content scale (HiDPI)\n"
+        "      --scale <factor> Override screen content scale (HiDPI, >= 1.0 only)\n"
         "\n"
         "QC mode:\n"
         "      --qc <csv>       Enable QC mode with input CSV\n"
@@ -284,7 +284,13 @@ static std::optional<ParsedArgs> parseArgs(int argc, char** argv)
             ++i;
             if (!requireValue(i, argc, "--scale"))
                 return std::nullopt;
-            args.scaleFactor = std::stof(argv[i]);
+            float scaleVal = std::stof(argv[i]);
+            if (scaleVal < 1.0f)
+            {
+                std::cerr << "Error: --scale value must be >= 1.0 (scaling down is not supported)\n";
+                return std::nullopt;
+            }
+            args.scaleFactor = scaleVal;
             continue;
         }
 
