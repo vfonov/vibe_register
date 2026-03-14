@@ -783,12 +783,15 @@ int main(int argc, char** argv)
         glfwSetWindowTitle(window, (std::string("New Register (") +
             GraphicsBackend::backendName(backendType) + ")").c_str());
 
-        backend->initImGui(window);
-
+        // Apply scale override BEFORE initImGui so ImGui configuration uses correct scale
         if (scaleOverride)
         {
             backend->setContentScale(args.scaleFactor.value());
+            if (debugLoggingEnabled())
+                std::cerr << "[window] Scale override applied: " << args.scaleFactor.value() << "\n";
         }
+
+        backend->initImGui(window);
 
         state.dpiScale_ = backend->contentScale();
         state.localConfigPath_ = localConfigPath;

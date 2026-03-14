@@ -168,7 +168,7 @@ void OpenGL2Backend::initImGui(GLFWwindow* window)
     ImGui::StyleColorsDark();
 
     // Scale the entire ImGui style for HiDPI
-    if (contentScale_ > 1.0f)
+    if (contentScale_ != 1.0f)
         ImGui::GetStyle().ScaleAllSizes(contentScale_);
 
     // Load default font at scaled size

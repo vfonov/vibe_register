@@ -745,7 +745,7 @@ void VulkanBackend::initImGui(GLFWwindow* window)
     ImGui::StyleColorsDark();
 
     // Scale the entire ImGui style for HiDPI
-    if (contentScale_ > 1.0f)
+    if (contentScale_ != 1.0f)
     {
         ImGui::GetStyle().ScaleAllSizes(contentScale_);
     }
