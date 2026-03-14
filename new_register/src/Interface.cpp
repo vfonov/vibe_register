@@ -200,25 +200,26 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
 
         float toolsFraction;
         if (totalColumns <= 1)
-            toolsFraction = 0.25f;
+            toolsFraction = 0.30f;
         else if (totalColumns == 2)
-            toolsFraction = 0.16f;
+            toolsFraction = 0.20f;
         else if (totalColumns == 3)
-            toolsFraction = 0.13f;
+            toolsFraction = 0.16f;
         else
-            toolsFraction = 0.10f;
+            toolsFraction = 0.13f;
 
         if (qcState_.active) {
             // QC mode: slightly wider for the embedded QC list
             toolsFraction += 0.02f;
             ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, toolsFraction,
                 &toolsId, &contentId);
+            // Tools takes entire column (no Hotkeys panel)
             ImGui::DockBuilderDockWindow("Tools", toolsId);
         } else {
             ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, toolsFraction, &toolsId, &contentId);
-            // Split the tools column: Tools on top, Tags on bottom
+            // Split the tools column: top portion for Tools, bottom for Tags
             ImGuiID toolsTopId, tagsId;
-            ImGui::DockBuilderSplitNode(toolsId, ImGuiDir_Up, 0.55f, &toolsTopId, &tagsId);
+            ImGui::DockBuilderSplitNode(toolsId, ImGuiDir_Up, 0.65f, &toolsTopId, &tagsId);
             ImGui::DockBuilderDockWindow("Tools", toolsTopId);
             ImGui::DockBuilderDockWindow("Tags", tagsId);
         }
@@ -285,8 +286,8 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
                 switchQCRow(qcState_.currentRowIndex - 1, backend);
         }
 
-        // +/- keys: step through the axial (Z) slice of the first volume.
-        // Sync cursors propagates the change to other volumes if enabled.
+        // +/- keys: step through slices of the last-clicked view.
+        // activeView_: 0=Axial (Z), 1=Sagittal (X), 2=Coronal (Y).
         if (numVolumes > 0) {
             bool plus  = ImGui::IsKeyPressed(ImGuiKey_Equal) ||
                          ImGui::IsKeyPressed(ImGuiKey_KeypadAdd);
@@ -295,22 +296,39 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
             if (plus || minus) {
                 VolumeViewState& vs = state_.viewStates_[0];
                 const Volume& vol = state_.volumes_[0];
-                int maxZ = vol.dimensions.z;
-                int newZ = vs.sliceIndices.z + (plus ? 1 : -1);
-                newZ = std::clamp(newZ, 0, maxZ - 1);
-                if (newZ != vs.sliceIndices.z) {
-                    vs.sliceIndices.z = newZ;
-                    viewManager_.updateSliceTexture(0, 0);
+                int av = state_.activeView_;
+                int* slicePtr = nullptr;
+                int maxSlice = 0;
+                if (av == 0) {          // Axial -> Z
+                    slicePtr = &vs.sliceIndices.z;
+                    maxSlice = vol.dimensions.z;
+                } else if (av == 1) {   // Sagittal -> X
+                    slicePtr = &vs.sliceIndices.x;
+                    maxSlice = vol.dimensions.x;
+                } else {                // Coronal -> Y
+                    slicePtr = &vs.sliceIndices.y;
+                    maxSlice = vol.dimensions.y;
+                }
+                int newVal = *slicePtr + (plus ? 1 : -1);
+                newVal = std::clamp(newVal, 0, maxSlice - 1);
+                if (newVal != *slicePtr) {
+                    *slicePtr = newVal;
+                    viewManager_.updateSliceTexture(0, av);
                     if (state_.syncCursors_) {
                         state_.lastSyncSource_ = 0;
-                        state_.lastSyncView_ = 0;
+                        state_.lastSyncView_ = av;
                         state_.cursorSyncDirty_ = true;
                     }
                     if (state_.hasOverlay())
-                        viewManager_.updateOverlayTexture(0);
+                        viewManager_.updateOverlayTexture(av);
                 }
             }
         }
+    }
+
+    // Toggle hotkeys popup with '?' or 'H' - works even when popup is open
+    if (ImGui::IsKeyPressed(ImGuiKey_Slash) || ImGui::IsKeyPressed(ImGuiKey_H)) {
+        state_.showHotkeysPopup_ = !state_.showHotkeysPopup_;
     }
 
     int overlayDirtyMask = 0;
@@ -341,6 +359,7 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
 
     renderTagFileDialog();
     renderConfigFileDialog();
+    renderHotkeyPopup();
 
     if (state_.syncCursors_ && state_.cursorSyncDirty_) {
         viewManager_.syncCursors();
@@ -377,21 +396,7 @@ void Interface::saveScreenshot(GraphicsBackend& backend) {
 }
 
 uint32_t Interface::resolveClampColour(int mode, ColourMapType currentMap, bool isOver) {
-    if (mode == kClampTransparent)
-        return 0x00000000;
-    else if (mode == kClampBlack)
-        return 0xFF000000; // Opaque black
-    else if (mode == kClampYellow)
-        return 0xFFFFFF00; // Yellow (0xAABBGGRR format: Alpha=FF, Blue=00, Green=FF, Red=FF)
-    else if (mode == kClampWhite)
-        return 0xFFFFFFFF; // Opaque white
-
-    ColourMapType mapToUse = currentMap;
-    if (mode >= 0 && mode < colourMapCount())
-        mapToUse = static_cast<ColourMapType>(mode);
-
-    const ColourLut& lut = colourMapLut(mapToUse);
-    return isOver ? lut.table[255] : lut.table[0];
+    return ::resolveClampColour(mode, currentMap, isOver, false);
 }
 
 const char* Interface::clampColourLabel(int mode) {
@@ -480,6 +485,20 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
         if (ImGui::Checkbox("Show Crosshairs", &state_.showCrosshairs_)) {
         }
 
+        // View visibility checkboxes
+        {
+            static const char* viewLabels[3] = {"Axial", "Sagittal", "Coronal"};
+            for (int v = 0; v < 3; ++v) {
+                ImGui::Checkbox(viewLabels[v], &state_.viewVisible[v]);
+            }
+            // Prevent all views from being hidden
+            int visCount = 0;
+            for (int v = 0; v < 3; ++v)
+                if (state_.viewVisible[v]) ++visCount;
+            if (visCount == 0)
+                state_.viewVisible = {true, true, true};
+        }
+
         if (!qcState_.active) {
             ImGui::Text("Tags");
             ImGui::SameLine();
@@ -518,6 +537,10 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
 
         if (ImGui::Button("[C] Clean Mode", ImVec2(btnWidth, 0))) {
             state_.cleanMode_ = true;
+        }
+
+        if (ImGui::Button("[?] Hotkeys", ImVec2(btnWidth, 0))) {
+            state_.showHotkeysPopup_ = true;
         }
 
         ImGui::Separator();
@@ -638,6 +661,95 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
     ImGui::End();
 }
 
+ void Interface::renderHotkeyPopup() {
+    if (!state_.showHotkeysPopup_)
+        return;
+
+    ImGui::SetNextWindowSize(ImVec2(380, 0), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Hotkeys", &state_.showHotkeysPopup_))
+    {
+        if (ImGui::BeginTable("##hk", 2))
+        {
+            ImGui::TableSetupColumn("Key", ImGuiTableColumnFlags_WidthFixed, 0.0f);
+            ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch);
+
+            auto row = [](const char* key, const char* action) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn(); ImGui::TextUnformatted(key);
+                ImGui::TableNextColumn(); ImGui::TextUnformatted(action);
+            };
+
+            row("+/-",       "Slice step");
+            row("R",         "Reset views");
+            row("C",         "Clean mode");
+            row("P",         "Screenshot");
+            row("Q",         "Quit");
+            row("H / ?",     "Toggle this window");
+            if (qcState_.active)
+            {
+                row("[/]",   "Prev/next QC");
+            }
+
+            // Separator row
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn(); ImGui::Separator();
+            ImGui::TableNextColumn(); ImGui::Separator();
+
+            row("L-click",   "Crosshair");
+            row("Sh+L-drag", "Pan");
+            row("M-drag",    "Scroll slice");
+            row("Sh+M-drag", "Zoom");
+            row("Wheel",     "Zoom cursor");
+            row("R-click",   "Place tag");
+
+            ImGui::EndTable();
+        }
+    }
+    ImGui::End();
+}
+
+void Interface::renderHotkeyPanel() {
+    ImGui::Begin("Hotkeys");
+    {
+        if (ImGui::BeginTable("##hk", 2))
+        {
+            ImGui::TableSetupColumn("K", ImGuiTableColumnFlags_WidthFixed, 0.0f);
+            ImGui::TableSetupColumn("A", ImGuiTableColumnFlags_WidthStretch);
+
+            auto row = [](const char* key, const char* action) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn(); ImGui::TextUnformatted(key);
+                ImGui::TableNextColumn(); ImGui::TextUnformatted(action);
+            };
+
+            row("+/-",       "Slice step");
+            row("R",         "Reset views");
+            row("C",         "Clean mode");
+            row("P",         "Screenshot");
+            row("Q",         "Quit");
+            if (qcState_.active)
+            {
+                row("[/]",   "Prev/next QC");
+            }
+
+            // Separator row
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn(); ImGui::Separator();
+            ImGui::TableNextColumn(); ImGui::Separator();
+
+            row("L-click",   "Crosshair");
+            row("Sh+L-drag", "Pan");
+            row("M-drag",    "Scroll slice");
+            row("Sh+M-drag", "Zoom");
+            row("Wheel",     "Zoom cursor");
+            row("R-click",   "Place tag");
+
+            ImGui::EndTable();
+        }
+    }
+    ImGui::End();
+}
+
 int Interface::renderVolumeColumn(int vi) {
     VolumeViewState& state = state_.viewStates_[vi];
     const Volume& vol = state_.volumes_[vi];
@@ -677,20 +789,49 @@ int Interface::renderVolumeColumn(int vi) {
         const float controlsHeight = state_.cleanMode_ ? 0.0f : controlsHeightBase;
         float viewAreaHeight = avail.y - controlsHeight;
 
+        // Compute view heights, skipping hidden views and redistributing space
         float viewHeights[3];
-        for (int v = 0; v < 3; ++v) {
-            viewHeights[v] = viewAreaHeight * state_.sharedViewRatios[v];
+        float totalVisibleRatio = 0.0f;
+        for (int v = 0; v < 3; ++v)
+        {
+            if (state_.viewVisible[v])
+                totalVisibleRatio += state_.sharedViewRatios[v];
+        }
+        if (totalVisibleRatio <= 0.0f)
+            totalVisibleRatio = 1.0f; // safety
+
+        for (int v = 0; v < 3; ++v)
+        {
+            if (!state_.viewVisible[v])
+            {
+                viewHeights[v] = 0.0f;
+                continue;
+            }
+            viewHeights[v] = viewAreaHeight * (state_.sharedViewRatios[v] / totalVisibleRatio);
             if (viewHeights[v] < 40.0f * state_.dpiScale_)
                 viewHeights[v] = 40.0f * state_.dpiScale_;
         }
 
-        for (int v = 0; v < 3; ++v) {
+        // Collect indices of visible views for rendering and splitters
+        std::vector<int> visibleViews;
+        for (int v = 0; v < 3; ++v)
+        {
+            if (state_.viewVisible[v])
+                visibleViews.push_back(v);
+        }
+
+        for (size_t i = 0; i < visibleViews.size(); ++i)
+        {
+            int v = visibleViews[i];
             viewDirtyMask |= renderSliceView(vi, v, ImVec2(viewWidth, viewHeights[v]));
 
-            if (v < 2) {
+            // Render splitter between consecutive visible views
+            if (i + 1 < visibleViews.size())
+            {
+                int vNext = visibleViews[i + 1];
                 ImGuiID splitterId = ImGui::GetID(("##view_splitter_" + std::to_string(v)).c_str());
                 float* size1 = &viewHeights[v];
-                float* size2 = &viewHeights[v + 1];
+                float* size2 = &viewHeights[vNext];
 
                 constexpr float splitterThick = 4.0f;
                 ImRect splitterBb;
@@ -704,17 +845,18 @@ int Interface::renderVolumeColumn(int vi) {
                     40.0f * state_.dpiScale_
                 );
 
-                if (changed) {
+                if (changed)
+                {
                     float total = *size1 + *size2;
                     float newRatio1 = *size1 / total;
                     float newRatio2 = *size2 / total;
 
                     float oldRatio1 = state_.sharedViewRatios[v];
-                    float oldRatio2 = state_.sharedViewRatios[v + 1];
+                    float oldRatio2 = state_.sharedViewRatios[vNext];
                     float oldCombined = oldRatio1 + oldRatio2;
 
                     state_.sharedViewRatios[v] = newRatio1 * oldCombined;
-                    state_.sharedViewRatios[v + 1] = newRatio2 * oldCombined;
+                    state_.sharedViewRatios[vNext] = newRatio2 * oldCombined;
                 }
 
                 ImGui::SetCursorScreenPos(ImVec2(splitterBb.Min.x, splitterBb.Min.y + splitterThick));
@@ -832,6 +974,9 @@ int Interface::renderVolumeColumn(int vi) {
                         ? "More..." : colourMapName(state.colourMap).data();
 
                     if (ImGui::BeginCombo("##more_maps", moreLabel, ImGuiComboFlags_NoPreview)) {
+                        const float dropSwatchW = 80.0f * state_.dpiScale_;
+                        const float dropSwatchH = 16.0f * state_.dpiScale_;
+
                         for (int cm = 0; cm < colourMapCount(); ++cm) {
                             auto cmType = static_cast<ColourMapType>(cm);
 
@@ -846,11 +991,46 @@ int Interface::renderVolumeColumn(int vi) {
                                 continue;
 
                             bool selected = (cmType == state.colourMap);
-                            if (ImGui::Selectable(colourMapName(cmType).data(), selected)) {
+
+                            ImGui::PushID(cm);
+
+                            ImVec2 cursor = ImGui::GetCursorScreenPos();
+                            if (ImGui::InvisibleButton("##lut", ImVec2(dropSwatchW, dropSwatchH))) {
                                 applyColourMap(cmType);
                             }
+
+                            ImDrawList* dl = ImGui::GetWindowDrawList();
+                            ImVec2 pMin = cursor;
+                            ImVec2 pMax(cursor.x + dropSwatchW, cursor.y + dropSwatchH);
+
+                            const ColourLut& lut = colourMapLut(cmType);
+                            int nStrips = static_cast<int>(dropSwatchW);
+                            for (int s = 0; s < nStrips; ++s) {
+                                float t = static_cast<float>(s) / static_cast<float>(nStrips - 1);
+                                int idx = static_cast<int>(t * 255.0f + 0.5f);
+                                if (idx > 255)
+                                    idx = 255;
+                                uint32_t packed = lut.table[idx];
+                                float x0 = pMin.x + static_cast<float>(s);
+                                float x1 = x0 + 1.0f;
+                                dl->AddRectFilled(ImVec2(x0, pMin.y), ImVec2(x1, pMax.y), packed);
+                            }
+
+                            if (selected) {
+                                dl->AddRect(ImVec2(pMin.x - 1, pMin.y - 1),
+                                            ImVec2(pMax.x + 1, pMax.y + 1),
+                                            IM_COL32(255, 255, 255, 255), 0.0f, 0, 2.0f * state_.dpiScale_);
+                            } else {
+                                dl->AddRect(pMin, pMax, IM_COL32(80, 80, 80, 255));
+                            }
+
+                            if (ImGui::IsItemHovered())
+                                ImGui::SetTooltip("%s", colourMapName(cmType).data());
+
                             if (selected)
                                 ImGui::SetItemDefaultFocus();
+
+                            ImGui::PopID();
                         }
                         ImGui::EndCombo();
                     }
@@ -858,9 +1038,10 @@ int Interface::renderVolumeColumn(int vi) {
                     ImGui::PopID();
                 }
 
-                // Invert colour map checkbox
+                // Invert colour map checkbox (same line as LUT selector)
+                ImGui::SameLine();
                 bool invertEnabled = state.invertColourMap;
-                if (ImGui::Checkbox("Invert", &invertEnabled))
+                if (ImGui::Checkbox("Inv", &invertEnabled))
                 {
                     state.invertColourMap = invertEnabled;
                     viewManager_.updateSliceTexture(vi, 0);
@@ -870,7 +1051,6 @@ int Interface::renderVolumeColumn(int vi) {
                         viewManager_.updateAllOverlayTextures();
                 }
 
-                ImGui::SameLine();
                 ImGui::Separator();
 
                 bool changed = false;
@@ -879,98 +1059,86 @@ int Interface::renderVolumeColumn(int vi) {
                     auto clampCombo = [&](const char* tooltip, const char* id,
                                           int& mode, bool isUnder) -> bool {
                         bool ret = false;
-                        
+
+                        // Wrap everything inside a unique ID scope derived
+                        // from the combo id (##under / ##over).  This
+                        // guarantees that the preview ColorButton, the
+                        // BeginCombo, and all dropdown items live in
+                        // non-overlapping ID ranges even when the two combos
+                        // share the same colour value.
+                        ImGui::PushID(id);
+
                         // Render preview swatch for closed combo state
-                         ImGui::AlignTextToFramePadding(); // Ensure proper vertical alignment
-                         ImVec2 previewSize(20.0f, 20.0f);
-                         uint32_t previewColour = 0;
-                         
-                         // Determine preview colour based on mode
-                         if (mode == kClampTransparent) {
-                             previewColour = 0x00000000; // Transparent (will show as checkerboard via ColorButton)
-                         } else if (mode == kClampCurrent) {
-                             // For current mode, show a representative swatch - we'll use white as placeholder
-                             // In a full implementation, this might show the actual transferred colour
-                             previewColour = 0xFFFFFFFF; // White
-                         } else if (mode >= 0 && mode < colourMapCount()) {
-                             ColourMapType mapType = static_cast<ColourMapType>(mode);
-                             const ColourLut& lut = colourMapLut(mapType);
-                             // For preview, show the "under" colour (index 0) 
-                             previewColour = lut.table[0];
-                         } else {
-                             previewColour = 0xFF808080; // Gray for unknown
-                         }
-                         
-                         float r = ((previewColour >>  0) & 0xFF) / 255.0f;
-                         float g = ((previewColour >>  8) & 0xFF) / 255.0f;
-                         float b = ((previewColour >> 16) & 0xFF) / 255.0f;
-                         float a = ((previewColour >> 24) & 0xFF) / 255.0f;
-                         
-                         // Render the colour swatch button for preview
-                         ImGui::ColorButton("##preview", ImVec4(r, g, b, a), ImGuiColorEditFlags_NoTooltip, previewSize);
-                         ImGui::SameLine();
-                         
-                         // Call BeginCombo with minimal label (we render our own preview)
-                         if (ImGui::BeginCombo(id, "##combo", ImGuiComboFlags_NoPreview)) {
-                             auto swatchItem = [&](const char* label, uint32_t colour, int value) -> void {
-                                  char itemId[32];
-                                  snprintf(itemId, sizeof(itemId), "##%s_%d", isUnder ? "under" : "over", value);
-                                  ImGui::PushID(itemId);
-                                  
-                                  // Render colour swatch only (no text)
-                                  ImVec2 swatchSize(20.0f, 20.0f);
-                                  float r = ((colour >>  0) & 0xFF) / 255.0f;
-                                  float g = ((colour >>  8) & 0xFF) / 255.0f;
-                                  float b = ((colour >> 16) & 0xFF) / 255.0f;
-                                  
-                                  bool clicked = ImGui::ColorButton("##swatch", ImVec4(r, g, b, 1.0f),
-                                                  ImGuiColorEditFlags_NoTooltip, swatchSize);
-                                  
-                                  if (ImGui::IsItemHovered())
-                                      ImGui::SetTooltip("%s", label);
-                                  
-                                  if (clicked) {
-                                      mode = value;
-                                      ret = true;
-                                  }
-                                  ImGui::PopID();
-                              };
-                            
-                            // Specific color options to show
+                        ImGui::AlignTextToFramePadding();
+                        const float clampSwatch = 24.0f * state_.dpiScale_;
+                        ImVec2 previewSize(clampSwatch, clampSwatch);
+                        uint32_t previewColour = resolveClampColour(
+                            mode, state.colourMap, !isUnder);
+
+                        float pr = ((previewColour >>  0) & 0xFF) / 255.0f;
+                        float pg = ((previewColour >>  8) & 0xFF) / 255.0f;
+                        float pb = ((previewColour >> 16) & 0xFF) / 255.0f;
+                        float pa = ((previewColour >> 24) & 0xFF) / 255.0f;
+
+                        ImGui::ColorButton("##preview", ImVec4(pr, pg, pb, pa),
+                                           ImGuiColorEditFlags_NoTooltip, previewSize);
+                        ImGui::SameLine();
+
+                        // Call BeginCombo (we render our own preview swatch)
+                        if (ImGui::BeginCombo("##combo", "", ImGuiComboFlags_NoPreview)) {
+                            // Specific colour options
                             struct ColorOption {
                                 const char* name;
                                 int modeValue;
                                 uint32_t colour; // 0xAABBGGRR format
                             };
-                            
-                             static const ColorOption colorOptions[] = {
-                                 {"Transparent", kClampTransparent, 0x00000000},
-                                 {"Current", kClampCurrent, 0xFFFFFFFF}, // White as placeholder
-                                 {"Black", kClampBlack, 0xFF000000},
-                                 {"Red", static_cast<int>(ColourMapType::Red), 0xFF0000FF}, // 0xAABBGGRR: Alpha=FF, Blue=00, Green=00, Red=FF
-                                 {"Green", static_cast<int>(ColourMapType::Green), 0xFF00FF00}, // Alpha=FF, Blue=00, Green=FF, Red=00
-                                 {"Blue", static_cast<int>(ColourMapType::Blue), 0xFFFF0000}, // Alpha=FF, Blue=FF, Green=00, Red=00
-                                 {"Yellow", kClampYellow, 0xFF00FFFF}, // Alpha=FF, Blue=00, Green=FF, Red=FF
-                                 {"White", kClampWhite, 0xFFFFFFFF} // Alpha=FF, Blue=FF, Green=FF, Red=FF
-                             };
-                            
-                            for (const auto& option : colorOptions) {
-                                bool selected = (mode == option.modeValue);
-                                swatchItem(option.name, option.colour, option.modeValue);
-                                
-                                // Add separator after specific groups for visual organization
-                                if (option.name == std::string("Transparent") || 
-                                    option.name == std::string("Current") ||
-                                    option.name == std::string("Black") ||
-                                    option.name == std::string("White")) {
-                                    ImGui::Separator();
+
+                            static const ColorOption colorOptions[] = {
+                                {"Transparent", kClampTransparent, 0x00000000},
+                                {"Current",     kClampCurrent,     0xFFFFFFFF},
+                                {"Black",       kClampBlack,       0xFF000000},
+                                {"Red",         kClampRed,         0xFF0000FF},
+                                {"Green",       kClampGreen,       0xFF00FF00},
+                                {"Blue",        kClampBlue,        0xFFFF0000},
+                                {"Yellow",      kClampYellow,      0xFF00FFFF},
+                                {"White",       kClampWhite,       0xFFFFFFFF},
+                            };
+
+                            for (size_t i = 0; i < std::size(colorOptions); ++i) {
+                                const auto& opt = colorOptions[i];
+
+                                ImGui::PushID(static_cast<int>(i));
+
+                                ImVec2 swatchSize(clampSwatch, clampSwatch);
+                                float sr = ((opt.colour >>  0) & 0xFF) / 255.0f;
+                                float sg = ((opt.colour >>  8) & 0xFF) / 255.0f;
+                                float sb = ((opt.colour >> 16) & 0xFF) / 255.0f;
+
+                                bool clicked = ImGui::ColorButton(
+                                    "##swatch", ImVec4(sr, sg, sb, 1.0f),
+                                    ImGuiColorEditFlags_NoTooltip, swatchSize);
+
+                                if (ImGui::IsItemHovered())
+                                    ImGui::SetTooltip("%s", opt.name);
+
+                                if (clicked) {
+                                    mode = opt.modeValue;
+                                    ret = true;
                                 }
+
+                                ImGui::PopID();
+
+                                // Visual separators between groups
+                                if (i == 1 || i == 2 || i == 5) // after Current, Black, Blue
+                                    ImGui::Separator();
                             }
-                            
+
                             ImGui::EndCombo();
                         }
                         if (ImGui::IsItemHovered())
                             ImGui::SetTooltip("%s", tooltip);
+
+                        ImGui::PopID();
                         return ret;
                     };
 
@@ -978,9 +1146,13 @@ int Interface::renderVolumeColumn(int vi) {
                     float spacing = ImGui::GetStyle().ItemSpacing.x;
                     float autoW = ImGui::CalcTextSize("Auto").x +
                                   ImGui::GetStyle().FramePadding.x * 2.0f;
-                    float clampW = ImGui::CalcTextSize("Current__").x +
-                                   ImGui::GetStyle().FramePadding.x * 2.0f;
-                    float inputTotal = avail - autoW - clampW * 2.0f - spacing * 4.0f;
+                    // Each clamp section = preview swatch + spacing + combo arrow.
+                    // The combo arrow width is FrameHeight (square button).
+                    float swatchSz = 24.0f * state_.dpiScale_;
+                    float arrowW = ImGui::GetFrameHeight();
+                    float clampW = arrowW; // SetNextItemWidth for the combo
+                    float clampTotal = swatchSz + spacing + clampW; // total visual width per clamp
+                    float inputTotal = avail - autoW - clampTotal * 2.0f - spacing * 4.0f;
                     float inputW = inputTotal * 0.5f;
                     if (inputW < 30.0f)
                         inputW = 30.0f;
@@ -1106,21 +1278,50 @@ void Interface::renderOverlayPanel() {
         const float controlsHeight = state_.cleanMode_ ? 0.0f : controlsHeightBase;
         float viewAreaHeight = avail.y - controlsHeight;
 
+        // Compute view heights, skipping hidden views and redistributing space
         float viewHeights[3];
-        for (int v = 0; v < 3; ++v) {
-            viewHeights[v] = viewAreaHeight * state_.sharedViewRatios[v];
+        float totalVisibleRatio = 0.0f;
+        for (int v = 0; v < 3; ++v)
+        {
+            if (state_.viewVisible[v])
+                totalVisibleRatio += state_.sharedViewRatios[v];
+        }
+        if (totalVisibleRatio <= 0.0f)
+            totalVisibleRatio = 1.0f; // safety
+
+        for (int v = 0; v < 3; ++v)
+        {
+            if (!state_.viewVisible[v])
+            {
+                viewHeights[v] = 0.0f;
+                continue;
+            }
+            viewHeights[v] = viewAreaHeight * (state_.sharedViewRatios[v] / totalVisibleRatio);
             if (viewHeights[v] < 40.0f * state_.dpiScale_)
                 viewHeights[v] = 40.0f * state_.dpiScale_;
         }
 
+        // Collect indices of visible views for rendering and splitters
+        std::vector<int> visibleViews;
+        for (int v = 0; v < 3; ++v)
+        {
+            if (state_.viewVisible[v])
+                visibleViews.push_back(v);
+        }
+
         int overlayDirtyMask = 0;
-        for (int v = 0; v < 3; ++v) {
+        for (size_t i = 0; i < visibleViews.size(); ++i)
+        {
+            int v = visibleViews[i];
             overlayDirtyMask |= renderOverlayView(v, ImVec2(avail.x, viewHeights[v]));
 
-            if (v < 2) {
+            // Render splitter between consecutive visible views
+            if (i + 1 < visibleViews.size())
+            {
+                int vNext = visibleViews[i + 1];
                 ImGuiID splitterId = ImGui::GetID(("##overlay_splitter_" + std::to_string(v)).c_str());
                 float* size1 = &viewHeights[v];
-                float* size2 = &viewHeights[v + 1];
+                float* size2 = &viewHeights[vNext];
 
                 ImRect splitterBb;
                 splitterBb.Min = ImVec2(ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y);
@@ -1133,17 +1334,18 @@ void Interface::renderOverlayPanel() {
                     40.0f * state_.dpiScale_
                 );
 
-                if (changed) {
+                if (changed)
+                {
                     float total = *size1 + *size2;
                     float newRatio1 = *size1 / total;
                     float newRatio2 = *size2 / total;
 
                     float oldRatio1 = state_.sharedViewRatios[v];
-                    float oldRatio2 = state_.sharedViewRatios[v + 1];
+                    float oldRatio2 = state_.sharedViewRatios[vNext];
                     float oldCombined = oldRatio1 + oldRatio2;
 
                     state_.sharedViewRatios[v] = newRatio1 * oldCombined;
-                    state_.sharedViewRatios[v + 1] = newRatio2 * oldCombined;
+                    state_.sharedViewRatios[vNext] = newRatio2 * oldCombined;
                 }
 
                 ImGui::SetCursorScreenPos(ImVec2(splitterBb.Min.x, splitterBb.Min.y + 8.0f));
@@ -1556,6 +1758,10 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                 bool imageHovered = ImGui::IsItemHovered();
                 bool shiftHeld = ImGui::GetIO().KeyShift;
 
+                // Track last-clicked view for keyboard +/- slice navigation
+                if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                    state_.activeView_ = viewIndex;
+
                 if (imageHovered && shiftHeld &&
                     ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
                     ImVec2 delta = ImGui::GetIO().MouseDelta;
@@ -1883,6 +2089,10 @@ int Interface::renderOverlayView(int viewIndex, const ImVec2& childSize) {
 
                 bool imageHovered = ImGui::IsItemHovered();
                 bool shiftHeld = ImGui::GetIO().KeyShift;
+
+                // Track last-clicked view for keyboard +/- slice navigation
+                if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                    state_.activeView_ = viewIndex;
 
                 if (imageHovered && shiftHeld &&
                     ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
@@ -2450,6 +2660,7 @@ void Interface::renderConfigFileDialog() {
                         cfg.global.tagListVisible = state_.tagListWindowVisible_;
                         cfg.global.autoSaveTags = state_.autoSaveTags_;
                         cfg.global.transformType = transformTypeToString(state_.transformType_);
+                        cfg.global.viewVisible = state_.viewVisible;
                         if (qcState_.active) {
                             cfg.qcColumns = qcState_.columnConfigs;
                         } else {

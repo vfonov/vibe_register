@@ -72,29 +72,57 @@ RenderedSlice renderSlice(
 
     // Pre-resolve under/over LUT pointers
     int underMode = params.underColourMode;
-    uint32_t underColour = 0x00000000;
     bool underTransparent = (underMode == kSliceClampTransparent);
+    uint32_t underColour = 0x00000000;
     if (!underTransparent)
     {
-        ColourMapType underMap = params.colourMap;
-        if (underMode >= 0 && underMode < numMaps)
-            underMap = static_cast<ColourMapType>(underMode);
-        
-        const ColourLut& underLut = colourMapLut(underMap);
-        underColour = params.invertColourMap ? underLut.table[kLutSize - 1] : underLut.table[0];
+        if (underMode == kSliceClampBlack)
+            underColour = 0xFF000000;
+        else if (underMode == kSliceClampRed)
+            underColour = 0xFF0000FF;
+        else if (underMode == kSliceClampGreen)
+            underColour = 0xFF00FF00;
+        else if (underMode == kSliceClampBlue)
+            underColour = 0xFFFF0000;
+        else if (underMode == kSliceClampYellow)
+            underColour = 0xFF00FFFF;
+        else if (underMode == kSliceClampWhite)
+            underColour = 0xFFFFFFFF;
+        else
+        {
+            ColourMapType underMap = params.colourMap;
+            if (underMode >= 0 && underMode < numMaps)
+                underMap = static_cast<ColourMapType>(underMode);
+            const ColourLut& underLut = colourMapLut(underMap);
+            underColour = params.invertColourMap ? underLut.table[kLutSize - 1] : underLut.table[0];
+        }
     }
 
     int overMode = params.overColourMode;
-    uint32_t overColour = 0x00000000;
     bool overTransparent = (overMode == kSliceClampTransparent);
+    uint32_t overColour = 0x00000000;
     if (!overTransparent)
     {
-        ColourMapType overMap = params.colourMap;
-        if (overMode >= 0 && overMode < numMaps)
-            overMap = static_cast<ColourMapType>(overMode);
-        
-        const ColourLut& overLut = colourMapLut(overMap);
-        overColour = params.invertColourMap ? overLut.table[0] : overLut.table[255];
+        if (overMode == kSliceClampBlack)
+            overColour = 0xFF000000;
+        else if (overMode == kSliceClampRed)
+            overColour = 0xFF0000FF;
+        else if (overMode == kSliceClampGreen)
+            overColour = 0xFF00FF00;
+        else if (overMode == kSliceClampBlue)
+            overColour = 0xFFFF0000;
+        else if (overMode == kSliceClampYellow)
+            overColour = 0xFF00FFFF;
+        else if (overMode == kSliceClampWhite)
+            overColour = 0xFFFFFFFF;
+        else
+        {
+            ColourMapType overMap = params.colourMap;
+            if (overMode >= 0 && overMode < numMaps)
+                overMap = static_cast<ColourMapType>(overMode);
+            const ColourLut& overLut = colourMapLut(overMap);
+            overColour = params.invertColourMap ? overLut.table[0] : overLut.table[255];
+        }
     }
 
     // For label volumes: build label-to-index mapping if a non-default colour
@@ -381,11 +409,26 @@ RenderedSlice renderOverlaySlice(
         info.underColour = 0x00000000;
         if (!info.underTransparent)
         {
-            ColourMapType underMap = p.colourMap;
-            if (underMode >= 0 && underMode < numMaps)
-                underMap = static_cast<ColourMapType>(underMode);
-            const ColourLut& underLut = colourMapLut(underMap);
-            info.underColour = p.invertColourMap ? underLut.table[kLutSize - 1] : underLut.table[0];
+            if (underMode == kSliceClampBlack)
+                info.underColour = 0xFF000000;
+            else if (underMode == kSliceClampRed)
+                info.underColour = 0xFF0000FF;
+            else if (underMode == kSliceClampGreen)
+                info.underColour = 0xFF00FF00;
+            else if (underMode == kSliceClampBlue)
+                info.underColour = 0xFFFF0000;
+            else if (underMode == kSliceClampYellow)
+                info.underColour = 0xFF00FFFF;
+            else if (underMode == kSliceClampWhite)
+                info.underColour = 0xFFFFFFFF;
+            else
+            {
+                ColourMapType underMap = p.colourMap;
+                if (underMode >= 0 && underMode < numMaps)
+                    underMap = static_cast<ColourMapType>(underMode);
+                const ColourLut& underLut = colourMapLut(underMap);
+                info.underColour = p.invertColourMap ? underLut.table[kLutSize - 1] : underLut.table[0];
+            }
         }
 
         int overMode = p.overColourMode;
@@ -393,11 +436,26 @@ RenderedSlice renderOverlaySlice(
         info.overColour = 0x00000000;
         if (!info.overTransparent)
         {
-            ColourMapType overMap = p.colourMap;
-            if (overMode >= 0 && overMode < numMaps)
-                overMap = static_cast<ColourMapType>(overMode);
-            const ColourLut& overLut = colourMapLut(overMap);
-            info.overColour = p.invertColourMap ? overLut.table[0] : overLut.table[255];
+            if (overMode == kSliceClampBlack)
+                info.overColour = 0xFF000000;
+            else if (overMode == kSliceClampRed)
+                info.overColour = 0xFF0000FF;
+            else if (overMode == kSliceClampGreen)
+                info.overColour = 0xFF00FF00;
+            else if (overMode == kSliceClampBlue)
+                info.overColour = 0xFFFF0000;
+            else if (overMode == kSliceClampYellow)
+                info.overColour = 0xFF00FFFF;
+            else if (overMode == kSliceClampWhite)
+                info.overColour = 0xFFFFFFFF;
+            else
+            {
+                ColourMapType overMap = p.colourMap;
+                if (overMode >= 0 && overMode < numMaps)
+                    overMap = static_cast<ColourMapType>(overMode);
+                const ColourLut& overLut = colourMapLut(overMap);
+                info.overColour = p.invertColourMap ? overLut.table[0] : overLut.table[255];
+            }
         }
 
         // Label volume support

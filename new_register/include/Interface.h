@@ -62,6 +62,8 @@ private:
 
     void setupLayout(int numVolumes);
     void renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window);
+    void renderHotkeyPanel();
+    void renderHotkeyPopup();
     int renderVolumeColumn(int vi);
     void renderOverlayPanel();
     void renderTagListWindow();

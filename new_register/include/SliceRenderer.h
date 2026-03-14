@@ -13,6 +13,12 @@
 /// Constants for under/over colour clamping modes.
 constexpr int kSliceClampCurrent     = -2;
 constexpr int kSliceClampTransparent = -1;
+constexpr int kSliceClampBlack       = -3;
+constexpr int kSliceClampYellow      = -4;
+constexpr int kSliceClampWhite       = -5;
+constexpr int kSliceClampRed         = -6;
+constexpr int kSliceClampGreen       = -7;
+constexpr int kSliceClampBlue        = -8;
 
 /// Per-volume rendering parameters (headless equivalent of VolumeViewState).
 struct VolumeRenderParams

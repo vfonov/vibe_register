@@ -79,28 +79,14 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
 
     // Pre-resolve under/over LUT pointers to avoid per-pixel lookups
     int underMode = state.underColourMode;
-    uint32_t underColour = 0x00000000;
     bool underTransparent = (underMode == kClampTransparent);
-    if (!underTransparent)
-    {
-        ColourMapType underMap = state.colourMap;
-        if (underMode >= 0 && underMode < numMaps)
-            underMap = static_cast<ColourMapType>(underMode);
-        const ColourLut& underLut = colourMapLut(underMap);
-        underColour = state.invertColourMap ? underLut.table[kLutSize - 1] : underLut.table[0];
-    }
+    uint32_t underColour = underTransparent ? 0x00000000
+        : resolveClampColour(underMode, state.colourMap, false, state.invertColourMap);
 
     int overMode = state.overColourMode;
-    uint32_t overColour = 0x00000000;
     bool overTransparent = (overMode == kClampTransparent);
-    if (!overTransparent)
-    {
-        ColourMapType overMap = state.colourMap;
-        if (overMode >= 0 && overMode < numMaps)
-            overMap = static_cast<ColourMapType>(overMode);
-        const ColourLut& overLut = colourMapLut(overMap);
-        overColour = state.invertColourMap ? overLut.table[0] : overLut.table[255];
-    }
+    uint32_t overColour = overTransparent ? 0x00000000
+        : resolveClampColour(overMode, state.colourMap, true, state.invertColourMap);
 
     // For label volumes: check if we should use colour map instead of label LUT
     bool useColourMapForLabel = vol.isLabelVolume() && state.colourMap != ColourMapType::GrayScale;
@@ -376,25 +362,16 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         info.alpha = st.overlayAlpha;
 
         // Pre-resolve under/over colours
+        // Pre-resolve under/over colours
         int underMode = st.underColourMode;
         info.underTransparent = (underMode == kClampTransparent);
-        info.underColour = 0x00000000;
-        if (!info.underTransparent) {
-            ColourMapType underMap = st.colourMap;
-            if (underMode >= 0 && underMode < numMaps)
-                underMap = static_cast<ColourMapType>(underMode);
-            info.underColour = colourMapLut(underMap).table[0];
-        }
+        info.underColour = info.underTransparent ? 0x00000000
+            : resolveClampColour(underMode, st.colourMap, false, st.invertColourMap);
 
         int overMode = st.overColourMode;
         info.overTransparent = (overMode == kClampTransparent);
-        info.overColour = 0x00000000;
-        if (!info.overTransparent) {
-            ColourMapType overMap = st.colourMap;
-            if (overMode >= 0 && overMode < numMaps)
-                overMap = static_cast<ColourMapType>(overMode);
-            info.overColour = colourMapLut(overMap).table[255];
-        }
+        info.overColour = info.overTransparent ? 0x00000000
+            : resolveClampColour(overMode, st.colourMap, true, st.invertColourMap);
 
         // Label volume support
         info.isLabelVolume = vol.isLabelVolume();

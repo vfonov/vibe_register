@@ -289,6 +289,7 @@ void AppState::applyConfig(const AppConfig& cfg, int defaultWindowWidth, int def
     autoSaveTags_ = cfg.global.autoSaveTags;
     transformType_ = transformTypeFromString(cfg.global.transformType);
     transformOutOfDate_ = true;
+    viewVisible = cfg.global.viewVisible;
 
     for (int vi = 0; vi < static_cast<int>(volumes_.size()); ++vi) {
         VolumeViewState& state = viewStates_[vi];

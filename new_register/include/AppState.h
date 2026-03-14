@@ -28,6 +28,44 @@ constexpr int kClampTransparent = -1;
 constexpr int kClampBlack = -3;
 constexpr int kClampYellow = -4;
 constexpr int kClampWhite = -5;
+constexpr int kClampRed = -6;
+constexpr int kClampGreen = -7;
+constexpr int kClampBlue = -8;
+
+/// Resolve a clamp mode to a packed 0xAABBGGRR colour.
+/// @param mode        One of the kClamp* constants or a ColourMapType index.
+/// @param currentMap  The colour map currently applied to the volume.
+/// @param isOver      true = over colour (top of LUT), false = under (bottom).
+/// @param invert      true if the colour map is inverted.
+inline uint32_t resolveClampColour(int mode, ColourMapType currentMap,
+                                   bool isOver, bool invert = false)
+{
+    if (mode == kClampTransparent)
+        return 0x00000000;
+    if (mode == kClampBlack)
+        return 0xFF000000;
+    if (mode == kClampRed)
+        return 0xFF0000FF;   // 0xAABBGGRR: R=FF G=00 B=00 A=FF
+    if (mode == kClampGreen)
+        return 0xFF00FF00;   // 0xAABBGGRR: R=00 G=FF B=00 A=FF
+    if (mode == kClampBlue)
+        return 0xFFFF0000;   // 0xAABBGGRR: R=00 G=00 B=FF A=FF
+    if (mode == kClampYellow)
+        return 0xFF00FFFF;   // 0xAABBGGRR: R=FF G=FF B=00 A=FF
+    if (mode == kClampWhite)
+        return 0xFFFFFFFF;
+
+    // kClampCurrent or explicit colour-map index
+    ColourMapType mapToUse = currentMap;
+    if (mode >= 0 && mode < colourMapCount())
+        mapToUse = static_cast<ColourMapType>(mode);
+
+    const ColourLut& lut = colourMapLut(mapToUse);
+    if (isOver)
+        return invert ? lut.table[0] : lut.table[255];
+    else
+        return invert ? lut.table[255] : lut.table[0];
+}
 
 struct VolumeViewState {
     std::unique_ptr<Texture> sliceTextures[3];
@@ -107,6 +145,7 @@ public:
 
     bool tagsVisible_ = true;
     bool showOverlay_ = true;
+    bool showHotkeysPopup_ = false;
     bool cleanMode_ = false;
     bool syncCursors_ = false;
     bool syncZoom_ = false;
@@ -115,11 +154,15 @@ public:
     int lastSyncSource_ = 0;
     int lastSyncView_ = 0;
     bool cursorSyncDirty_ = false;
+    int activeView_ = 0;  ///< Last-clicked view: 0=Axial, 1=Sagittal, 2=Coronal
     float dpiScale_ = 1.0f;
     std::string localConfigPath_;
     bool layoutInitialized_ = false;
 
     std::array<float, 3> sharedViewRatios = {0.33f, 0.33f, 0.34f};
+
+    /// Per-view visibility: 0=Axial, 1=Sagittal, 2=Coronal.
+    std::array<bool, 3> viewVisible = {true, true, true};
 
     int selectedTagIndex_ = -1;
     bool tagListWindowVisible_ = false;

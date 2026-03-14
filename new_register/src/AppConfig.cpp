@@ -68,6 +68,7 @@ void to_json(nlohmann::json& j, const GlobalConfig& g)
     j["show_crosshairs"] = g.showCrosshairs;
     j["auto_save_tags"] = g.autoSaveTags;
     j["transform_type"] = g.transformType;
+    j["view_visible"] = g.viewVisible;
 }
 
 void from_json(const nlohmann::json& j, GlobalConfig& g)
@@ -83,6 +84,7 @@ void from_json(const nlohmann::json& j, GlobalConfig& g)
     if (j.contains("show_crosshairs"))    j.at("show_crosshairs").get_to(g.showCrosshairs);
     if (j.contains("auto_save_tags"))     j.at("auto_save_tags").get_to(g.autoSaveTags);
     if (j.contains("transform_type"))     j.at("transform_type").get_to(g.transformType);
+    if (j.contains("view_visible"))       j.at("view_visible").get_to(g.viewVisible);
 }
 
 void to_json(nlohmann::json& j, const AppConfig& c)
