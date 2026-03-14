@@ -103,6 +103,11 @@ public:
     /// scale values reported by the windowing system.
     virtual float contentScale() const = 0;
 
+    /// Override the content scale factor.  Useful for testing or when
+    /// auto-detection gives incorrect results on HiDPI displays.
+    /// @param scale  The scale factor to use (1.0 = standard DPI).
+    virtual void setContentScale(float scale) = 0;
+
     // --- Screenshot ---
 
     /// Capture the current swapchain image as RGBA pixel data.

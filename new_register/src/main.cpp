@@ -75,6 +75,8 @@ struct ParsedArgs
     bool syncZoom   = false;
     bool syncPan    = false;
 
+    std::optional<float> scaleFactor;
+
     std::vector<std::string> volumeFiles;
     std::vector<PerVolOpts>  perVolOpts;
 };
@@ -106,6 +108,7 @@ static void printUsage()
         "  -d, --debug          Enable debug output\n"
         "  -h, --help           Show this help message\n"
         "      --test           Launch with a generated test volume\n"
+        "      --scale <factor> Override screen content scale (HiDPI)\n"
         "\n"
         "QC mode:\n"
         "      --qc <csv>       Enable QC mode with input CSV\n"
@@ -273,6 +276,15 @@ static std::optional<ParsedArgs> parseArgs(int argc, char** argv)
             if (!requireValue(i, argc, "--qc-output"))
                 return std::nullopt;
             args.qcOutputPath = argv[i];
+            continue;
+        }
+
+        if (arg == "--scale")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--scale"))
+                return std::nullopt;
+            args.scaleFactor = std::stof(argv[i]);
             continue;
         }
 
@@ -754,6 +766,13 @@ int main(int argc, char** argv)
             GraphicsBackend::backendName(backendType) + ")").c_str());
 
         backend->initImGui(window);
+
+        if (args.scaleFactor.has_value())
+        {
+            backend->setContentScale(args.scaleFactor.value());
+            if (debugLoggingEnabled())
+                std::cerr << "[window] Scale override: " << args.scaleFactor.value() << "\n";
+        }
 
         state.dpiScale_ = backend->contentScale();
         state.localConfigPath_ = localConfigPath;

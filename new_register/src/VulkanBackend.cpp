@@ -815,6 +815,11 @@ float VulkanBackend::contentScale() const
     return contentScale_;
 }
 
+void VulkanBackend::setContentScale(float scale)
+{
+    contentScale_ = scale;
+}
+
 // ---------------------------------------------------------------------------
 // Screenshot capture
 // ---------------------------------------------------------------------------

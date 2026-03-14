@@ -36,6 +36,7 @@ public:
 
     // --- DPI ---
     float contentScale() const override;
+    void setContentScale(float scale) override;
 
     // --- Screenshot ---
     std::vector<uint8_t> captureScreenshot(int& width, int& height) override;

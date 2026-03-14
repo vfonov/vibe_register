@@ -209,6 +209,11 @@ float OpenGL2Backend::contentScale() const
     return contentScale_;
 }
 
+void OpenGL2Backend::setContentScale(float scale)
+{
+    contentScale_ = scale;
+}
+
 // ---------------------------------------------------------------------------
 // Screenshot
 // ---------------------------------------------------------------------------
