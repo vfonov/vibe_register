@@ -196,6 +196,10 @@ This is a rewrite of the `register` application using C++17, Vulkan, ImGui (Dock
 - `PascalCase` for classes, `camelCase` for methods/variables.
 - use `std::cerr` for printing debugging mesages or something more moden
 
+**Hotkey Reference Panel:**
+- A "Hotkeys" panel in the UI (`Interface::renderHotkeyPanel()` in `Interface.cpp`) displays all current keyboard shortcuts and mouse interactions.
+- **When adding, removing, or changing any hotkey or mouse interaction, update `renderHotkeyPanel()` to keep the panel accurate.**
+
 ## 7. C++23 Modernization (new_register)
 
 The codebase currently targets C++17 (`CMAKE_CXX_STANDARD 17`). A future upgrade to C++23 is planned. Phases 1-2 are complete (unique_ptr, std::array). Remaining phases (blocked on C++23 upgrade):
