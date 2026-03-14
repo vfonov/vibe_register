@@ -531,13 +531,26 @@ int main(int argc, char** argv)
         }
 
         glfwSetErrorCallback(glfwErrorCallback);
-        glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
+
+        // Determine scale factor: command-line override takes precedence
+        float initScale = 1.0f;
+        bool scaleOverride = args.scaleFactor.has_value();
+
+        if (scaleOverride)
+        {
+            initScale = args.scaleFactor.value();
+            if (debugLoggingEnabled())
+                std::cerr << "[window] Using scale override: " << initScale << "\n";
+        }
+        else
+        {
+            glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
+        }
 
         // Create backend before window so it can set appropriate GLFW hints
         auto backend = GraphicsBackend::create(backendType);
         backend->setWindowHints();
 
-        float initScale = 1.0f;
         int monWorkX = 0, monWorkY = 0, monWorkW = 1280, monWorkH = 720;
         {
             float sx = 1.0f, sy = 1.0f;
@@ -549,7 +562,7 @@ int main(int argc, char** argv)
                                       &monWorkW, &monWorkH);
                 if (debugLoggingEnabled())
                 {
-                    std::cerr << "[window] Content scale: " << sx << " x " << sy << "\n";
+                    std::cerr << "[window] Monitor content scale: " << sx << " x " << sy << "\n";
                     std::cerr << "[window] Monitor workarea: "
                               << monWorkX << "," << monWorkY << " "
                               << monWorkW << "x" << monWorkH << "\n";
@@ -560,8 +573,11 @@ int main(int argc, char** argv)
                                   << " @ " << vmode->refreshRate << "Hz\n";
                 }
             }
-            initScale = (sx > sy) ? sx : sy;
-            if (initScale < 1.0f) initScale = 1.0f;
+            if (!scaleOverride)
+            {
+                initScale = (sx > sy) ? sx : sy;
+                if (initScale < 1.0f) initScale = 1.0f;
+            }
         }
 
         int numVols = qcState.active ? qcState.columnCount() : state.volumeCount();
@@ -654,7 +670,8 @@ int main(int argc, char** argv)
             backend = GraphicsBackend::create(BackendType::OpenGL2);
             backend->setWindowHints();
             glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API);
-            glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
+            if (!scaleOverride)
+                glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
             windowTitle = "New Register (opengl2-egl)";
 
             // Use conservative dimensions for the EGL retry.  Large windows
@@ -720,7 +737,8 @@ int main(int argc, char** argv)
                     }
                     backend = GraphicsBackend::create(fallback);
                     backend->setWindowHints();
-                    glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
+                    if (!scaleOverride)
+                        glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
                     windowTitle = std::string("New Register (") +
                         GraphicsBackend::backendName(fallback) + ")";
                     window = glfwCreateWindow(safeW, safeH,
@@ -767,11 +785,9 @@ int main(int argc, char** argv)
 
         backend->initImGui(window);
 
-        if (args.scaleFactor.has_value())
+        if (scaleOverride)
         {
             backend->setContentScale(args.scaleFactor.value());
-            if (debugLoggingEnabled())
-                std::cerr << "[window] Scale override: " << args.scaleFactor.value() << "\n";
         }
 
         state.dpiScale_ = backend->contentScale();
