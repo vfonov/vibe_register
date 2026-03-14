@@ -538,6 +538,9 @@ int main(int argc, char** argv)
 
         glfwSetErrorCallback(glfwErrorCallback);
 
+        // Always enable GLFW_SCALE_TO_MONITOR for proper HiDPI framebuffer scaling
+        glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
+
         // Determine scale factor: command-line override takes precedence
         float initScale = 1.0f;
         bool scaleOverride = args.scaleFactor.has_value();
@@ -547,10 +550,6 @@ int main(int argc, char** argv)
             initScale = args.scaleFactor.value();
             if (debugLoggingEnabled())
                 std::cerr << "[window] Using scale override: " << initScale << "\n";
-        }
-        else
-        {
-            glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
         }
 
         // Create backend before window so it can set appropriate GLFW hints
