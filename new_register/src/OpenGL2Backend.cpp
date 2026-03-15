@@ -1,6 +1,7 @@
 #include "OpenGL2Backend.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_opengl2.h>
 
@@ -167,11 +168,13 @@ void OpenGL2Backend::initImGui(GLFWwindow* window)
 
     ImGui::StyleColorsDark();
 
-    // Scale the entire ImGui style for HiDPI
-    // Only scale up (>= 1.0) - ScaleAllSizes uses ImTrunc which would zero out
-    // small values when scaling down, triggering asserts (e.g., SeparatorSize)
-    if (contentScale_ >= 1.0f)
-        ImGui::GetStyle().ScaleAllSizes(contentScale_);
+    // Scale the entire ImGui style
+    ImGui::GetStyle().ScaleAllSizes(contentScale_);
+    
+    // Ensure critical properties have minimum non-zero values to avoid asserts
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.SeparatorSize = ImMax(1.0f, style.SeparatorSize);
+    style.DockingSeparatorSize = ImMax(1.0f, style.DockingSeparatorSize);
 
     // Load default font at scaled size
     {
