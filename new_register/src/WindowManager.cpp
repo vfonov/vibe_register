@@ -49,6 +49,11 @@ bool WindowManager::needsSwapchainRebuild() const
     return swapchainRebuildPending_;
 }
 
+void WindowManager::resetRebuildFlag()
+{
+    swapchainRebuildPending_ = false;
+}
+
 void WindowManager::getFramebufferSize(int& width, int& height) const
 {
     width = lastFramebufferWidth_;

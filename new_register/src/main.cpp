@@ -935,6 +935,7 @@ int main(int argc, char** argv)
                 if (width > 0 && height > 0)
                 {
                     backend->rebuildSwapchain(width, height);
+                    windowManager.resetRebuildFlag();
                 }
             }
 

@@ -23,6 +23,10 @@ public:
     /// Returns true if a resize was detected since last call.
     bool needsSwapchainRebuild() const;
 
+    /// Reset the rebuild flag after rebuild completes.
+    /// Must be called after rebuildSwapchain() to prevent continuous rebuilds.
+    void resetRebuildFlag();
+
     /// Get the latest framebuffer dimensions.
     void getFramebufferSize(int& width, int& height) const;
 
