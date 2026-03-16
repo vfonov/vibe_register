@@ -1,0 +1,100 @@
+Start testing: Mar 15 20:24 UTC
+----------------------------------------------------------
+1/1 Testing: csv_handler_test
+1/1 Test: csv_handler_test
+Command: "/app/new_qc/tests/build/csv_test"
+Directory: /app/new_qc/tests
+"csv_handler_test" start time: Mar 15 20:24 UTC
+Output:
+----------------------------------------------------------
+========================================
+CSV Handler Unit Tests
+========================================
+
+=== Testing CSV Field Escaping ===
+Saved 1 records to test_escape.csv
+Resumed from test_escape.csv (1 records)
+[PASS] Comma in field preserved
+[PASS] QC status preserved
+
+=== Testing Load Input CSV ===
+Loaded 3 records from test_input.csv
+[PASS] Input CSV loaded successfully
+[PASS] 3 records loaded
+[PASS] First record ID correct
+[PASS] First record visit correct
+[PASS] First record picture path correct
+[PASS] First record QC status empty initially
+[PASS] First record notes empty initially
+[PASS] Second record ID correct
+[PASS] Third record ID correct
+
+=== Testing Load Output CSV (Resume) ===
+Resumed from test_output.csv (3 records)
+[PASS] Output CSV loaded successfully
+[PASS] 3 records loaded
+[PASS] First record QC status loaded
+[PASS] First record notes loaded
+[PASS] Second record QC status loaded
+[PASS] Second record notes loaded
+[PASS] Third record QC status empty
+[PASS] Third record notes loaded
+
+=== Testing Save Output CSV ===
+Saved 3 records to test_saved_output.csv
+[PASS] Output CSV saved successfully
+[PASS] Output file exists and is readable
+[PASS] Header line correct
+[PASS] First record saved
+[PASS] QC status saved
+[PASS] Notes saved
+[PASS] Second record saved
+[PASS] Fail status saved
+
+=== Testing Special Characters ===
+Resumed from test_special.csv (2 records)
+[PASS] CSV with special characters loaded
+[PASS] 2 records loaded
+[PASS] Comma in quoted field handled
+[PASS] QC status loaded
+[PASS] Escaped quotes handled
+[PASS] Second record QC status loaded
+
+=== Testing Empty File Handling ===
+Error: Cannot open input file: nonexistent_file.csv
+[PASS] Non-existent file returns false
+Loaded 0 records from test_empty.csv
+[PASS] Empty file returns false
+
+=== Testing Resume From Existing Output ===
+Resumed from test_resume.csv (3 records)
+[PASS] Resume file loaded
+[PASS] 3 records in resume file
+[PASS] First record already marked Pass
+[PASS] Second record pending
+[PASS] Third record marked Fail
+Saved 3 records to test_resume.csv
+Resumed from test_resume.csv (3 records)
+[PASS] Updated QC status saved
+[PASS] Updated notes saved
+
+========================================
+Test Summary:
+  Total:  42
+  Passed: 42
+  Failed: 0
+========================================
+
+[PASS] All tests passed!
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"csv_handler_test" end time: Mar 15 20:24 UTC
+"csv_handler_test" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Mar 15 20:24 UTC
+
+unit =   0.00 sec*proc
+

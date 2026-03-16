@@ -1,0 +1,4 @@
+id,visit,picture
+subject001,baseline,/app/new_qc/test_images/img1.png
+subject002,followup,/app/new_qc/test_images/img2.jpg
+subject003,month3,/app/new_qc/test_images/img3.png
