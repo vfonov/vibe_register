@@ -81,13 +81,5 @@ void WindowManager::onFramebufferResize(int width, int height)
         // Mark swapchain for deferred rebuild
         // The actual rebuild happens in the main loop, not here in the callback
         swapchainRebuildPending_ = true;
-        
-        // Debug output (optional)
-        if (backend_ && backend_->contentScale() > 1.001f)
-        {
-            std::cerr << "[window] Framebuffer resized: " 
-                      << width << "x" << height 
-                      << " (swapchain rebuild queued)\n";
-        }
     }
 }
