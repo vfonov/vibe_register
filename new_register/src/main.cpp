@@ -27,6 +27,7 @@
 #include "QCState.h"
 #include "Volume.h"
 #include "ViewManager.h"
+#include "WindowManager.h"
 
 #include <glm/glm.hpp>
 
@@ -819,6 +820,10 @@ int main(int argc, char** argv)
         ViewManager viewManager(state, *backend);
         Interface interface(state, viewManager, qcState);
 
+        // Create window manager for handling resize events
+        WindowManager windowManager;
+        windowManager.setFramebufferCallback(window, backend.get());
+
         // Create prefetcher for QC mode — queues adjacent rows for
         // main-thread loading (libminc/HDF5 are not thread-safe).
         std::unique_ptr<Prefetcher> prefetcher;
@@ -922,10 +927,11 @@ int main(int argc, char** argv)
             if (prefetcher)
                 prefetcher->loadPending();
 
-            if (backend->needsSwapchainRebuild())
+            // Handle deferred swapchain rebuild (triggered by framebuffer resize callback)
+            if (windowManager.needsSwapchainRebuild())
             {
                 int width, height;
-                glfwGetFramebufferSize(window, &width, &height);
+                windowManager.getFramebufferSize(width, height);
                 if (width > 0 && height > 0)
                 {
                     backend->rebuildSwapchain(width, height);
@@ -951,6 +957,9 @@ int main(int argc, char** argv)
 
         backend->shutdownImGui();
         backend->shutdown();
+
+        // Clear framebuffer callback before destroying window
+        windowManager.clearCallback();
 
         glfwDestroyWindow(window);
         glfwTerminate();

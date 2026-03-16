@@ -336,6 +336,7 @@ if(NOT BUILD_QC_ONLY)
         src/QCState.cpp
         src/ViewManager.cpp
         src/BackendFactory.cpp
+        src/WindowManager.cpp
     )
 
     # Backend-specific sources
