@@ -1,7 +1,7 @@
 # research.md — Comprehensive Codebase Review
 
-> **Last updated:** 2026-03-16
-> **Scope:** Full source review of `new_register` (15 `.cpp`, 15 headers, 14 test suites) and `new_qc` (3 `.cpp`, 3 headers, 1 test suite).
+> **Last updated:** 2026-03-16 (merged new_qc into new_register)
+> **Scope:** Full source review of `new_register` (merged codebase: 24 `.cpp`, 19 headers in src/, 16 test suites).
 
 ---
 
@@ -18,8 +18,10 @@ viewer/registration tool. It provides multi-volume MINC2 viewing with 3-plane sl
 views, alpha-blended overlay compositing, tag-point registration (6 transform types),
 QC batch review mode, and dual GPU backends (Vulkan + OpenGL 2).
 
-**Codebase size:** ~8,400 lines across 15 `.cpp` + 15 `.h` files, plus ~2,700 lines
-of tests across 14 test suites.
+**Codebase size:** ~13,900 lines across 24 `.cpp` + 19 `.h` files in `src/`, plus ~3,700 lines
+of tests across 16 test suites.
+
+**Note:** `new_qc` was merged into `new_register/src/qc/` on 2026-03-16 (commit a75fb1a).
 
 **Build system:** CMake with FetchContent for ImGui, nlohmann/json, GLM, cxxopts, and
 ExternalProject for Eigen, libminc, minc2-simple.
@@ -76,7 +78,7 @@ ExternalProject for Eigen, libminc, minc2-simple.
 
 ## 3. Module-by-Module Analysis
 
-### 3.1 main.cpp (800 lines)
+### 3.1 main.cpp (966 lines)
 
 Entry point, CLI parsing (via `cxxopts`), GLFW window creation, main render loop.
 
@@ -86,7 +88,7 @@ Entry point, CLI parsing (via `cxxopts`), GLFW window creation, main render loop
 - Main loop: poll events -> prefetch one volume -> check swapchain -> ImGui frame -> render -> present
 
 **Strengths:** Robust backend fallback; clean QC initialization.
-**Concerns:** `main()` is ~600 lines and could benefit from extraction into setup helpers.
+**Concerns:** `main()` is ~800 lines and could benefit from extraction into setup helpers.
 
 ### 3.2 AppState.cpp (435 lines)
 
@@ -124,15 +126,16 @@ MINC2 volume representation: loading, coordinate transforms, label support.
 **Strengths:** Clean data-driven design.
 **Note:** Uses custom `countOf()` template — could be `std::size()`.
 
-### 3.5 Interface.cpp (2273 lines) — Largest file
+### 3.5 Interface.cpp (2720 lines) — Largest file
 
-Full ImGui UI: dock layout, volume columns, overlay panel, tag list, QC verdicts, file dialogs.
+Full ImGui UI: dock layout, volume columns, overlay panel, tag list, QC verdicts, file dialogs, hotkey panel.
 
 - `renderSliceView()` (335 lines): texture display, zoom/pan UV mapping, crosshairs, tag drawing, mouse interaction
 - `renderOverlayView()` (246 lines): similar to slice view but for overlay
 - `switchQCRow()` (84 lines): saves display settings, loads new volumes, restores, prefetches
 - `renderToolsPanel()` (226 lines): sync checkboxes, QC controls, config I/O
 - `renderVolumeColumn()` (366 lines): per-volume controls and 3 slice views
+- `renderHotkeyPanel()` (new): displays keyboard shortcuts reference
 
 **Strengths:** Comprehensive feature coverage; clean data/presentation separation.
 **Concerns:** File is oversized (candidate for splitting). Significant code duplication between `renderSliceView()` and `renderOverlayView()`.
@@ -162,7 +165,7 @@ Tag-point registration: LSQ6/7/9/10/12 + TPS.
 **Strengths:** Mathematically rigorous; well-structured parameterization (`R * S` for correct convergence).
 **Note:** LSQ10 has no dedicated test.
 
-### 3.8 VulkanBackend.cpp (1056 lines) + VulkanHelpers.cpp (406 lines)
+### 3.8 VulkanBackend.cpp (1096 lines) + VulkanHelpers.cpp (406 lines)
 
 Full Vulkan backend: device selection, swapchain, textures, screenshots.
 
@@ -224,6 +227,38 @@ Main-thread synchronous volume prefetching for QC mode.
 
 Factory pattern for graphics backends with compile-time conditionals and string aliases.
 
+### 3.15 SliceRenderer.cpp (729 lines) — NEW
+
+Slice rendering abstraction layer for multi-volume visualization.
+
+- Manages slice orientation (sagittal, coronal, axial) and coordinate transforms
+- Handles texture coordinate mapping for zoom/pan operations
+- Crosshair rendering and world-coordinate synchronization
+
+**Strengths:** Clean abstraction for slice rendering logic.
+**Concerns:** Tightly coupled with ViewManager.
+
+### 3.16 QC Module (src/qc/) — MERGED
+
+The `new_qc` tool was merged into `new_register/src/qc/` on 2026-03-16. See **Part B** for full analysis.
+
+**Files added:**
+- `qc/main.cpp` (153 lines): CLI entry point for standalone QC tool
+- `qc/QCApp.cpp` (537 lines) + `qc/QCApp.h` (70 lines): GLFW+ImGui+OpenGL GUI application
+- `qc/CSVHandler.cpp` (245 lines) + `qc/CSVHandler.h` (58 lines): CSV I/O with RFC 4180 compliance
+- `qc/VulkanBackend.cpp` (945 lines) + `qc/VulkanBackend.h` (82 lines): Vulkan GPU backend for QC
+- `qc/VulkanHelpers.cpp` (378 lines) + `qc/VulkanHelpers.h` (33 lines): Vulkan helper functions
+- `qc/OpenGL2Backend.cpp` (318 lines) + `qc/OpenGL2Backend.h` (57 lines): OpenGL2 fallback backend
+- `qc/Backend.h` (136 lines): Abstract backend interface
+- `qc/BackendFactory.cpp` (62 lines): Backend selection factory
+
+**Key differences from new_register:**
+- JPEG/PNG image datasets instead of MINC2 volumes
+- Keyboard-driven Pass/Fail workflow with notes field
+- CSV-based persistence (input: 3 columns, output: 5 columns)
+- HiDPI support with `--scale` override option
+- No MINC/HDF5 dependencies (BUILD_QC_ONLY mode)
+
 ---
 
 ## 4. Dependencies
@@ -265,6 +300,8 @@ Factory pattern for graphics backends with compile-time conditionals and string 
 | `QCCsvTest` | test_qc_csv.cpp | CSV parsing, quoting, round-trip, edge cases |
 | `AppConfigTest` | test_app_config.cpp | JSON config round-trip, defaults, optional fields |
 | `TransformTest` | test_transform.cpp | All transform types, XFM I/O |
+| `MincpikTest` | test_mincpik.cpp | Mosaic image generation (NEW) |
+| `CsvTest` | csv_test.cpp | CSVHandler unit tests (42 tests, NEW) |
 
 ### Coverage by Module
 
@@ -278,7 +315,7 @@ Factory pattern for graphics backends with compile-time conditionals and string 
 | Volume | 18 | 8 | **44%** |
 | AppState | 25 | 0 | **0%** |
 
-**Approximate overall coverage of unit-testable functions: ~30%.**
+**Approximate overall coverage of unit-testable functions: ~35% (improved with CSVHandler tests).**
 
 ### Coverage Gaps (Priority Order)
 
@@ -293,10 +330,15 @@ Factory pattern for graphics backends with compile-time conditionals and string 
 **MEDIUM — Volume utilities:**
 - `get()` bounds check, `worldExtent()`, `slicePixelAspect()`, `generate_test_data()`
 
+**MEDIUM — QC Module (QCApp untested):**
+- `loadImage()`, `markAsPass/Fail()`, navigation logic
+- GLFW window initialization, HiDPI scaling
+
 **LOW:**
 - Copy/move semantics (Volume, TagWrapper)
 - Prefetcher integration test
 - BackendFactory name parsing
+- SliceRenderer unit tests
 
 ---
 
@@ -402,25 +444,27 @@ From PLAN.md — features remaining from the legacy tool:
 
 ---
 
-# Part B — new_qc
+# Part B — new_qc (Merged into new_register)
 
-> **Review date:** 2026-03-16
-> **Scope:** Full source review of 3 `.cpp` files, 3 headers, and 42-test suite.
+> **Review date:** 2026-03-16 (merged)
+> **Scope:** Full source review of QC module in `new_register/src/qc/` (8 `.cpp`, 6 headers, 42-test suite).
 
 ---
 
 ## B.1 Project Summary
 
-`new_qc` is a lightweight standalone Quality Control (QC) tool for reviewing medical imaging
+`new_qc` is a lightweight Quality Control (QC) tool for reviewing medical imaging
 datasets represented as JPEG/PNG images. It provides a fast, keyboard-driven Pass/Fail verdict
 workflow with notes, CSV-based persistence, and resume support. Designed for large batches
 (100s–1000s of cases) where speed and simplicity matter more than volumetric detail.
 
-**Codebase size:** ~900 lines across 3 `.cpp` + 3 `.h` files, plus 42 unit tests in 1 suite.
+**Status:** Merged into `new_register/src/qc/` on 2026-03-16 (commit a75fb1a).
+
+**Codebase size:** ~3,100 lines across 8 `.cpp` + 6 `.h` files in `src/qc/`, plus 42 unit tests.
 
 **Version:** 1.0.0
 
-**Build system:** CMake with FetchContent for ImGui, stb_image, and nlohmann_json (currently unused).
+**Build system:** Integrated into `new_register` CMake with `BUILD_QC_ONLY` option for standalone builds.
 
 ---
 
@@ -442,19 +486,22 @@ workflow with notes, CSV-based persistence, and resume support. Designed for lar
          └────────────────────┘
 ```
 
-### Layer Separation
+### Layer Separation (Standalone Mode)
 
 | Layer | Files | Responsibility |
 |-------|-------|----------------|
-| **Entry** | `main.cpp` | CLI args, version, creates & runs QCApp |
-| **Application** | `QCApp.h/.cpp` | GUI, image loading, navigation, QC decisions |
-| **Persistence** | `CSVHandler.h/.cpp` | CSV parsing, field escaping, load/save |
+| **Entry** | `qc/main.cpp` | CLI args, creates & runs QCApp |
+| **Application** | `qc/QCApp.h/.cpp` | GUI, image loading, navigation, QC decisions |
+| **Persistence** | `qc/CSVHandler.h/.cpp` | CSV parsing, field escaping, load/save |
+| **GPU Backend** | `qc/VulkanBackend`, `qc/OpenGL2Backend` | Vulkan primary, OpenGL2 fallback |
+
+**Note:** When built with `BUILD_QC_ONLY`, the QC tool is standalone with no MINC dependencies.
 
 ---
 
-## B.3 Module-by-Module Analysis
+## B.3 Module-by-Module Analysis (Merged Structure)
 
-### B.3.1 main.cpp
+### B.3.1 qc/main.cpp (153 lines)
 
 Entry point, CLI argument parsing (manual, no cxxopts), display-guard.
 
@@ -466,9 +513,9 @@ Entry point, CLI argument parsing (manual, no cxxopts), display-guard.
 
 ---
 
-### B.3.2 QCApp.h/.cpp
+### B.3.2 QCApp.h/.cpp (537 lines + 70 lines header)
 
-Main application class. Owns GLFW window, ImGui context, OpenGL textures, image data, and navigation state.
+Main application class. Owns GLFW window, ImGui context, OpenGL/Vulkan textures, image data, and navigation state.
 
 **Key data members:**
 - `window_` — GLFW window pointer
@@ -542,6 +589,19 @@ struct QCRecord {
 **Strengths:** Correct RFC 4180 handling; header auto-detection; 42-test coverage.
 **Concerns:** `id` column is assumed to be column 0 — no configurable key column. Header detection uses a heuristic (`"id"`, `"subject"`, `"patient"` literals).
 
+### B.3.4 Backend Modules (src/qc/)
+
+The QC module includes backend abstraction for GPU rendering:
+
+- **qc/VulkanBackend.cpp** (945 lines): Primary Vulkan backend for image display
+- **qc/VulkanHelpers.cpp** (378 lines): Vulkan helper functions (device selection, swapchain, texture upload)
+- **qc/OpenGL2Backend.cpp** (318 lines): OpenGL2 fallback backend for software renderers
+- **qc/Backend.h** (136 lines): Abstract backend interface
+- **qc/BackendFactory.cpp** (62 lines): Backend selection with automatic fallback
+
+**Strengths:** Backend abstraction allows flexibility; Vulkan primary with OpenGL2 fallback.
+**Concerns:** VulkanHelpers uses static globals (same as new_register).
+
 ---
 
 ## B.4 Dependencies
@@ -549,12 +609,13 @@ struct QCRecord {
 | Dependency | Source | Version | Purpose |
 |------------|--------|---------|---------|
 | **GLFW3** | System | 3.3+ | Window management, keyboard input |
-| **OpenGL** | System | 3.3+ | Rendering backend |
+| **OpenGL** | System | 3.3+ | Rendering backend (fallback) |
+| **Vulkan** | System (optional) | — | Rendering backend (primary) |
 | **ImGui** | FetchContent | v1.92.0 (docking) | Immediate-mode GUI |
 | **stb_image** | FetchContent (header-only) | — | JPEG/PNG image loading |
 | **nlohmann_json** | FetchContent | v3.11.3 | JSON (currently unused) |
 
-Note: No Vulkan dependency (contrast with `new_register`).
+Note: `BUILD_QC_ONLY` mode builds standalone QC tool without MINC/HDF5 dependencies.
 
 ---
 
@@ -568,58 +629,71 @@ Note: No Vulkan dependency (contrast with `new_register`).
 
 All 42 tests pass. Tests create and clean up temporary CSV files.
 
-### Coverage
+### Coverage (Merged Structure)
 
 | Module | Functions | Tested | Coverage |
 |--------|-----------|--------|----------|
 | CSVHandler | ~10 | ~10 | **~95%** |
 | QCApp | ~15 | 0 | **0%** |
+| QC Module Backends | ~20 | 0 | **0%** |
 | main | 1 | 0 | **0%** |
 
-**QCApp is untested.** GUI code is inherently harder to unit-test, but `loadImage()`, `markAsPass/Fail()`, navigation logic, and auto-save could have isolated unit tests.
+**QCApp and backends are untested.** GUI code is inherently harder to unit-test, but `loadImage()`, `markAsPass/Fail()`, navigation logic, and auto-save could have isolated unit tests.
 
 ---
 
-## B.6 Discrepancies
+## B.6 Discrepancies (Pre-Merge)
 
 | Item | README / CMakeLists says | Actual code |
 |------|--------------------------|-------------|
 | **nlohmann_json** | Listed as dependency | Not used anywhere in source |
-| **Vulkan** | Listed in CMakeLists.txt `find_package` | Not used; only OpenGL used |
+| **Vulkan** | Listed in CMakeLists.txt `find_package` | Not used; only OpenGL used (pre-merge) |
 | **stb_image** | Fetched via FetchContent | Used correctly |
+
+**Post-merge:** Vulkan backend now implemented in `src/qc/VulkanBackend.cpp`.
 
 ---
 
-## B.7 Potential Issues and Risks
+## B.7 Potential Issues and Risks (Updated Post-Merge)
 
 ### HIGH
 1. **No image prefetching**: Each navigation blocks on `stb_image_load()`. For large images over NFS this could cause UI stalls.
 2. **Single texture recycled**: `currentImage_.textureId` is reused every navigation; if `loadImage()` fails, the old texture remains displayed without clear error to user.
+3. **VulkanHelpers static globals** (merged): Device, queue, and pool are file-scope statics — same issue as new_register.
 
 ### MEDIUM
-3. **Manual CLI parsing**: `main.cpp` hand-parses arguments; edge cases like `--scale=1.5` (vs `--scale 1.5`) are not handled.
-4. **Notes field single-line**: ImGui `InputText` for notes is single-line; multi-line notes (with embedded newlines) are stored correctly in CSV but cannot be entered via UI.
-5. **No progress autosave indicator**: User has no visual confirmation that auto-save occurred.
+4. **Manual CLI parsing**: `main.cpp` hand-parses arguments; edge cases like `--scale=1.5` (vs `--scale 1.5`) are not handled.
+5. **Notes field single-line**: ImGui `InputText` for notes is single-line; multi-line notes (with embedded newlines) are stored correctly in CSV but cannot be entered via UI.
+6. **No progress autosave indicator**: User has no visual confirmation that auto-save occurred.
+7. **Backend selection**: No test coverage for BackendFactory fallback logic.
 
 ### LOW
-6. **No keyboard shortcut for notes focus**: Keyboard-only workflow breaks when entering notes.
-7. **Case list scroll**: Uses `ImGui::SetScrollHereY()` to scroll to current row, but may not work correctly in all ImGui versions.
+8. **No keyboard shortcut for notes focus**: Keyboard-only workflow breaks when entering notes.
+9. **Case list scroll**: Uses `ImGui::SetScrollHereY()` to scroll to current row, but may not work correctly in all ImGui versions.
+10. **HiDPI scaling**: `--scale` option works but no visual feedback for detected scale factor.
 
 ---
 
-## B.8 Recommendations
+## B.8 Recommendations (Post-Merge)
 
 ### Immediate (Stability)
-1. Remove or wire up `nlohmann_json` — either use it for a config file or drop the dependency.
-2. Add visual auto-save indicator (e.g., brief status line: "Saved.").
+1. **WAITING**: Remove or wire up `nlohmann_json` — either use it for a config file or drop the dependency.
+2. **DONE**: Backend abstraction merged with Vulkan support (commit a75fb1a).
+3. Add visual auto-save indicator (e.g., brief status line: "Saved.").
 
 ### Short-term (Quality)
-3. Add unit tests for `QCApp` navigation and QC marking logic (test-only init without GLFW).
-4. Replace manual CLI parsing with `cxxopts` (already used in `new_register`).
-5. Add image prefetching for previous/next cases (simple background load or at least on-advance pre-load).
+4. Add unit tests for `QCApp` navigation and QC marking logic (test-only init without GLFW).
+5. Replace manual CLI parsing with `cxxopts` (already used in `new_register`).
+6. Add image prefetching for previous/next cases (simple background load or at least on-advance pre-load).
+7. Add tests for BackendFactory fallback logic.
 
 ### Medium-term (Features)
-6. Multi-line notes input (`ImGui::InputTextMultiline`).
-7. Keyboard shortcut to focus the notes field.
-8. Filter/sort the case list (e.g., show only unrated).
-9. Jump-to-first-unrated on startup (currently navigates to index 0 always).
+8. Multi-line notes input (`ImGui::InputTextMultiline`).
+9. Keyboard shortcut to focus the notes field.
+10. Filter/sort the case list (e.g., show only unrated).
+11. Jump-to-first-unrated on startup (currently navigates to index 0 always).
+12. HiDPI scale detection visual feedback in UI.
+
+### Integration with new_register
+13. Consider sharing backend code between `new_register` and `new_qc` to reduce duplication.
+14. Explore adding MINC2 volume support to QC tool (optional `BUILD_MINC_SUPPORT` mode).
