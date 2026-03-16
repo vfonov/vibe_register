@@ -164,13 +164,17 @@ void QCApp::shutdown()
 {
     if (!backend_) return;
 
+    // Wait for all in-flight GPU work before releasing any resources.
+    // The last frame was just submitted; its command buffer still references
+    // the current texture's descriptor set. Destroying the texture before the
+    // GPU is idle causes VK_ERROR_DEVICE_LOST on the next vkDeviceWaitIdle call.
+    backend_->waitIdle();
+
     if (currentImage_.texture)
     {
         backend_->destroyTexture(currentImage_.texture.get());
         currentImage_.texture.reset();
     }
-
-    backend_->waitIdle();
     backend_->shutdownTextureSystem();
     backend_->shutdownImGui();
 
