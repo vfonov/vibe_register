@@ -292,6 +292,7 @@ void QCApp::renderUI()
                                    ImGuiWindowFlags_NoCollapse |
                                    ImGuiWindowFlags_NoBringToFrontOnFocus;
 
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
     ImGui::Begin("##Main Window", nullptr, windowFlags);
 
