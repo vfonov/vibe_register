@@ -196,19 +196,19 @@ if (!font_loaded && !config.font_path.empty())
 ## Acceptance Criteria
 
 ### Phase 1
-- [ ] Font renders crisply at all scale factors
-- [ ] All existing tests pass
-- [ ] No visual regression in UI text
+- [x] Font renders crisply at all scale factors (ProggyForever vector font)
+- [x] All existing tests pass (15/15)
+- [x] No visual regression in UI text
 
 ### Phase 2
-- [ ] User can specify font path in config file
-- [ ] Font size is configurable
-- [ ] Invalid font paths fall back to ProggyForever
+- [x] User can specify font path in config file (`font_path` in global config)
+- [x] Font size is configurable (`font_size` in global config, default 13.0)
+- [x] Invalid font paths fall back to ProggyForever with stderr warning
 
 ### Phase 3
-- [ ] Font configuration panel exists in Tools/Configuration
-- [ ] Live preview shows font changes
-- [ ] Changes persist to config file
+- [x] Font configuration panel exists in Tools panel (collapsible "Font" header)
+- [ ] Live preview shows font changes (requires restart — restart note shown in UI)
+- [x] Changes persist to config file (saved via Save Config)
 
 ### Phase 4
 - [ ] Embedded font available as fallback
@@ -224,9 +224,9 @@ if (!font_loaded && !config.font_path.empty())
 
 | Phase | Priority | Effort | Status |
 |-------|----------|--------|--------|
-| Phase 1: Vector Font Base | HIGH | 30 min | ⏳ Not started |
-| Phase 2: User Font Config | MEDIUM | 1 hour | ⏳ Not started |
-| Phase 3: Font Config UI | MEDIUM | 2 hours | ⏳ Not started |
+| Phase 1: Vector Font Base | HIGH | 30 min | ✅ Done (2026-03-16) |
+| Phase 2: User Font Config | MEDIUM | 1 hour | ✅ Done (2026-03-16) |
+| Phase 3: Font Config UI | MEDIUM | 2 hours | ✅ Done (2026-03-16) |
 | Phase 4: Fallback Font | LOW | 1.5 hours | ⏳ Not started |
 | Phase 5: Docs & Testing | LOW | 1 hour | ⏳ Not started |
 

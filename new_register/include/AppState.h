@@ -180,6 +180,10 @@ public:
     /// instead of separate per-volume files.  Set via --tags CLI or UI InputText.
     char combinedTagPath_[512] = "";
 
+    /// --- Font configuration (persisted in config JSON) ---
+    char fontPath_[512] = "";   ///< Path to .ttf file, or empty for built-in ProggyForever
+    float fontSize_ = 13.0f;   ///< Base font size in pixels at 1.0x scale
+
     /// LRU volume cache for QC mode row switches.
     VolumeCache volumeCache_;
 

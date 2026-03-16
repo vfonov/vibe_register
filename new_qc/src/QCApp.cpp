@@ -112,13 +112,17 @@ bool QCApp::init(const std::string& inputFile, const std::string& outputFile, co
     ImGui::StyleColorsDark();
     
     // Apply DPI scale factor to ImGui for HiDPI support
-    std::cout << "Applying ImGui scale: " << initScale << std::endl;
     ImGuiStyle& style = ImGui::GetStyle();
     style.ScaleAllSizes(initScale);
-    style.FontScaleDpi = initScale;
     currentScale_ = initScale;
-    std::cout << "ImGui FontScaleDpi after setting: " << style.FontScaleDpi << std::endl;
-    
+
+    // Load ProggyForever vector font at scaled size (crisp at any DPI)
+    {
+        ImFontConfig fontCfg;
+        fontCfg.SizePixels = 13.0f * initScale;
+        io.Fonts->AddFontDefaultVector(&fontCfg);
+    }
+
     // Initialize ImGui backends
     ImGui_ImplGlfw_InitForOpenGL(window_, true);
     ImGui_ImplOpenGL3_Init("#version 330");

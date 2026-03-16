@@ -46,6 +46,8 @@ struct GlobalConfig
     bool autoSaveTags = false;                   // Auto-save tags on edit (default: off)
     std::string transformType = "LSQ6";          // Transform mode: LSQ6..LSQ12, TPS
     std::array<bool, 3> viewVisible = {true, true, true};  // Axial, Sagittal, Coronal
+    std::string fontPath;                        // Empty = use built-in ProggyForever vector font
+    float fontSize = 13.0f;                      // Font size in pixels at 1.0x scale
 };
 
 /// Top-level config structure.

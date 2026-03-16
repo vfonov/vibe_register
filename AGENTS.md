@@ -231,3 +231,59 @@ cd new_register/build
 cmake .. && make
 ctest --output-on-failure
 ```
+
+## 8. QC Viewer (new_qc)
+
+A standalone lightweight QC tool for reviewing medical imaging datasets as JPEG/PNG images.
+Separate from `new_register --qc`; purpose-built for fast Pass/Fail batch workflows.
+
+> **See also:** [`research.md`](research.md) Part B for full module analysis, test coverage, and risk assessment.
+
+**Dependencies:**
+- `GLFW3` (system)
+- `OpenGL 3.3+` (system)
+- `ImGui` v1.92.0 (FetchContent, docking branch)
+- `stb_image` (FetchContent, header-only)
+- `nlohmann_json` v3.11.3 (FetchContent — currently unused)
+
+**Structure:**
+- `new_qc/src/main.cpp` — CLI entry point
+- `new_qc/src/QCApp.h/.cpp` — GLFW+ImGui+OpenGL GUI, image loading, keyboard input
+- `new_qc/src/CSVHandler.h/.cpp` — CSV I/O (load input/output, save progress)
+- `new_qc/tests/csv_test.cpp` — 42 unit tests for CSVHandler
+
+**Build Instructions:**
+```bash
+cd new_qc/build
+cmake ..
+make
+```
+
+**Run:**
+```bash
+./new_qc input.csv output.csv [--scale <factor>]
+```
+
+**CSV Formats:**
+- Input:  `id,visit,picture`  (3 columns — id, visit, image path)
+- Output: `id,visit,picture,QC,notes`  (5 columns)
+
+**Keyboard Shortcuts:**
+- `P` — Mark Pass (auto-advances)
+- `F` — Mark Fail (auto-advances)
+- `←` / `Page Up` — Previous case
+- `→` / `Page Down` — Next case
+- `Ctrl+S` — Manual save
+- `Esc` — Exit
+
+**Coding Standards:**
+- C++17 (CMakeLists.txt sets `CMAKE_CXX_STANDARD 17`)
+- Namespace `QC::` for all classes
+- `PascalCase` for classes, `camelCase` for methods/variables
+- `std::cerr` for error output
+
+**Current Status:**
+- Pass/Fail verdict workflow with notes field implemented and functional.
+- Auto-save after each QC decision; resume from existing output CSV.
+- HiDPI support with auto-detection and `--scale` override.
+- 42 CSVHandler unit tests passing.

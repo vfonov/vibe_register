@@ -790,6 +790,9 @@ int main(int argc, char** argv)
                 std::cerr << "[window] Scale override applied: " << args.scaleFactor.value() << "\n";
         }
 
+        // Apply font configuration from config file (must be before initImGui)
+        backend->setFontConfig(mergedCfg.global.fontPath, mergedCfg.global.fontSize);
+
         backend->initImGui(window);
 
         state.dpiScale_ = backend->contentScale();

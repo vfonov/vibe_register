@@ -108,6 +108,13 @@ public:
     /// @param scale  The scale factor to use (1.0 = standard DPI).
     virtual void setContentScale(float scale) = 0;
 
+    /// Set the font configuration to use during initImGui().
+    /// Must be called BEFORE initImGui().
+    /// @param fontPath  Path to a .ttf font file, or empty to use the built-in
+    ///                  ProggyForever vector font.
+    /// @param fontSize  Base font size in pixels at 1.0x scale (default: 13.0).
+    virtual void setFontConfig(const std::string& fontPath, float fontSize) = 0;
+
     // --- Screenshot ---
 
     /// Capture the current swapchain image as RGBA pixel data.

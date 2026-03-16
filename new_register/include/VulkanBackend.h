@@ -39,6 +39,7 @@ public:
 
     float contentScale() const override;
     void setContentScale(float scale) override;
+    void setFontConfig(const std::string& fontPath, float fontSize) override;
 
     std::vector<uint8_t> captureScreenshot(int& width, int& height) override;
 
@@ -67,6 +68,8 @@ private:
     bool                     swapChainRebuild_= false;
     float                    contentScale_    = 1.0f;
     GLFWwindow*              window_          = nullptr;
+    std::string              fontPath_;
+    float                    fontSize_        = 13.0f;
 
     /// Map from ImTextureID to internal VulkanTexture, for update/destroy.
     std::map<ImTextureID, std::unique_ptr<VulkanTexture>> vulkanTextures_;

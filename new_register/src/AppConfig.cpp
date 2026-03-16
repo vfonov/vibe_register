@@ -69,6 +69,8 @@ void to_json(nlohmann::json& j, const GlobalConfig& g)
     j["auto_save_tags"] = g.autoSaveTags;
     j["transform_type"] = g.transformType;
     j["view_visible"] = g.viewVisible;
+    if (!g.fontPath.empty()) j["font_path"] = g.fontPath;
+    j["font_size"] = g.fontSize;
 }
 
 void from_json(const nlohmann::json& j, GlobalConfig& g)
@@ -85,6 +87,8 @@ void from_json(const nlohmann::json& j, GlobalConfig& g)
     if (j.contains("auto_save_tags"))     j.at("auto_save_tags").get_to(g.autoSaveTags);
     if (j.contains("transform_type"))     j.at("transform_type").get_to(g.transformType);
     if (j.contains("view_visible"))       j.at("view_visible").get_to(g.viewVisible);
+    if (j.contains("font_path"))          j.at("font_path").get_to(g.fontPath);
+    if (j.contains("font_size"))          j.at("font_size").get_to(g.fontSize);
 }
 
 void to_json(nlohmann::json& j, const AppConfig& c)

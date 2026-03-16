@@ -176,15 +176,23 @@ void OpenGL2Backend::initImGui(GLFWwindow* window)
     style.SeparatorSize = ImMax(1.0f, style.SeparatorSize);
     style.DockingSeparatorSize = ImMax(1.0f, style.DockingSeparatorSize);
 
-    // Load default font at scaled size
+    // Load font at scaled size.
+    // If a custom font path is set, try to load it from disk;
+    // fall back to the built-in ProggyForever vector font on failure.
     {
-        float fontSize = 13.0f * contentScale_;
+        float scaledSize = fontSize_ * contentScale_;
         ImFontConfig fontCfg;
-        fontCfg.SizePixels = fontSize;
-        fontCfg.OversampleH = 1;
-        fontCfg.OversampleV = 1;
-        fontCfg.PixelSnapH = true;
-        io.Fonts->AddFontDefault(&fontCfg);
+        fontCfg.SizePixels = scaledSize;
+        bool loaded = false;
+        if (!fontPath_.empty())
+        {
+            loaded = (io.Fonts->AddFontFromFileTTF(fontPath_.c_str(), scaledSize, &fontCfg) != nullptr);
+            if (!loaded)
+                std::cerr << "[font] Failed to load font: " << fontPath_
+                          << ", falling back to ProggyForever\n";
+        }
+        if (!loaded)
+            io.Fonts->AddFontDefaultVector(&fontCfg);
     }
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
@@ -217,6 +225,12 @@ float OpenGL2Backend::contentScale() const
 void OpenGL2Backend::setContentScale(float scale)
 {
     contentScale_ = scale;
+}
+
+void OpenGL2Backend::setFontConfig(const std::string& fontPath, float fontSize)
+{
+    fontPath_ = fontPath;
+    fontSize_ = fontSize;
 }
 
 // ---------------------------------------------------------------------------

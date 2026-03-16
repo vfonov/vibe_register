@@ -523,6 +523,23 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
 
         ImGui::Separator();
 
+        // Font Configuration
+        if (ImGui::CollapsingHeader("Font")) {
+            ImGui::PushItemWidth(-1.0f);
+            ImGui::Text("Path (.ttf):");
+            ImGui::InputText("##font_path", state_.fontPath_, sizeof(state_.fontPath_));
+            ImGui::Text("Size (px at 1x scale):");
+            ImGui::DragFloat("##font_size", &state_.fontSize_, 0.5f, 8.0f, 48.0f, "%.1f px");
+            if (ImGui::Button("Reset to Default##font", ImVec2(-1.0f, 0))) {
+                state_.fontPath_[0] = '\0';
+                state_.fontSize_ = 13.0f;
+            }
+            ImGui::TextDisabled("(Restart required to apply)");
+            ImGui::PopItemWidth();
+        }
+
+        ImGui::Separator();
+
         if (ImGui::Button("[R] Reset All Views", ImVec2(btnWidth, 0))) {
             viewManager_.resetViews();
             if (hasOverlay)
@@ -2661,6 +2678,8 @@ void Interface::renderConfigFileDialog() {
                         cfg.global.autoSaveTags = state_.autoSaveTags_;
                         cfg.global.transformType = transformTypeToString(state_.transformType_);
                         cfg.global.viewVisible = state_.viewVisible;
+                        cfg.global.fontPath = state_.fontPath_;
+                        cfg.global.fontSize = state_.fontSize_;
                         if (qcState_.active) {
                             cfg.qcColumns = qcState_.columnConfigs;
                         } else {

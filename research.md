@@ -1,7 +1,13 @@
-# research.md — new_register Comprehensive Codebase Review
+# research.md — Comprehensive Codebase Review
 
-> **Date:** 2026-03-04
-> **Scope:** Full source review of all 15 source files, 15 headers, and 14 test suites.
+> **Last updated:** 2026-03-16
+> **Scope:** Full source review of `new_register` (15 `.cpp`, 15 headers, 14 test suites) and `new_qc` (3 `.cpp`, 3 headers, 1 test suite).
+
+---
+
+# Part A — new_register
+
+> **Original review date:** 2026-03-04
 
 ---
 
@@ -393,3 +399,227 @@ From PLAN.md — features remaining from the legacy tool:
 11. Implement resampling and slice filtering.
 12. Add NIfTI-1 support for broader compatibility.
 13. Metal backend for macOS.
+
+---
+
+# Part B — new_qc
+
+> **Review date:** 2026-03-16
+> **Scope:** Full source review of 3 `.cpp` files, 3 headers, and 42-test suite.
+
+---
+
+## B.1 Project Summary
+
+`new_qc` is a lightweight standalone Quality Control (QC) tool for reviewing medical imaging
+datasets represented as JPEG/PNG images. It provides a fast, keyboard-driven Pass/Fail verdict
+workflow with notes, CSV-based persistence, and resume support. Designed for large batches
+(100s–1000s of cases) where speed and simplicity matter more than volumetric detail.
+
+**Codebase size:** ~900 lines across 3 `.cpp` + 3 `.h` files, plus 42 unit tests in 1 suite.
+
+**Version:** 1.0.0
+
+**Build system:** CMake with FetchContent for ImGui, stb_image, and nlohmann_json (currently unused).
+
+---
+
+## B.2 Architecture
+
+```
+    ┌─────────────────────────────┐
+    │         main.cpp            │  CLI parsing, creates QCApp, runs it
+    └──────────────┬──────────────┘
+                   │
+         ┌─────────▼──────────┐
+         │      QCApp          │  GLFW window, ImGui UI, OpenGL textures,
+         │  (QCApp.h/.cpp)     │  image loading (stb_image), keyboard input
+         └─────────┬──────────┘
+                   │
+         ┌─────────▼──────────┐
+         │    CSVHandler       │  CSV I/O: load input/output, save progress
+         │ (CSVHandler.h/.cpp) │
+         └────────────────────┘
+```
+
+### Layer Separation
+
+| Layer | Files | Responsibility |
+|-------|-------|----------------|
+| **Entry** | `main.cpp` | CLI args, version, creates & runs QCApp |
+| **Application** | `QCApp.h/.cpp` | GUI, image loading, navigation, QC decisions |
+| **Persistence** | `CSVHandler.h/.cpp` | CSV parsing, field escaping, load/save |
+
+---
+
+## B.3 Module-by-Module Analysis
+
+### B.3.1 main.cpp
+
+Entry point, CLI argument parsing (manual, no cxxopts), display-guard.
+
+- Arguments: `input_csv output_csv [--scale <factor>] [--help] [--version]`
+- Validates that a display is available (checks `DISPLAY`/`WAYLAND_DISPLAY`); suggests `xvfb-run` for servers
+- Creates `QC::QCApp`, calls `init()` → `run()` → `shutdown()`
+
+**Concerns:** No library for CLI parsing — manual string matching is error-prone for future flags.
+
+---
+
+### B.3.2 QCApp.h/.cpp
+
+Main application class. Owns GLFW window, ImGui context, OpenGL textures, image data, and navigation state.
+
+**Key data members:**
+- `window_` — GLFW window pointer
+- `csvHandler_` — embedded CSVHandler
+- `currentImage_` — `ImageData` struct: `pixels` (RGBA bytes), `width`, `height`, `textureId` (GL)
+- `currentIndex_` — current record index
+- `running_` — main loop control
+- `currentScale_`, `imageScale_` — HiDPI content and display scale factors
+- `autoSave_` — bool, default `true`
+
+**Core methods:**
+
+| Method | Behaviour |
+|--------|-----------|
+| `init(inputFile, outputFile, scale)` | Load/resume CSV, init GLFW+OpenGL+ImGui, load first image |
+| `run()` | Main loop: poll events → new ImGui frame → `renderUI()` → swap |
+| `shutdown()` | Free GL texture, ImGui teardown, GLFW destroy |
+| `loadImage(path)` | stb_image load → GL_RGBA texture; handles missing file gracefully |
+| `markAsPass()` / `markAsFail()` | Update status, advance to next unrated, auto-save |
+| `navigateTo(index)` | Bounds-checked jump + scroll case list |
+| `renderUI()` | Two-column ImGui layout (left: controls/list, right: image) |
+| `renderImage()` | Aspect-ratio-preserving image display within right panel |
+| `handleKeyboard()` | P=Pass, F=Fail, ←/→=prev/next, Ctrl+S=save, Esc=exit |
+
+**GLFW callbacks:** `glfwKeyCallback`, `glfwWindowSizeCallback`, `glfwCloseCallback` — all delegate to `QCApp` methods via the user pointer.
+
+**UI layout:**
+- Left panel (~30% width): navigation buttons, subject info, QC buttons (Pass/Fail), notes text field, progress bar, color-coded case list table (green=Pass, red=Fail, gray=unrated)
+- Right panel (~70% width): full-panel image with aspect-ratio-preserving letterboxing
+
+**Graphics:** OpenGL 3.3 core profile only (no Vulkan, no backend abstraction). Single texture recycled per navigation.
+
+**Strengths:** Simple, self-contained, fast for large image datasets.
+**Concerns:**
+- No per-volume config (colour map, zoom) — not relevant for JPEG/PNG but limits MINC2 use.
+- `nlohmann_json` is a listed dependency but currently unused — hints at planned JSON config.
+- No prefetching — each navigation incurs a synchronous file read.
+
+---
+
+### B.3.3 CSVHandler.h/.cpp
+
+All CSV file I/O and the `QCRecord` data structure.
+
+**`QCRecord` struct:**
+```cpp
+struct QCRecord {
+    std::string id;
+    std::string visit;
+    std::string picture_path;
+    std::string qc_status;   // "Pass", "Fail", or ""
+    std::string notes;
+};
+```
+
+**Key methods:**
+
+| Method | Description |
+|--------|-------------|
+| `loadInputCSV(file)` | Loads 3-column input (id, visit, picture); auto-detects header row; initializes status/notes as empty |
+| `loadOutputCSV(file)` | Loads 5-column output (id, visit, picture, QC, notes); returns false if file missing (graceful resume) |
+| `saveOutputCSV(file)` | Writes all records with proper RFC 4180 escaping |
+| `parseCSVLine(line)` | Quote-aware field splitting |
+| `escapeCSVField(field)` | Wraps fields containing `,`, `"`, or `\n` in quotes; doubles internal quotes |
+| `trim(s)` | Strip leading/trailing whitespace |
+
+**CSV formats:**
+- Input:  `id,visit,picture`
+- Output: `id,visit,picture,QC,notes`
+
+**Strengths:** Correct RFC 4180 handling; header auto-detection; 42-test coverage.
+**Concerns:** `id` column is assumed to be column 0 — no configurable key column. Header detection uses a heuristic (`"id"`, `"subject"`, `"patient"` literals).
+
+---
+
+## B.4 Dependencies
+
+| Dependency | Source | Version | Purpose |
+|------------|--------|---------|---------|
+| **GLFW3** | System | 3.3+ | Window management, keyboard input |
+| **OpenGL** | System | 3.3+ | Rendering backend |
+| **ImGui** | FetchContent | v1.92.0 (docking) | Immediate-mode GUI |
+| **stb_image** | FetchContent (header-only) | — | JPEG/PNG image loading |
+| **nlohmann_json** | FetchContent | v3.11.3 | JSON (currently unused) |
+
+Note: No Vulkan dependency (contrast with `new_register`).
+
+---
+
+## B.5 Testing
+
+### Test Suite
+
+| File | Tests | Coverage |
+|------|-------|----------|
+| `tests/csv_test.cpp` | 42 | CSVHandler: escaping, loading, saving, round-trips, edge cases |
+
+All 42 tests pass. Tests create and clean up temporary CSV files.
+
+### Coverage
+
+| Module | Functions | Tested | Coverage |
+|--------|-----------|--------|----------|
+| CSVHandler | ~10 | ~10 | **~95%** |
+| QCApp | ~15 | 0 | **0%** |
+| main | 1 | 0 | **0%** |
+
+**QCApp is untested.** GUI code is inherently harder to unit-test, but `loadImage()`, `markAsPass/Fail()`, navigation logic, and auto-save could have isolated unit tests.
+
+---
+
+## B.6 Discrepancies
+
+| Item | README / CMakeLists says | Actual code |
+|------|--------------------------|-------------|
+| **nlohmann_json** | Listed as dependency | Not used anywhere in source |
+| **Vulkan** | Listed in CMakeLists.txt `find_package` | Not used; only OpenGL used |
+| **stb_image** | Fetched via FetchContent | Used correctly |
+
+---
+
+## B.7 Potential Issues and Risks
+
+### HIGH
+1. **No image prefetching**: Each navigation blocks on `stb_image_load()`. For large images over NFS this could cause UI stalls.
+2. **Single texture recycled**: `currentImage_.textureId` is reused every navigation; if `loadImage()` fails, the old texture remains displayed without clear error to user.
+
+### MEDIUM
+3. **Manual CLI parsing**: `main.cpp` hand-parses arguments; edge cases like `--scale=1.5` (vs `--scale 1.5`) are not handled.
+4. **Notes field single-line**: ImGui `InputText` for notes is single-line; multi-line notes (with embedded newlines) are stored correctly in CSV but cannot be entered via UI.
+5. **No progress autosave indicator**: User has no visual confirmation that auto-save occurred.
+
+### LOW
+6. **No keyboard shortcut for notes focus**: Keyboard-only workflow breaks when entering notes.
+7. **Case list scroll**: Uses `ImGui::SetScrollHereY()` to scroll to current row, but may not work correctly in all ImGui versions.
+
+---
+
+## B.8 Recommendations
+
+### Immediate (Stability)
+1. Remove or wire up `nlohmann_json` — either use it for a config file or drop the dependency.
+2. Add visual auto-save indicator (e.g., brief status line: "Saved.").
+
+### Short-term (Quality)
+3. Add unit tests for `QCApp` navigation and QC marking logic (test-only init without GLFW).
+4. Replace manual CLI parsing with `cxxopts` (already used in `new_register`).
+5. Add image prefetching for previous/next cases (simple background load or at least on-advance pre-load).
+
+### Medium-term (Features)
+6. Multi-line notes input (`ImGui::InputTextMultiline`).
+7. Keyboard shortcut to focus the notes field.
+8. Filter/sort the case list (e.g., show only unrated).
+9. Jump-to-first-unrated on startup (currently navigates to index 0 always).

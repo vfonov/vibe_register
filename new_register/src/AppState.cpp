@@ -1,6 +1,7 @@
 #include "AppState.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
@@ -290,6 +291,8 @@ void AppState::applyConfig(const AppConfig& cfg, int defaultWindowWidth, int def
     transformType_ = transformTypeFromString(cfg.global.transformType);
     transformOutOfDate_ = true;
     viewVisible = cfg.global.viewVisible;
+    std::snprintf(fontPath_, sizeof(fontPath_), "%s", cfg.global.fontPath.c_str());
+    fontSize_ = cfg.global.fontSize;
 
     for (int vi = 0; vi < static_cast<int>(volumes_.size()); ++vi) {
         VolumeViewState& state = viewStates_[vi];

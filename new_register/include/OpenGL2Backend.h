@@ -37,6 +37,7 @@ public:
     // --- DPI ---
     float contentScale() const override;
     void setContentScale(float scale) override;
+    void setFontConfig(const std::string& fontPath, float fontSize) override;
 
     // --- Screenshot ---
     std::vector<uint8_t> captureScreenshot(int& width, int& height) override;
@@ -52,6 +53,8 @@ private:
     float contentScale_ = 1.0f;
     int fbWidth_ = 0;
     int fbHeight_ = 0;
+    std::string fontPath_;
+    float fontSize_ = 13.0f;
 
     /// Map from ImTextureID to OpenGL texture name (GLuint), for cleanup.
     std::map<ImTextureID, unsigned int> glTextures_;
