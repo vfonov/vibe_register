@@ -410,6 +410,15 @@ void VulkanBackend::initialize(GLFWwindow* window)
         if (contentScale_ < 1.0f) contentScale_ = 1.0f;
     }
 
+    // Compute framebuffer/window ratio to detect Wayland compositor scaling
+    {
+        int fbW = 1, winW = 1, fbH, winH;
+        glfwGetFramebufferSize(window, &fbW, &fbH);
+        glfwGetWindowSize(window, &winW, &winH);
+        framebufferScale_ = (winW > 0) ? static_cast<float>(fbW) / winW : 1.0f;
+        if (framebufferScale_ < 1.0f) framebufferScale_ = 1.0f;
+    }
+
     // Check Vulkan support
     if (!glfwVulkanSupported())
     {
@@ -748,8 +757,8 @@ void VulkanBackend::initImGui(GLFWwindow* window)
     // Scale the entire ImGui style for HiDPI
     // ScaleAllSizes uses ImTrunc which can zero out small values, so we need
     // to ensure minimum values for critical properties after scaling
-    ImGui::GetStyle().ScaleAllSizes(contentScale_);
-    
+    ImGui::GetStyle().ScaleAllSizes(imguiScale());
+
     // Ensure critical properties have minimum non-zero values to avoid asserts
     ImGuiStyle& style = ImGui::GetStyle();
     style.SeparatorSize = ImMax(1.0f, style.SeparatorSize);
@@ -759,7 +768,7 @@ void VulkanBackend::initImGui(GLFWwindow* window)
     // If a custom font path is set, try to load it from disk;
     // fall back to the built-in ProggyForever vector font on failure.
     {
-        float scaledSize = fontSize_ * contentScale_;
+        float scaledSize = fontSize_ * imguiScale();
         ImFontConfig fontCfg;
         fontCfg.SizePixels = scaledSize;
         bool loaded = false;
@@ -831,6 +840,13 @@ float VulkanBackend::contentScale() const
 void VulkanBackend::setContentScale(float scale)
 {
     contentScale_ = scale;
+    manualScale_  = true;
+}
+
+float VulkanBackend::imguiScale() const
+{
+    if (manualScale_) return contentScale_;
+    return contentScale_ / framebufferScale_;
 }
 
 void VulkanBackend::setFontConfig(const std::string& fontPath, float fontSize)

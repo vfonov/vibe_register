@@ -39,6 +39,7 @@ public:
 
     float contentScale() const override;
     void setContentScale(float scale) override;
+    float imguiScale() const override;
     void setFontConfig(const std::string& fontPath, float fontSize) override;
 
     std::vector<uint8_t> captureScreenshot(int& width, int& height) override;
@@ -67,6 +68,8 @@ private:
     int                      minImageCount_   = 2;
     bool                     swapChainRebuild_= false;
     float                    contentScale_    = 1.0f;
+    float                    framebufferScale_= 1.0f;
+    bool                     manualScale_     = false;
     GLFWwindow*              window_          = nullptr;
     std::string              fontPath_;
     float                    fontSize_        = 13.0f;

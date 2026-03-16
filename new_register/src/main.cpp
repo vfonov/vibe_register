@@ -586,8 +586,8 @@ int main(int argc, char** argv)
         constexpr int baseHeight = 480;
 
         int totalCols = numVols + (numVols > 1 ? 1 : 0);
-        int initW = static_cast<int>(colWidth * totalCols * initScale);
-        int initH = static_cast<int>(baseHeight * initScale);
+        int initW = colWidth * totalCols;
+        int initH = baseHeight;
 
         if (mergedCfg.global.windowWidth.has_value())
             initW = mergedCfg.global.windowWidth.value();
@@ -782,6 +782,24 @@ int main(int argc, char** argv)
         glfwSetWindowTitle(window, (std::string("New Register (") +
             GraphicsBackend::backendName(backendType) + ")").c_str());
 
+        // On X11 HiDPI (no compositor scaling), resize the window to match the
+        // effective ImGui scale (Wayland already rendered at the correct size).
+        {
+            float scale = backend->imguiScale();
+            if (scale > 1.001f)
+            {
+                int winW, winH;
+                glfwGetWindowSize(window, &winW, &winH);
+                int baseW = colWidth * totalCols;
+                if (winW <= baseW)  // GLFW_SCALE_TO_MONITOR didn't fire
+                {
+                    int newW = std::min(static_cast<int>(winW * scale), maxW);
+                    int newH = std::min(static_cast<int>(winH * scale), maxH);
+                    glfwSetWindowSize(window, newW, newH);
+                }
+            }
+        }
+
         // Apply scale override BEFORE initImGui so ImGui configuration uses correct scale
         if (scaleOverride)
         {
@@ -795,7 +813,7 @@ int main(int argc, char** argv)
 
         backend->initImGui(window);
 
-        state.dpiScale_ = backend->contentScale();
+        state.dpiScale_ = backend->imguiScale();
         state.localConfigPath_ = localConfigPath;
 
         ViewManager viewManager(state, *backend);

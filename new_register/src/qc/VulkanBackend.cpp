@@ -352,6 +352,15 @@ void VulkanBackend::initialize(GLFWwindow* window)
         if (contentScale_ < 1.0f) contentScale_ = 1.0f;
     }
 
+    // Compute framebuffer/window ratio to detect Wayland compositor scaling
+    {
+        int fbW = 1, winW = 1, fbH, winH;
+        glfwGetFramebufferSize(window, &fbW, &fbH);
+        glfwGetWindowSize(window, &winW, &winH);
+        framebufferScale_ = (winW > 0) ? static_cast<float>(fbW) / winW : 1.0f;
+        if (framebufferScale_ < 1.0f) framebufferScale_ = 1.0f;
+    }
+
     if (!glfwVulkanSupported())
         throw std::runtime_error("GLFW: Vulkan not supported");
 
@@ -640,12 +649,12 @@ void VulkanBackend::initImGui(GLFWwindow* window)
 
     ImGui::StyleColorsDark();
 
-    ImGui::GetStyle().ScaleAllSizes(contentScale_);
+    ImGui::GetStyle().ScaleAllSizes(imguiScale());
     ImGuiStyle& style = ImGui::GetStyle();
     style.SeparatorSize = ImMax(1.0f, style.SeparatorSize);
 
     {
-        float scaledSize = fontSize_ * contentScale_;
+        float scaledSize = fontSize_ * imguiScale();
         ImFontConfig fontCfg;
         fontCfg.SizePixels = scaledSize;
         bool loaded = false;
@@ -711,6 +720,13 @@ float VulkanBackend::contentScale() const
 void VulkanBackend::setContentScale(float scale)
 {
     contentScale_ = scale;
+    manualScale_  = true;
+}
+
+float VulkanBackend::imguiScale() const
+{
+    if (manualScale_) return contentScale_;
+    return contentScale_ / framebufferScale_;
 }
 
 void VulkanBackend::setFontConfig(const std::string& fontPath, float fontSize)

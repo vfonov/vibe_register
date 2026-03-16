@@ -85,8 +85,8 @@ bool QCApp::init(const std::string& inputFile, const std::string& outputFile,
         if (initScale < 1.0f) initScale = 1.0f;
     }
 
-    int initW = static_cast<int>(1280 * initScale);
-    int initH = static_cast<int>(720 * initScale);
+    int initW = 1280;
+    int initH = 720;
 
     window_ = glfwCreateWindow(initW, initH, "new_qc - Quality Control", nullptr, nullptr);
     if (!window_)
@@ -120,7 +120,21 @@ bool QCApp::init(const std::string& inputFile, const std::string& outputFile,
     if (scaleFactor.has_value())
         backend_->setContentScale(scaleFactor.value());
 
-    currentScale_ = backend_->contentScale();
+    // On X11 HiDPI (no compositor scaling), resize the window to match the
+    // effective ImGui scale (Wayland already rendered at the correct size).
+    {
+        float scale = backend_->imguiScale();
+        if (scale > 1.001f)
+        {
+            int winW, winH;
+            glfwGetWindowSize(window_, &winW, &winH);
+            if (winW <= 1280)  // only if GLFW_SCALE_TO_MONITOR didn't already enlarge it
+                glfwSetWindowSize(window_, static_cast<int>(1280 * scale),
+                                           static_cast<int>(720  * scale));
+        }
+    }
+
+    currentScale_ = backend_->imguiScale();
 
     // Initialize ImGui through the backend
     backend_->initImGui(window_);

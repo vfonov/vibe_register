@@ -91,6 +91,12 @@ public:
     /// Override the content scale factor.
     virtual void setContentScale(float scale) = 0;
 
+    /// The effective ImGui scale — accounts for whether the compositor (Wayland)
+    /// or the framebuffer (X11/Retina) is already providing DPI scaling.
+    /// Equal to contentScale()/framebufferScale, clamped to ≥1.
+    /// Returns contentScale() unchanged when setContentScale() was called manually.
+    virtual float imguiScale() const = 0;
+
     /// Set the font configuration to use during initImGui().
     /// Must be called BEFORE initImGui().
     virtual void setFontConfig(const std::string& fontPath, float fontSize) = 0;

@@ -37,6 +37,7 @@ public:
     // --- DPI ---
     float contentScale() const override;
     void setContentScale(float scale) override;
+    float imguiScale() const override;
     void setFontConfig(const std::string& fontPath, float fontSize) override;
 
     // --- Screenshot ---
@@ -50,7 +51,9 @@ public:
 
 private:
     GLFWwindow* window_ = nullptr;
-    float contentScale_ = 1.0f;
+    float contentScale_     = 1.0f;
+    float framebufferScale_ = 1.0f;
+    bool  manualScale_      = false;
     int fbWidth_ = 0;
     int fbHeight_ = 0;
     std::string fontPath_;

@@ -108,6 +108,12 @@ public:
     /// @param scale  The scale factor to use (1.0 = standard DPI).
     virtual void setContentScale(float scale) = 0;
 
+    /// The effective ImGui scale — accounts for whether the compositor (Wayland)
+    /// or the framebuffer (X11/Retina) is already providing DPI scaling.
+    /// Equal to contentScale()/framebufferScale, clamped to ≥1.
+    /// Returns contentScale() unchanged when setContentScale() was called manually.
+    virtual float imguiScale() const = 0;
+
     /// Set the font configuration to use during initImGui().
     /// Must be called BEFORE initImGui().
     /// @param fontPath  Path to a .ttf font file, or empty to use the built-in

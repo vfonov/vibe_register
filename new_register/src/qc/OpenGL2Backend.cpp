@@ -75,6 +75,15 @@ void OpenGL2Backend::initialize(GLFWwindow* window)
         if (contentScale_ < 1.0f) contentScale_ = 1.0f;
     }
 
+    // Compute framebuffer/window ratio to detect Wayland compositor scaling
+    {
+        int fbW = 1, winW = 1, fbH, winH;
+        glfwGetFramebufferSize(window, &fbW, &fbH);
+        glfwGetWindowSize(window, &winW, &winH);
+        framebufferScale_ = (winW > 0) ? static_cast<float>(fbW) / winW : 1.0f;
+        if (framebufferScale_ < 1.0f) framebufferScale_ = 1.0f;
+    }
+
     glfwGetFramebufferSize(window, &fbWidth_, &fbHeight_);
 
     if (debugLoggingEnabled())
@@ -148,12 +157,12 @@ void OpenGL2Backend::initImGui(GLFWwindow* window)
 
     ImGui::StyleColorsDark();
 
-    ImGui::GetStyle().ScaleAllSizes(contentScale_);
+    ImGui::GetStyle().ScaleAllSizes(imguiScale());
     ImGuiStyle& style = ImGui::GetStyle();
     style.SeparatorSize = ImMax(1.0f, style.SeparatorSize);
 
     {
-        float scaledSize = fontSize_ * contentScale_;
+        float scaledSize = fontSize_ * imguiScale();
         ImFontConfig fontCfg;
         fontCfg.SizePixels = scaledSize;
         bool loaded = false;
@@ -198,6 +207,13 @@ float OpenGL2Backend::contentScale() const
 void OpenGL2Backend::setContentScale(float scale)
 {
     contentScale_ = scale;
+    manualScale_  = true;
+}
+
+float OpenGL2Backend::imguiScale() const
+{
+    if (manualScale_) return contentScale_;
+    return contentScale_ / framebufferScale_;
 }
 
 void OpenGL2Backend::setFontConfig(const std::string& fontPath, float fontSize)
