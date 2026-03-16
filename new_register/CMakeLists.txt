@@ -15,19 +15,36 @@ set(CMAKE_DISABLE_INSTALL_PACKAGES ON)
 # Set after finding system packages to avoid interfering with their detection
 set(BUILD_SHARED_LIBS_DEFAULT ${BUILD_SHARED_LIBS})
 
+# --- Build mode options ---
+# BUILD_QC_ONLY: skip all MINC/HDF5/NetCDF/Eigen/GLM dependencies and build
+#                only the new_qc viewer (useful on machines without MINC toolkit)
+option(BUILD_QC_ONLY "Build only new_qc viewer (skip MINC/HDF5/Eigen dependencies)" OFF)
+
+# BUILD_NEW_QC: also build new_qc alongside new_register (default ON)
+option(BUILD_NEW_QC  "Build new_qc viewer alongside new_register" ON)
+
 # --- Backend options ---
 option(ENABLE_VULKAN  "Build Vulkan backend"  ON)
 option(ENABLE_OPENGL2 "Build OpenGL2 backend" ON)
 option(ENABLE_METAL   "Build Metal backend"   OFF)
 
-# --- Dependencies ---
+# --- Dependencies always required ---
 
 # 1. GLFW
 find_package(glfw3 REQUIRED)
 
-# 2. Vulkan (conditional)
+# 2. Vulkan (soft find — required for new_register if ENABLE_VULKAN, optional for new_qc)
 if(ENABLE_VULKAN)
-    find_package(Vulkan REQUIRED)
+    find_package(Vulkan)
+    if(Vulkan_FOUND)
+        message(STATUS "Vulkan found — building with Vulkan backend")
+    else()
+        if(NOT BUILD_QC_ONLY)
+            message(FATAL_ERROR "Vulkan not found. Set ENABLE_VULKAN=OFF to disable Vulkan support.")
+        else()
+            message(STATUS "Vulkan not found — skipping Vulkan backend")
+        endif()
+    endif()
 endif()
 
 # 2.1 OpenGL (conditional)
@@ -35,55 +52,53 @@ if(ENABLE_OPENGL2)
     find_package(OpenGL REQUIRED)
 endif()
 
-# 2.5 HDF5 (Required by minc2 headers)
-# Allow config-mode discovery (hdf5-config.cmake) so that CMAKE_PREFIX_PATH
-# works for non-standard install prefixes (e.g. /opt/minc/1.9.18).
-# Module-mode (FindHDF5) is the automatic fallback when no config file exists.
-find_package(HDF5 REQUIRED COMPONENTS C)
+# --- MINC/HDF5/NetCDF dependencies (not needed for new_qc only) ---
+if(NOT BUILD_QC_ONLY)
 
-# Safety net: if FindHDF5 found the library but not the headers (common when
-# h5cc is not on PATH and no config-mode file exists), derive include dir
-# from the library path (e.g. /opt/minc/1.9.18/lib -> /opt/minc/1.9.18/include).
-if(HDF5_FOUND AND NOT HDF5_INCLUDE_DIRS)
-    foreach(_hdf5_lib IN LISTS HDF5_C_LIBRARIES)
-        if(_hdf5_lib MATCHES "^(.+)/lib[^/]*$")
-            set(_hdf5_prefix "${CMAKE_MATCH_1}")
-            if(EXISTS "${_hdf5_prefix}/include/hdf5.h")
-                set(HDF5_INCLUDE_DIRS "${_hdf5_prefix}/include")
-                message(STATUS "HDF5: derived include dir from library path: ${HDF5_INCLUDE_DIRS}")
-                break()
-            # Debian/Ubuntu multi-arch: lib/x86_64-linux-gnu -> include/hdf5/serial
-            elseif(EXISTS "${_hdf5_prefix}/../include/hdf5/serial/hdf5.h")
-                get_filename_component(_hdf5_inc "${_hdf5_prefix}/../include/hdf5/serial" ABSOLUTE)
-                set(HDF5_INCLUDE_DIRS "${_hdf5_inc}")
-                message(STATUS "HDF5: derived include dir (Debian multi-arch): ${HDF5_INCLUDE_DIRS}")
-                break()
+    # 2.5 HDF5 (Required by minc2 headers)
+    find_package(HDF5 REQUIRED COMPONENTS C)
+
+    # Safety net: if FindHDF5 found the library but not the headers
+    if(HDF5_FOUND AND NOT HDF5_INCLUDE_DIRS)
+        foreach(_hdf5_lib IN LISTS HDF5_C_LIBRARIES)
+            if(_hdf5_lib MATCHES "^(.+)/lib[^/]*$")
+                set(_hdf5_prefix "${CMAKE_MATCH_1}")
+                if(EXISTS "${_hdf5_prefix}/include/hdf5.h")
+                    set(HDF5_INCLUDE_DIRS "${_hdf5_prefix}/include")
+                    message(STATUS "HDF5: derived include dir from library path: ${HDF5_INCLUDE_DIRS}")
+                    break()
+                # Debian/Ubuntu multi-arch: lib/x86_64-linux-gnu -> include/hdf5/serial
+                elseif(EXISTS "${_hdf5_prefix}/../include/hdf5/serial/hdf5.h")
+                    get_filename_component(_hdf5_inc "${_hdf5_prefix}/../include/hdf5/serial" ABSOLUTE)
+                    set(HDF5_INCLUDE_DIRS "${_hdf5_inc}")
+                    message(STATUS "HDF5: derived include dir (Debian multi-arch): ${HDF5_INCLUDE_DIRS}")
+                    break()
+                endif()
             endif()
+        endforeach()
+        if(NOT HDF5_INCLUDE_DIRS)
+            message(FATAL_ERROR "HDF5 found but HDF5_INCLUDE_DIRS is empty. "
+                "Set CMAKE_PREFIX_PATH or HDF5_ROOT to the HDF5 install prefix.")
         endif()
-    endforeach()
-    if(NOT HDF5_INCLUDE_DIRS)
-        message(FATAL_ERROR "HDF5 found but HDF5_INCLUDE_DIRS is empty. "
-            "Set CMAKE_PREFIX_PATH or HDF5_ROOT to the HDF5 install prefix.")
     endif()
-endif()
 
-# For MINC1 support
-FIND_PACKAGE(NETCDF REQUIRED)
+    # For MINC1 support
+    FIND_PACKAGE(NETCDF REQUIRED)
 
+    if(NETCDF_FOUND)
+        message(STATUS "NETCDF found: ${NETCDF_INCLUDE_DIR}")
+    else()
+        message(STATUS "NETCDF not found - MINC1 support will be disabled")
+    endif()
 
-if(NETCDF_FOUND)
-    message(STATUS "NETCDF found: ${NETCDF_INCLUDE_DIR}")
-else()
-    message(STATUS "NETCDF not found - MINC1 support will be disabled")
-endif()
+    # 2.6 Threads (Required for Prefetcher background thread)
+    find_package(Threads REQUIRED)
 
-# 2.6 Threads (Required for Prefetcher background thread)
-find_package(Threads REQUIRED)
+endif() # NOT BUILD_QC_ONLY
 
 # --- Force static linking for fetched dependencies ---
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".lib" ".so"  CACHE STRING "" FORCE)
-
 
 SET(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
 SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
@@ -114,43 +129,55 @@ set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
 set(JSON_Install OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(nlohmann_json)
 
-# 3.75. GLM (Math library for vector/matrix operations)
-# Header-only library - no build needed
-FetchContent_Declare(
-    glm
-    GIT_REPOSITORY https://github.com/g-truc/glm.git
-    GIT_TAG        1.0.1
-    GIT_SHALLOW    TRUE
-)
-set(GLM_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
-set(GLM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(GLM_BUILD_INSTALL OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(glm)
+# 3.6. stb (stb_image for new_qc image loading)
+if(BUILD_NEW_QC OR BUILD_QC_ONLY)
+    FetchContent_Declare(
+        stb
+        GIT_REPOSITORY https://github.com/nothings/stb.git
+        GIT_TAG        master
+    )
+    FetchContent_MakeAvailable(stb)
+endif()
 
+if(NOT BUILD_QC_ONLY)
 
-# 3.8. Eigen3 (Linear algebra: SVD, matrix solvers — used by Transform)
-# Use ExternalProject_Add to build in build directory only
-include(ExternalProject)
-set(EIGEN_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/eigen_install")
-ExternalProject_Add(Eigen
-    GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
-    GIT_TAG        3.4.0
-    GIT_SHALLOW    TRUE
-    INSTALL_DIR    ${EIGEN_INSTALL_PREFIX}
-    CMAKE_ARGS
-        -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
-        -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
-        -DBUILD_DOCUMENTATION=OFF
-        -DBUILD_TESTING=OFF
-        -DBUILD_PACKAGE=OFF
-        -DEIGEN_BUILD_PKGCONFIG=OFF
-    BUILD_BYPRODUCTS ${EIGEN_INSTALL_PREFIX}/include/eigen3/Eigen
-)
-set(eigen_SOURCE_DIR "${CMAKE_BINARY_DIR}/eigen-src")
-set(eigen_BINARY_DIR "${CMAKE_BINARY_DIR}/eigen-build")
-set(eigen_INCLUDE_DIR "${EIGEN_INSTALL_PREFIX}/include/eigen3")
+    # 3.75. GLM (Math library for vector/matrix operations)
+    # Header-only library - no build needed
+    FetchContent_Declare(
+        glm
+        GIT_REPOSITORY https://github.com/g-truc/glm.git
+        GIT_TAG        1.0.1
+        GIT_SHALLOW    TRUE
+    )
+    set(GLM_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+    set(GLM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(GLM_BUILD_INSTALL OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(glm)
 
-# Create ImGui library target
+    # 3.8. Eigen3 (Linear algebra: SVD, matrix solvers — used by Transform)
+    include(ExternalProject)
+    set(EIGEN_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/eigen_install")
+    ExternalProject_Add(Eigen
+        GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+        GIT_TAG        3.4.0
+        GIT_SHALLOW    TRUE
+        INSTALL_DIR    ${EIGEN_INSTALL_PREFIX}
+        CMAKE_ARGS
+            -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
+            -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
+            -DBUILD_DOCUMENTATION=OFF
+            -DBUILD_TESTING=OFF
+            -DBUILD_PACKAGE=OFF
+            -DEIGEN_BUILD_PKGCONFIG=OFF
+        BUILD_BYPRODUCTS ${EIGEN_INSTALL_PREFIX}/include/eigen3/Eigen
+    )
+    set(eigen_SOURCE_DIR "${CMAKE_BINARY_DIR}/eigen-src")
+    set(eigen_BINARY_DIR "${CMAKE_BINARY_DIR}/eigen-build")
+    set(eigen_INCLUDE_DIR "${EIGEN_INSTALL_PREFIX}/include/eigen3")
+
+endif() # NOT BUILD_QC_ONLY
+
+# Create ImGui library target (core only — backends compiled per-executable)
 add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_demo.cpp
@@ -160,255 +187,315 @@ add_library(imgui STATIC
 )
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
 
-# 4. LIBMINC
-# Try system LIBMINC first, then fall back to FetchContent
-# Only use system libminc if found outside _deps directory
-set(_USE_SYSTEM_MINC OFF)
+if(NOT BUILD_QC_ONLY)
 
-FIND_PATH( MINC_TOOLKIT_DIR bin/mincstats  HINTS $ENV{MINC_TOOLKIT} DOC "minc-toolkit install prefix")
-FIND_PACKAGE( LIBMINC QUIET HINTS ${MINC_TOOLKIT_DIR}/lib${LIB_SUFFIX})
+    # 4. LIBMINC
+    # Try system LIBMINC first, then fall back to FetchContent
+    set(_USE_SYSTEM_MINC OFF)
 
-if(LIBMINC_FOUND AND LIBMINC_DIR)
-    if(NOT LIBMINC_DIR MATCHES "_deps")
-        set(_USE_SYSTEM_MINC ON)
+    FIND_PATH( MINC_TOOLKIT_DIR bin/mincstats  HINTS $ENV{MINC_TOOLKIT} DOC "minc-toolkit install prefix")
+    FIND_PACKAGE( LIBMINC QUIET HINTS ${MINC_TOOLKIT_DIR}/lib${LIB_SUFFIX})
+
+    if(LIBMINC_FOUND AND LIBMINC_DIR)
+        if(NOT LIBMINC_DIR MATCHES "_deps")
+            set(_USE_SYSTEM_MINC ON)
+        endif()
     endif()
-endif()
 
-if(_USE_SYSTEM_MINC)
-    message(STATUS "Using system LIBMINC: ${LIBMINC_DIR}")
-    INCLUDE( ${LIBMINC_USE_FILE} )
-    set(MINC2_LIB ${LIBMINC_LIBRARIES})
-    set(MINC2_INCLUDE_DIR "${LIBMINC_DIR}/include")
-    set(MINC2_LIB_DIR ${LIBMINC_DIR})
-else()
-    message(STATUS "LIBMINC not found or in _deps, using ExternalProject...")
+    if(_USE_SYSTEM_MINC)
+        message(STATUS "Using system LIBMINC: ${LIBMINC_DIR}")
+        INCLUDE( ${LIBMINC_USE_FILE} )
+        set(MINC2_LIB ${LIBMINC_LIBRARIES})
+        set(MINC2_INCLUDE_DIR "${LIBMINC_DIR}/include")
+        set(MINC2_LIB_DIR ${LIBMINC_DIR})
+    else()
+        message(STATUS "LIBMINC not found or in _deps, using ExternalProject...")
 
-    # Use ExternalProject_Add to avoid install pollution
-    include(ExternalProject)
-    set(LIBMINC_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/libminc_install")
-    # Build args - enable MINC1 support if NetCDF is available
-    set(_LIBMINC_ARGS
-        -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
-        -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
-        -DBUILD_TESTING=OFF
-        -DBUILD_SHARED_LIBS=OFF
-        -DLIBMINC_BUILD_EZMINC=OFF
-        -DHDF5_INCLUDE_DIRS:STRING=${HDF5_INCLUDE_DIRS}
-        -DHDF5_C_LIBRARIES:STRING=${HDF5_C_LIBRARIES}
-        -DHDF5_LIBRARY:FILEPATH=${HDF5_LIBRARY}
-        -DHDF5_hdf5_LIBRARY_RELEASE:FILEPATH=${HDF5_hdf5_LIBRARY_RELEASE}
-        -DHDF5_hdf5_LIBRARY_DEBUG:FILEPATH=${HDF5_hdf5_LIBRARY_DEBUG}
-    )
-    if(NETCDF_FOUND)
-        list(APPEND _LIBMINC_ARGS
-            -DLIBMINC_MINC1_SUPPORT:BOOL=ON
-            -DNETCDF_INCLUDE_DIR:STRING=${NETCDF_INCLUDE_DIR}
-            -DNETCDF_LIBRARY:STRING=${NETCDF_LIBRARY}
+        include(ExternalProject)
+        set(LIBMINC_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/libminc_install")
+        set(_LIBMINC_ARGS
+            -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
+            -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
+            -DBUILD_TESTING=OFF
+            -DBUILD_SHARED_LIBS=OFF
+            -DLIBMINC_BUILD_EZMINC=OFF
+            -DHDF5_INCLUDE_DIRS:STRING=${HDF5_INCLUDE_DIRS}
+            -DHDF5_C_LIBRARIES:STRING=${HDF5_C_LIBRARIES}
+            -DHDF5_LIBRARY:FILEPATH=${HDF5_LIBRARY}
+            -DHDF5_hdf5_LIBRARY_RELEASE:FILEPATH=${HDF5_hdf5_LIBRARY_RELEASE}
+            -DHDF5_hdf5_LIBRARY_DEBUG:FILEPATH=${HDF5_hdf5_LIBRARY_DEBUG}
         )
-    #else()
-    #    list(APPEND _LIBMINC_ARGS -DLIBMINC_MINC1_SUPPORT=OFF)
+        if(NETCDF_FOUND)
+            list(APPEND _LIBMINC_ARGS
+                -DLIBMINC_MINC1_SUPPORT:BOOL=ON
+                -DNETCDF_INCLUDE_DIR:STRING=${NETCDF_INCLUDE_DIR}
+                -DNETCDF_LIBRARY:STRING=${NETCDF_LIBRARY}
+            )
+        endif()
+
+        ExternalProject_Add(libminc
+            GIT_REPOSITORY https://github.com/BIC-MNI/libminc.git
+            GIT_TAG        develop-1.9.18
+            GIT_SHALLOW    TRUE
+            INSTALL_DIR    ${LIBMINC_INSTALL_PREFIX}
+            CMAKE_ARGS ${_LIBMINC_ARGS}
+            BUILD_BYPRODUCTS ${LIBMINC_INSTALL_PREFIX}/lib/libminc2.a
+        )
+        set(MINC2_LIB "${LIBMINC_INSTALL_PREFIX}/lib/libminc2.a")
+        set(MINC2_INCLUDE_DIR "${LIBMINC_INSTALL_PREFIX}/include")
+        set(MINC2_LIB_DIR "${LIBMINC_INSTALL_PREFIX}/lib${LIB_SUFFIX}")
+        set(_USE_EXTERNAL_MINC ON)
     endif()
 
-    ExternalProject_Add(libminc
-        GIT_REPOSITORY https://github.com/BIC-MNI/libminc.git
-        GIT_TAG        develop-1.9.18
+    # 5. minc2-simple
+    include(ExternalProject)
+    set(MINC2_SIMPLE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/minc2_simple_install")
+
+    set(_MINC2_DEPENDS "")
+    if(NOT _USE_SYSTEM_MINC)
+        set(_MINC2_DEPENDS libminc)
+        set(_MINC2_LIBMINC_PREFIX "${LIBMINC_INSTALL_PREFIX}")
+    else()
+        set(_MINC2_LIBMINC_PREFIX "${LIBMINC_DIR}")
+    endif()
+    message("LIBMINC_DIR=${MINC2_LIB_DIR}")
+
+    ExternalProject_Add(minc2-simple-static
+        GIT_REPOSITORY https://github.com/NIST-MNI/minc2-simple.git
+        GIT_TAG        develop
         GIT_SHALLOW    TRUE
-        INSTALL_DIR    ${LIBMINC_INSTALL_PREFIX}
-        CMAKE_ARGS ${_LIBMINC_ARGS}
-        BUILD_BYPRODUCTS ${LIBMINC_INSTALL_PREFIX}/lib/libminc2.a
+        UPDATE_DISCONNECTED TRUE
+        INSTALL_DIR    ${MINC2_SIMPLE_INSTALL_PREFIX}
+        DEPENDS        ${_MINC2_DEPENDS}
+        CMAKE_ARGS
+            -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
+            -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
+            -DCMAKE_PREFIX_PATH=${_MINC2_LIBMINC_PREFIX}
+            -DLIBMINC_DIR=${MINC2_LIB_DIR}/cmake
+            -DBUILD_TESTING:BOOL=OFF
+            -DBUILD_MINC2_SIMPLE_SHARED:BOOL=OFF
+            -DCMAKE_C_FLAGS:STRING=-I${HDF5_INCLUDE_DIRS} # HACK to make it find hdf5.h
+        BUILD_BYPRODUCTS ${MINC2_SIMPLE_INSTALL_PREFIX}/lib/libminc2-simple-static.a
     )
-    set(MINC2_LIB "${LIBMINC_INSTALL_PREFIX}/lib/libminc2.a")
-    set(MINC2_INCLUDE_DIR "${LIBMINC_INSTALL_PREFIX}/include")
-    set(MINC2_LIB_DIR "${LIBMINC_INSTALL_PREFIX}/lib${LIB_SUFFIX}")
-    set(_USE_EXTERNAL_MINC ON)
-endif()
+    if(NOT _USE_SYSTEM_MINC)
+        add_dependencies(minc2-simple-static libminc)
+    endif()
 
-# 5. minc2-simple
-# Use ExternalProject_Add to avoid install pollution
-include(ExternalProject)
-set(MINC2_SIMPLE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/minc2_simple_install")
+    set(minc2-simple-static_SOURCE_DIR "${MINC2_SIMPLE_INSTALL_PREFIX}/src")
+    set(minc2-simple-static_INCLUDE_DIR "${MINC2_SIMPLE_INSTALL_PREFIX}/include")
+    set(minc2-simple-static_LIB "${MINC2_SIMPLE_INSTALL_PREFIX}/lib/libminc2-simple-static.a")
+    set(minc2-simple-static_LIB_DIR "${MINC2_SIMPLE_INSTALL_PREFIX}/lib")
 
-# Determine dependency - if using fetched libminc, depend on it
-set(_MINC2_DEPENDS "")
-if(NOT _USE_SYSTEM_MINC)
-    set(_MINC2_DEPENDS libminc)
-    set(_MINC2_LIBMINC_PREFIX "${LIBMINC_INSTALL_PREFIX}")
-else()
-    set(_MINC2_LIBMINC_PREFIX "${LIBMINC_DIR}")
-endif()
-message("LIBMINC_DIR=${MINC2_LIB_DIR}")
+    # Add library search paths for ExternalProject builds
+    if(NOT _USE_SYSTEM_MINC AND DEFINED MINC2_LIB_DIR)
+        link_directories(${MINC2_LIB_DIR})
+    endif()
+    if(DEFINED minc2-simple-static_LIB_DIR)
+        link_directories(${minc2-simple-static_LIB_DIR})
+    endif()
 
-ExternalProject_Add(minc2-simple-static
-    GIT_REPOSITORY https://github.com/NIST-MNI/minc2-simple.git
-    GIT_TAG        develop
-    GIT_SHALLOW    TRUE
-    UPDATE_DISCONNECTED TRUE
-    INSTALL_DIR    ${MINC2_SIMPLE_INSTALL_PREFIX}
-    DEPENDS        ${_MINC2_DEPENDS}
-    CMAKE_ARGS
-        -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
-        -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
-        -DCMAKE_PREFIX_PATH=${_MINC2_LIBMINC_PREFIX}
-        -DLIBMINC_DIR=${MINC2_LIB_DIR}/cmake
-        -DBUILD_TESTING:BOOL=OFF
-        -DBUILD_MINC2_SIMPLE_SHARED:BOOL=OFF
-        -DCMAKE_C_FLAGS:STRING=-I${HDF5_INCLUDE_DIRS} # HACK to make it find hdf5.h 
-    BUILD_BYPRODUCTS ${MINC2_SIMPLE_INSTALL_PREFIX}/lib/libminc2-simple-static.a
-)
-if(NOT _USE_SYSTEM_MINC)
-add_dependencies(minc2-simple-static libminc)
-endif()
+    # --- nr_core: GPU-free static library shared by new_register and new_mincpik ---
+    set(NR_CORE_SOURCES
+        src/Volume.cpp
+        src/ColourMap.cpp
+        src/Transform.cpp
+        src/TagWrapper.cpp
+        src/AppConfig.cpp
+        src/SliceRenderer.cpp
+    )
 
-set(minc2-simple-static_SOURCE_DIR "${MINC2_SIMPLE_INSTALL_PREFIX}/src")
-set(minc2-simple-static_INCLUDE_DIR "${MINC2_SIMPLE_INSTALL_PREFIX}/include")
-set(minc2-simple-static_LIB "${MINC2_SIMPLE_INSTALL_PREFIX}/lib/libminc2-simple-static.a")
-set(minc2-simple-static_LIB_DIR "${MINC2_SIMPLE_INSTALL_PREFIX}/lib")
+    add_library(nr_core STATIC ${NR_CORE_SOURCES})
+    target_include_directories(nr_core PUBLIC
+        include
+        ${glm_SOURCE_DIR}
+        ${eigen_INCLUDE_DIR}
+        ${minc2-simple-static_INCLUDE_DIR}
+        ${MINC2_INCLUDE_DIR}
+    )
+    target_link_libraries(nr_core PUBLIC
+        ${minc2-simple-static_LIB}
+        ${MINC2_LIB}
+        ${NETCDF_LIBRARY}
+        ${HDF5_C_LIBRARIES}
+        nlohmann_json::nlohmann_json
+        glm
+    )
+    add_dependencies(nr_core Eigen)
+    if(NOT _USE_SYSTEM_MINC)
+        add_dependencies(nr_core libminc minc2-simple-static)
+    else()
+        add_dependencies(nr_core minc2-simple-static)
+    endif()
 
-# Add library search paths for ExternalProject builds
-if(NOT _USE_SYSTEM_MINC AND DEFINED MINC2_LIB_DIR)
-    link_directories(${MINC2_LIB_DIR})
-endif()
-if(DEFINED minc2-simple-static_LIB_DIR)
-    link_directories(${minc2-simple-static_LIB_DIR})
-endif()
+    # --- Sources for new_register (explicit list instead of GLOB_RECURSE) ---
+    set(SOURCES
+        src/main.cpp
+        src/AppState.cpp
+        src/Interface.cpp
+        src/Prefetcher.cpp
+        src/QCState.cpp
+        src/ViewManager.cpp
+        src/BackendFactory.cpp
+    )
 
-# --- nr_core: GPU-free static library shared by new_register and new_mincpik ---
-set(NR_CORE_SOURCES
-    src/Volume.cpp
-    src/ColourMap.cpp
-    src/Transform.cpp
-    src/TagWrapper.cpp
-    src/AppConfig.cpp
-    src/SliceRenderer.cpp
-)
+    # Backend-specific sources
+    if(ENABLE_VULKAN AND Vulkan_FOUND)
+        list(APPEND SOURCES src/VulkanBackend.cpp src/VulkanHelpers.cpp)
+    endif()
+    if(ENABLE_OPENGL2)
+        list(APPEND SOURCES src/OpenGL2Backend.cpp)
+    endif()
 
-add_library(nr_core STATIC ${NR_CORE_SOURCES})
-target_include_directories(nr_core PUBLIC
-    include
-    ${glm_SOURCE_DIR}
-    ${eigen_INCLUDE_DIR}
-    ${minc2-simple-static_INCLUDE_DIR}
-    ${MINC2_INCLUDE_DIR}
-)
-target_link_libraries(nr_core PUBLIC
-    ${minc2-simple-static_LIB}
-    ${MINC2_LIB}
-    ${NETCDF_LIBRARY}
-    ${HDF5_C_LIBRARIES}
-    nlohmann_json::nlohmann_json
-    glm
-)
-add_dependencies(nr_core Eigen)
-if(NOT _USE_SYSTEM_MINC)
-    add_dependencies(nr_core libminc minc2-simple-static)
-else()
-    add_dependencies(nr_core minc2-simple-static)
-endif()
+    # ImGui platform backend
+    set(IMGUI_DIR ${imgui_SOURCE_DIR})
+    list(APPEND SOURCES
+        ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+    )
 
-# --- Sources (explicit list instead of GLOB_RECURSE) ---
-set(SOURCES
-    src/main.cpp
-    src/AppState.cpp
-    src/Interface.cpp
-    src/Prefetcher.cpp
-    src/QCState.cpp
-    src/ViewManager.cpp
-    src/BackendFactory.cpp
-)
+    # Backend-specific ImGui renderer sources
+    if(ENABLE_VULKAN AND Vulkan_FOUND)
+        list(APPEND SOURCES ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp)
+    endif()
+    if(ENABLE_OPENGL2)
+        list(APPEND SOURCES ${IMGUI_DIR}/backends/imgui_impl_opengl2.cpp)
+    endif()
 
-# Backend-specific sources
-if(ENABLE_VULKAN)
-    list(APPEND SOURCES src/VulkanBackend.cpp src/VulkanHelpers.cpp)
-endif()
-if(ENABLE_OPENGL2)
-    list(APPEND SOURCES src/OpenGL2Backend.cpp)
-endif()
+    # --- new_register executable ---
+    add_executable(new_register ${SOURCES})
 
-# ImGui platform backend (always needed)
-set(IMGUI_DIR ${imgui_SOURCE_DIR})
-list(APPEND SOURCES
-    ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
-)
+    target_include_directories(new_register PRIVATE
+        ${IMGUI_DIR}
+        ${IMGUI_DIR}/backends
+        ${minc2-simple-static_SOURCE_DIR}/src  # minc2-simple headers (for extern "C" include)
+    )
 
-# Backend-specific ImGui renderer sources
-if(ENABLE_VULKAN)
-    list(APPEND SOURCES ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp)
-endif()
-if(ENABLE_OPENGL2)
-    list(APPEND SOURCES ${IMGUI_DIR}/backends/imgui_impl_opengl2.cpp)
-endif()
+    target_compile_definitions(new_register PRIVATE)
+    if(ENABLE_VULKAN AND Vulkan_FOUND)
+        target_compile_definitions(new_register PRIVATE HAS_VULKAN=1)
+    endif()
+    if(ENABLE_OPENGL2)
+        target_compile_definitions(new_register PRIVATE HAS_OPENGL2=1)
+    endif()
+    if(ENABLE_METAL)
+        target_compile_definitions(new_register PRIVATE HAS_METAL=1)
+    endif()
 
-# --- Executable ---
-add_executable(new_register ${SOURCES})
+    target_link_libraries(new_register PRIVATE
+        nr_core
+        imgui
+        glfw
+        Threads::Threads
+        ${CMAKE_DL_LIBS}
+    )
+    if(ENABLE_VULKAN AND Vulkan_FOUND)
+        target_link_libraries(new_register PRIVATE Vulkan::Vulkan)
+    endif()
+    if(ENABLE_OPENGL2)
+        target_link_libraries(new_register PRIVATE OpenGL::GL)
+    endif()
 
-# --- Include Directories ---
-# nr_core PUBLIC includes already provide: include/, glm, eigen, minc2
-target_include_directories(new_register PRIVATE
-    ${IMGUI_DIR}
-    ${IMGUI_DIR}/backends
-    ${minc2-simple-static_SOURCE_DIR}/src  # minc2-simple headers (for extern "C" include)
-)
+    # std::filesystem requires separate library on GCC 9
+    if(CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "10.0")
+        target_link_libraries(new_register PRIVATE stdc++fs)
+    endif()
 
-# --- Compile Definitions ---
-target_compile_definitions(new_register PRIVATE
-    # IMGUI_IMPL_VULKAN_NO_PROTOTYPES # We link against standard loader
-)
-if(ENABLE_VULKAN)
-    target_compile_definitions(new_register PRIVATE HAS_VULKAN=1)
-endif()
-if(ENABLE_OPENGL2)
-    target_compile_definitions(new_register PRIVATE HAS_OPENGL2=1)
-endif()
-if(ENABLE_METAL)
-    target_compile_definitions(new_register PRIVATE HAS_METAL=1)
-endif()
+    INSTALL(TARGETS new_register DESTINATION bin)
 
-# --- Linking ---
-# nr_core provides Volume, ColourMap, Transform, TagWrapper, AppConfig, SliceRenderer
-# and their transitive MINC/HDF5/GLM/Eigen/JSON dependencies.
+    # --- new_mincpik: headless mosaic image generator ---
+    add_executable(new_mincpik
+        src/mincpik/mincpik_main.cpp
+        src/mincpik/mosaic.cpp
+        src/mincpik/text_render.cpp
+        src/mincpik/mincpik_cli.cpp
+        src/mincpik/colour_bar.cpp
+    )
+    target_link_libraries(new_mincpik PRIVATE
+        nr_core
+    )
+    target_include_directories(new_mincpik PRIVATE
+        ${minc2-simple-static_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/mincpik
+    )
+    if(CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "10.0")
+        target_link_libraries(new_mincpik PRIVATE stdc++fs)
+    endif()
+    INSTALL(TARGETS new_mincpik DESTINATION bin)
 
-message("NETCDF_LIBRARY=${NETCDF_LIBRARY}")
-target_link_libraries(new_register PRIVATE
-    nr_core
-    imgui
-    glfw
-    Threads::Threads
-    ${CMAKE_DL_LIBS}
-)
-if(ENABLE_VULKAN)
-    target_link_libraries(new_register PRIVATE Vulkan::Vulkan)
-endif()
-if(ENABLE_OPENGL2)
-    target_link_libraries(new_register PRIVATE OpenGL::GL)
-endif()
+endif() # NOT BUILD_QC_ONLY
 
-# std::filesystem requires separate library on GCC 9
-if(CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "10.0")
-    target_link_libraries(new_register PRIVATE stdc++fs)
-endif()
+# --- new_qc: lightweight QC viewer for JPEG/PNG image datasets ---
+if(BUILD_NEW_QC OR BUILD_QC_ONLY)
 
+    set(IMGUI_DIR ${imgui_SOURCE_DIR})
 
-INSTALL(TARGETS new_register DESTINATION bin)
+    set(QC_SOURCES
+        src/qc/main.cpp
+        src/qc/QCApp.cpp
+        src/qc/CSVHandler.cpp
+        src/qc/BackendFactory.cpp
+        src/qc/OpenGL2Backend.cpp
+    )
 
-# --- new_mincpik: headless mosaic image generator ---
-add_executable(new_mincpik
-    src/mincpik/mincpik_main.cpp
-    src/mincpik/mosaic.cpp
-    src/mincpik/text_render.cpp
-    src/mincpik/mincpik_cli.cpp
-    src/mincpik/colour_bar.cpp
-)
-target_link_libraries(new_mincpik PRIVATE
-    nr_core
-)
-target_include_directories(new_mincpik PRIVATE
-    ${minc2-simple-static_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/mincpik
-)
-if(CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "10.0")
-    target_link_libraries(new_mincpik PRIVATE stdc++fs)
-endif()
-INSTALL(TARGETS new_mincpik DESTINATION bin)
+    # Backend-specific sources
+    if(ENABLE_VULKAN AND Vulkan_FOUND)
+        list(APPEND QC_SOURCES
+            src/qc/VulkanHelpers.cpp
+            src/qc/VulkanBackend.cpp
+        )
+    endif()
+
+    # ImGui platform backend
+    list(APPEND QC_SOURCES
+        ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+    )
+    if(ENABLE_VULKAN AND Vulkan_FOUND)
+        list(APPEND QC_SOURCES ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp)
+    endif()
+    if(ENABLE_OPENGL2)
+        list(APPEND QC_SOURCES ${IMGUI_DIR}/backends/imgui_impl_opengl2.cpp)
+    endif()
+
+    add_executable(new_qc ${QC_SOURCES})
+
+    target_include_directories(new_qc PRIVATE
+        ${IMGUI_DIR}
+        ${IMGUI_DIR}/backends
+        ${stb_SOURCE_DIR}
+        src/qc
+    )
+
+    if(ENABLE_VULKAN AND Vulkan_FOUND)
+        target_compile_definitions(new_qc PRIVATE HAS_VULKAN=1)
+        target_include_directories(new_qc PRIVATE ${Vulkan_INCLUDE_DIRS})
+    endif()
+    if(ENABLE_OPENGL2)
+        target_compile_definitions(new_qc PRIVATE HAS_OPENGL2=1)
+    endif()
+
+    target_link_libraries(new_qc PRIVATE
+        imgui
+        glfw
+        nlohmann_json::nlohmann_json
+        ${CMAKE_DL_LIBS}
+    )
+    if(ENABLE_VULKAN AND Vulkan_FOUND)
+        target_link_libraries(new_qc PRIVATE Vulkan::Vulkan)
+    endif()
+    if(ENABLE_OPENGL2)
+        target_link_libraries(new_qc PRIVATE OpenGL::GL)
+    endif()
+    if(WIN32)
+        target_link_libraries(new_qc PRIVATE user32 shell32)
+    endif()
+
+    # std::filesystem requires separate library on GCC 9
+    if(CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "10.0")
+        target_link_libraries(new_qc PRIVATE stdc++fs)
+    endif()
+
+    INSTALL(TARGETS new_qc DESTINATION bin)
+
+endif() # BUILD_NEW_QC OR BUILD_QC_ONLY
 
 # --- Testing ---
 enable_testing()
