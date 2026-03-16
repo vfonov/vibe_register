@@ -39,7 +39,8 @@ void WindowManager::setFramebufferCallback(GLFWwindow* window, GraphicsBackend* 
 
 void WindowManager::clearCallback()
 {
-    glfwSetFramebufferSizeCallback(nullptr, nullptr);
+    // Don't call glfwSetFramebufferSizeCallback(nullptr, nullptr) - GLFW asserts
+    // The callback is automatically unregistered when glfwDestroyWindow is called
     backend_ = nullptr;
 }
 
