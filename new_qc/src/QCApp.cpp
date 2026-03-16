@@ -174,14 +174,19 @@ void QCApp::shutdown()
     backend_->shutdownTextureSystem();
     backend_->shutdownImGui();
 
+    // backend_->shutdown() must come BEFORE glfwDestroyWindow():
+    // shutdown() destroys the VkSwapchainKHR and VkSurfaceKHR, which reference
+    // the OS window handle. Destroying the GLFW window first invalidates that
+    // handle, causing vkDeviceWaitIdle (called inside shutdown) to return
+    // VK_ERROR_DEVICE_LOST on most drivers.
+    backend_->shutdown();
+    backend_.reset();
+
     if (window_)
     {
         glfwDestroyWindow(window_);
         window_ = nullptr;
     }
-
-    backend_->shutdown();
-    backend_.reset();
 
     glfwTerminate();
 }
