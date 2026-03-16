@@ -188,9 +188,13 @@ void QCApp::shutdown()
 
 void QCApp::loadImage(const std::string& path)
 {
-    // Destroy previous texture
+    // Destroy previous texture — wait for GPU to finish all in-flight frames first.
+    // Without this, the Vulkan descriptor set freed by destroyTexture() may still be
+    // referenced by a submitted (but not yet executed) command buffer, causing
+    // vkQueueWaitIdle to fail with device-lost in the next UpdateTexture() call.
     if (currentImage_.texture)
     {
+        backend_->waitIdle();
         backend_->destroyTexture(currentImage_.texture.get());
         currentImage_.texture.reset();
     }
