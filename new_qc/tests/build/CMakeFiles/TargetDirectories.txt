@@ -1,4 +1,0 @@
-/app/new_qc/tests/build/CMakeFiles/csv_test.dir
-/app/new_qc/tests/build/CMakeFiles/test.dir
-/app/new_qc/tests/build/CMakeFiles/edit_cache.dir
-/app/new_qc/tests/build/CMakeFiles/rebuild_cache.dir

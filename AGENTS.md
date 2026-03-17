@@ -232,31 +232,23 @@ cmake .. && make
 ctest --output-on-failure
 ```
 
-## 8. QC Viewer (new_qc)
+## 8. QC Viewer (new_qc — merged into new_register)
 
-A standalone lightweight QC tool for reviewing medical imaging datasets as JPEG/PNG images.
-Separate from `new_register --qc`; purpose-built for fast Pass/Fail batch workflows.
+The standalone `new_qc/` directory has been removed. The QC viewer is now built as
+part of `new_register` (sources in `new_register/src/qc/`, built when `BUILD_NEW_QC=ON`
+which is the default).
 
-> **See also:** [`research.md`](research.md) Part B for full module analysis, test coverage, and risk assessment.
+**Structure (within new_register):**
+- `new_register/src/qc/main.cpp` — CLI entry point
+- `new_register/src/qc/QCApp.h/.cpp` — GLFW+ImGui+OpenGL/Vulkan GUI, image loading, keyboard input
+- `new_register/src/qc/CSVHandler.h/.cpp` — CSV I/O, QCRecord struct, RFC 4180 escaping
+- `new_register/src/qc/VulkanBackend.*` — Vulkan primary backend
+- `new_register/src/qc/OpenGL2Backend.*` — OpenGL2 fallback backend
+- `new_register/tests/csv_test.cpp` — 42 unit tests for CSVHandler
 
-**Dependencies:**
-- `GLFW3` (system)
-- `OpenGL 3.3+` (system)
-- `ImGui` v1.92.0 (FetchContent, docking branch)
-- `stb_image` (FetchContent, header-only)
-- `nlohmann_json` v3.11.3 (FetchContent — currently unused)
-
-**Structure:**
-- `new_qc/src/main.cpp` — CLI entry point
-- `new_qc/src/QCApp.h/.cpp` — GLFW+ImGui+OpenGL GUI, image loading, keyboard input
-- `new_qc/src/CSVHandler.h/.cpp` — CSV I/O (load input/output, save progress)
-- `new_qc/tests/csv_test.cpp` — 42 unit tests for CSVHandler
-
-**Build Instructions:**
+**Build (produces `new_qc` binary alongside `new_register`):**
 ```bash
-cd new_qc/build
-cmake ..
-make
+cd new_register/build && cmake .. && make
 ```
 
 **Run:**
@@ -277,13 +269,6 @@ make
 - `Esc` — Exit
 
 **Coding Standards:**
-- C++17 (CMakeLists.txt sets `CMAKE_CXX_STANDARD 17`)
-- Namespace `QC::` for all classes
+- C++17, namespace `QC::` for all classes
 - `PascalCase` for classes, `camelCase` for methods/variables
 - `std::cerr` for error output
-
-**Current Status:**
-- Pass/Fail verdict workflow with notes field implemented and functional.
-- Auto-save after each QC decision; resume from existing output CSV.
-- HiDPI support with auto-detection and `--scale` override.
-- 42 CSVHandler unit tests passing.

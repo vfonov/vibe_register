@@ -1,1 +1,0 @@
-/usr/bin/c++ CMakeFiles/csv_test.dir/csv_test.cpp.o CMakeFiles/csv_test.dir/app/new_qc/src/CSVHandler.cpp.o -o csv_test 

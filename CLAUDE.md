@@ -13,8 +13,7 @@ This repository contains:
 |-----------|-------------|
 | `legacy/register/` | Original BIC `register` C tool — **read-only reference, do not modify** |
 | `legacy/bicgl/` | Original BIC Graphics Library — **read-only reference, do not modify** |
-| `new_register/` | Modern C++17 rewrite of `register` (Vulkan + ImGui + MINC2) |
-| `new_qc/` | Lightweight standalone QC viewer for JPEG/PNG image datasets |
+| `new_register/` | Modern C++17 rewrite of `register` (Vulkan + ImGui + MINC2) — includes `new_qc` viewer |
 
 ---
 
@@ -22,10 +21,9 @@ This repository contains:
 
 | File | What it covers |
 |------|----------------|
-| [`AGENTS.md`](AGENTS.md) | **Agent operating instructions** — build commands, code style, workflow rules, per-project sections for new_register and new_qc |
-| [`research.md`](research.md) | **Deep codebase review** — architecture diagrams, module analysis, test coverage, risks, and recommendations for both new_register (Part A) and new_qc (Part B) |
-| [`new_register/README.md`](new_register/README.md) | User-facing usage documentation for new_register |
-| [`new_qc/README.md`](new_qc/README.md) | User-facing usage documentation for new_qc |
+| [`AGENTS.md`](AGENTS.md) | **Agent operating instructions** — build commands, code style, workflow rules |
+| [`research.md`](research.md) | **Deep codebase review** — architecture diagrams, module analysis, test coverage, risks, and recommendations |
+| [`new_register/README.md`](new_register/README.md) | User-facing usage documentation for new_register and new_qc |
 | [`PLAN.md`](PLAN.md) | Feature roadmap and remaining work items |
 
 ---
@@ -71,34 +69,6 @@ ctest --output-on-failure
 
 ---
 
-## new_qc — Source Files
-
-```
-new_qc/
-├── CMakeLists.txt              Build: new_qc executable
-├── src/
-│   ├── main.cpp                CLI parsing, creates QCApp, runs it
-│   ├── QCApp.h / QCApp.cpp     GLFW+ImGui+OpenGL GUI, stb_image loading, keyboard input
-│   └── CSVHandler.h / CSVHandler.cpp   CSV I/O, QCRecord struct, RFC 4180 escaping
-└── tests/
-    └── csv_test.cpp            42 unit tests for CSVHandler
-```
-
-**Build:**
-```bash
-cd new_qc/build && cmake .. && make
-ctest --output-on-failure
-```
-
-**Key architectural notes:**
-- Uses OpenGL 3.3 only (no Vulkan, no backend abstraction).
-- `QCRecord`: `{id, visit, picture_path, qc_status, notes}`.
-- Input CSV: `id,visit,picture`. Output CSV: `id,visit,picture,QC,notes`.
-- `nlohmann_json` is a listed dependency but currently unused in source.
-- `QCApp` has 0% unit test coverage; CSVHandler has ~95%.
-
----
-
 ## Legacy Code (Reference Only)
 
 ```
@@ -117,8 +87,7 @@ legacy/
 
 | Project | Standard | Style | Naming |
 |---------|----------|-------|--------|
-| `new_register` | C++17 | PascalCase classes, camelCase methods | `std::cerr` for errors |
-| `new_qc` | C++17 | PascalCase classes, camelCase methods, `QC::` namespace | `std::cerr` for errors |
+| `new_register` (incl. `src/qc/`) | C++17 | PascalCase classes, camelCase methods, `QC::` namespace for qc/ | `std::cerr` for errors |
 | `legacy/` | C (read-only) | Allman braces, 4-space indent, snake_case | `fprintf(stderr)` |
 
 **Never touch `legacy/`.**

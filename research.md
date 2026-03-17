@@ -695,5 +695,4 @@ All 42 tests pass. Tests create and clean up temporary CSV files.
 12. HiDPI scale detection visual feedback in UI.
 
 ### Integration with new_register
-13. Consider sharing backend code between `new_register` and `new_qc` to reduce duplication.
-14. Explore adding MINC2 volume support to QC tool (optional `BUILD_MINC_SUPPORT` mode).
+13. Explore adding MINC2 volume support to QC tool (optional `BUILD_MINC_SUPPORT` mode).
