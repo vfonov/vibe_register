@@ -163,6 +163,12 @@ static const wl_registry_listener registry_listener = {
 
 bool install(GLFWwindow* window)
 {
+#if GLFW_VERSION_MAJOR < 3 || (GLFW_VERSION_MAJOR == 3 && GLFW_VERSION_MINOR < 4)
+    // glfwGetWaylandDisplay / glfwGetWaylandWindow require GLFW 3.4+;
+    // system 3.3.x may lack Wayland support in its library.
+    (void)window;
+    return false;
+#else
     wl_display* display = glfwGetWaylandDisplay();
     if (!display)
         return false;
@@ -184,6 +190,7 @@ bool install(GLFWwindow* window)
     }
 
     return true;
+#endif // GLFW_VERSION_MINOR >= 4
 }
 
 void shutdown()

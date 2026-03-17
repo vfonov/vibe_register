@@ -1,6 +1,8 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+#include "OsPrefetch.h"
+
 #include <imgui.h>
 #include <imgui_internal.h>
 
@@ -2389,7 +2391,12 @@ void Interface::switchQCRow(int newRow, GraphicsBackend& backend) {
             prefetchPaths.insert(prefetchPaths.end(), next.begin(), next.end());
         }
         if (!prefetchPaths.empty())
+        {
+            // OS hint: warm page cache for adjacent rows' files
+            os_prefetch_files(prefetchPaths);
+
             prefetcher_->requestPrefetch(prefetchPaths);
+        }
     }
 }
 

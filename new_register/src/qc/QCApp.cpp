@@ -1,4 +1,5 @@
 #include "QCApp.h"
+#include "OsPrefetch.h"
 #include <iostream>
 #include <algorithm>
 #include <cmath>
@@ -155,6 +156,12 @@ bool QCApp::init(const std::string& inputFile, const std::string& outputFile,
 
     // Load initial image
     loadImage(csvHandler_.getRecords()[currentIndex_].picture_path);
+
+    // Prefetch the first few records so initial navigation is instant
+    if (csvHandler_.getRecordCount() > 1)
+        os_prefetch_file(csvHandler_.getRecords()[1].picture_path);
+    if (csvHandler_.getRecordCount() > 2)
+        os_prefetch_file(csvHandler_.getRecords()[2].picture_path);
 
     running_ = true;
     return true;
@@ -471,6 +478,10 @@ void QCApp::navigateTo(size_t index)
         currentIndex_ = index;
         scrollToCurrentRow_ = true;
         loadImage(csvHandler_.getRecords()[currentIndex_].picture_path);
+        if (index + 1 < csvHandler_.getRecordCount())
+            os_prefetch_file(csvHandler_.getRecords()[index + 1].picture_path);
+        if (index >= 1)
+            os_prefetch_file(csvHandler_.getRecords()[index - 1].picture_path);
     }
 }
 
@@ -481,6 +492,8 @@ void QCApp::navigatePrevious()
         --currentIndex_;
         scrollToCurrentRow_ = true;
         loadImage(csvHandler_.getRecords()[currentIndex_].picture_path);
+        if (currentIndex_ >= 2)
+            os_prefetch_file(csvHandler_.getRecords()[currentIndex_ - 2].picture_path);
     }
 }
 
@@ -491,6 +504,8 @@ void QCApp::navigateNext()
         ++currentIndex_;
         scrollToCurrentRow_ = true;
         loadImage(csvHandler_.getRecords()[currentIndex_].picture_path);
+        if (currentIndex_ + 2 < csvHandler_.getRecordCount())
+            os_prefetch_file(csvHandler_.getRecords()[currentIndex_ + 2].picture_path);
     }
 }
 
