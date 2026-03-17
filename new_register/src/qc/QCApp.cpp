@@ -49,6 +49,15 @@ bool QCApp::init(const std::string& inputFile, const std::string& outputFile,
         return false;
     }
 
+    // On Wayland sessions, force GLFW to use its native Wayland backend so that
+    // wl_touch events (finger touch on touch screens) are delivered correctly.
+    // Without this, GLFW may use XWayland where touch events are silently dropped.
+    // glfwInitHint(GLFW_PLATFORM, …) requires GLFW 3.4+.
+#if GLFW_VERSION_MAJOR > 3 || (GLFW_VERSION_MAJOR == 3 && GLFW_VERSION_MINOR >= 4)
+    if (getenv("WAYLAND_DISPLAY") != nullptr)
+        glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_WAYLAND);
+#endif
+
     // Initialize GLFW
     if (!glfwInit())
     {

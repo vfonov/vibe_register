@@ -29,9 +29,20 @@ option(ENABLE_OPENGL2 "Build OpenGL2 backend" ON)
 option(ENABLE_METAL   "Build Metal backend"   OFF)
 
 # --- Dependencies always required ---
+include(FetchContent)
 
-# 1. GLFW
-find_package(glfw3 REQUIRED)
+# 1. GLFW 3.4 — required for correct wl_touch (touch screen) support on Wayland.
+# System GLFW 3.3.x has a broken wl_touch handler that drops touch events.
+set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    glfw
+    GIT_REPOSITORY https://github.com/glfw/glfw.git
+    GIT_TAG        3.4
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(glfw)
 
 # 2. Vulkan (soft find — required for new_register if ENABLE_VULKAN, optional for new_qc)
 if(ENABLE_VULKAN)
@@ -106,7 +117,6 @@ SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 # 3. Dear ImGui (Docking Branch)
 # Disable all optional builds - we only need the core library
-include(FetchContent)
 FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui
