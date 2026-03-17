@@ -67,6 +67,7 @@ private:
     int renderVolumeColumn(int vi);
     void renderOverlayPanel();
     void renderTagListWindow();
+    void renderTagListContent();
     void renderQCVerdictPanel(int volumeIndex);
     void switchQCRow(int newRow, GraphicsBackend& backend);
     int renderSliceView(int vi, int viewIndex, const ImVec2& childSize);

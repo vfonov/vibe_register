@@ -163,24 +163,18 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
         }
     }
 
-    ImGuiID dockspaceId = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
+    ImGuiID dockspaceId = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(),
+        ImGuiDockNodeFlags_AutoHideTabBar);
 
-    // Rebuild the dock layout when the viewport is resized so that all
-    // content columns scale proportionally (not just the rightmost one).
-    {
-        ImVec2 vpSize = ImGui::GetMainViewport()->Size;
-        if (state_.layoutInitialized_ &&
-            (std::abs(vpSize.x - lastViewportSize_.x) > 1.0f ||
-             std::abs(vpSize.y - lastViewportSize_.y) > 1.0f))
-        {
-            state_.layoutInitialized_ = false;
-        }
-    }
+    // Rebuild dock layout when volumes change OR when the viewport is resized.
+    // Without resize detection, only the rightmost "remaining" node (Overlay)
+    // absorbs size changes and volume columns stay at their initial pixel sizes.
+    ImVec2 vpSize = ImGui::GetMainViewport()->Size;
+    bool vpChanged = (fabsf(vpSize.x - lastViewportSize_.x) > 0.5f ||
+                      fabsf(vpSize.y - lastViewportSize_.y) > 0.5f);
 
-    if (!state_.layoutInitialized_ && numVolumes > 0) {
+    if ((!state_.layoutInitialized_ || vpChanged) && numVolumes > 0) {
         state_.layoutInitialized_ = true;
-
-        ImVec2 vpSize = ImGui::GetMainViewport()->Size;
         lastViewportSize_ = vpSize;
 
         ImGui::DockBuilderRemoveNode(dockspaceId);
@@ -217,11 +211,10 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
             ImGui::DockBuilderDockWindow("Tools", toolsId);
         } else {
             ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, toolsFraction, &toolsId, &contentId);
-            // Split the tools column: top portion for Tools, bottom for Tags
-            ImGuiID toolsTopId, tagsId;
-            ImGui::DockBuilderSplitNode(toolsId, ImGuiDir_Up, 0.65f, &toolsTopId, &tagsId);
-            ImGui::DockBuilderDockWindow("Tools", toolsTopId);
-            ImGui::DockBuilderDockWindow("Tags", tagsId);
+            // Tools fills the entire left column; the tag list is embedded inside
+            // it as a fill-remaining child, so it always gets whatever space is left
+            // after the fixed-height controls.
+            ImGui::DockBuilderDockWindow("Tools", toolsId);
         }
 
         std::vector<ImGuiID> columnIds(totalColumns);
@@ -352,10 +345,7 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
             renderOverlayPanel();
     }
 
-    if (!qcState_.active && !state_.cleanMode_ && state_.volumeCount() > 0) {
-        state_.tagListWindowVisible_ = true;
-        renderTagListWindow();
-    }
+    // Tag list is now embedded inside the Tools panel as a fill-remaining child.
 
     renderTagFileDialog();
     renderConfigFileDialog();
@@ -523,23 +513,6 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
 
         ImGui::Separator();
 
-        // Font Configuration
-        if (ImGui::CollapsingHeader("Font")) {
-            ImGui::PushItemWidth(-1.0f);
-            ImGui::Text("Path (.ttf):");
-            ImGui::InputText("##font_path", state_.fontPath_, sizeof(state_.fontPath_));
-            ImGui::Text("Size (px at 1x scale):");
-            ImGui::DragFloat("##font_size", &state_.fontSize_, 0.5f, 8.0f, 48.0f, "%.1f px");
-            if (ImGui::Button("Reset to Default##font", ImVec2(-1.0f, 0))) {
-                state_.fontPath_[0] = '\0';
-                state_.fontSize_ = 13.0f;
-            }
-            ImGui::TextDisabled("(Restart required to apply)");
-            ImGui::PopItemWidth();
-        }
-
-        ImGui::Separator();
-
         if (ImGui::Button("[R] Reset All Views", ImVec2(btnWidth, 0))) {
             viewManager_.resetViews();
             if (hasOverlay)
@@ -675,6 +648,17 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
             ImGui::EndChild();
         }
     }
+
+    // Embed tag list in the Tools panel filling all remaining vertical space.
+    if (!qcState_.active && state_.volumeCount() > 0)
+    {
+        ImGui::Separator();
+        ImVec2 avail = ImGui::GetContentRegionAvail();
+        ImGui::BeginChild("##tags_embedded", avail, ImGuiChildFlags_None);
+        renderTagListContent();
+        ImGui::EndChild();
+    }
+
     ImGui::End();
 }
 
@@ -1437,11 +1421,15 @@ void Interface::renderOverlayPanel() {
 
 void Interface::renderTagListWindow() {
     ImGui::Begin("Tags", &state_.tagListWindowVisible_);
+    renderTagListContent();
+    ImGui::End();
+}
+
+void Interface::renderTagListContent() {
     {
         int numVolumes = state_.volumeCount();
         if (numVolumes == 0 || static_cast<int>(state_.volumeNames_.size()) < numVolumes) {
             ImGui::Text("No volumes loaded");
-            ImGui::End();
             return;
         }
 
@@ -1642,7 +1630,6 @@ void Interface::renderTagListWindow() {
             }
         }
     }
-    ImGui::End();
 }
 
 int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
