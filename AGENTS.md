@@ -164,41 +164,98 @@ Do not use.
 
 ## 6. Modern Rewrite (new_register)
 
-This is a rewrite of the `register` application using C++17, Vulkan, ImGui (Docking), GLFW and nlohmann/json for reading and writing configuration in .json files.
+This is a feature-complete rewrite of the `register` application using C++17,
+Vulkan (primary) / OpenGL 2.1 (fallback), ImGui (Docking), GLFW, and nlohmann/json.
 
-> **See also:** [`research.md`](research.md) for a comprehensive codebase review, architecture diagram, module analysis, test coverage, and risk assessment.
+> **See also:** [`research.md`](research.md) for a comprehensive codebase review,
+> architecture diagram, module analysis, test coverage, and risk assessment.
 
 **Dependencies:**
 - `minc2-simple` (FetchContent from GitHub, develop branch)
 - `ImGui` (fetched via CMake)
 - `GLFW` (system)
-- `Vulkan` (system)
-- `nlohmann/json` (v3.11.3, FetchContent) for handling json files
+- `Vulkan` (system, optional — OpenGL2 fallback available)
+- `nlohmann/json` (v3.11.3, FetchContent)
+- `Eigen` (FetchContent, for transform math)
 
 **Structure:**
-- `new_register/src/`: Source files (15 `.cpp` files)
-- `new_register/include/`: Headers (15 `.h`/`.hpp` files)
-- `new_register/tests/`: Test files (14 test suites)
+- `new_register/src/`: Source files (~15 `.cpp` files + `qc/` subdirectory)
+- `new_register/include/`: Headers mirroring `src/`
+- `new_register/tests/`: 16 CTest suites
 
 **Build Instructions:**
-- `cd new_register/build`
-- `cmake ..`
-- `make`
+```bash
+cd new_register/build
+cmake ..
+make -j$(nproc)
+ctest --output-on-failure
+```
 
-**Current Status:**
-- Volume loading implemented and verified (supports MINC2).
-- UI implementation (ImGui+Vulkan) functional.
-- Multi-volume slice viewer with crosshairs, colour maps, zoom/pan, overlay compositing, and JSON config persistence.
+**Implemented Features:**
+- MINC2 volume loading via `minc2-simple`, multi-volume side-by-side display
+- Three orthogonal slice views per volume (sagittal, coronal, axial)
+- Crosshair navigation with optional cursor sync across volumes
+- 21 colour maps, per-volume display range, zoom/pan per view
+- Overlay compositing (volume 2 alpha-blended over volume 1)
+- Tag point placement, editing, and `.tag` file I/O
+- Registration transforms: LSQ6/7/9/10/12 and TPS (Eigen SVD)
+- QC (Quality Control) batch review mode — see below
+- Screenshot capture (`P` key → `screenshot000001.png`, auto-incrementing)
+- JSON config persistence (load/save `config.json`)
+- Hotkey reference panel in the UI
 
 **Coding Standards (New Project):**
-- C++17 (CMakeLists.txt sets `CMAKE_CXX_STANDARD 17`).
-- `std::vector`, `std::string` allowed.
+- C++17 (`CMAKE_CXX_STANDARD 17`); `std::vector`, `std::string`, smart pointers allowed.
 - `PascalCase` for classes, `camelCase` for methods/variables.
-- use `std::cerr` for printing debugging mesages or something more moden
+- `std::cerr` for error output; never `printf` to stderr.
+- Namespace `QC::` for all code in `src/qc/`.
 
 **Hotkey Reference Panel:**
-- A "Hotkeys" panel in the UI (`Interface::renderHotkeyPanel()` in `Interface.cpp`) displays all current keyboard shortcuts and mouse interactions.
-- **When adding, removing, or changing any hotkey or mouse interaction, update `renderHotkeyPanel()` to keep the panel accurate.**
+- `Interface::renderHotkeyPanel()` in `Interface.cpp` shows all current keyboard
+  shortcuts and mouse interactions in the running UI.
+- **When adding, removing, or changing any hotkey or mouse interaction, update
+  `renderHotkeyPanel()` to keep the panel accurate.**
+
+### Graphics Backend Design
+
+The backend is selected at runtime with a fallback chain:
+**Vulkan → OpenGL2 → OpenGL2-EGL**
+
+- `BackendFactory.cpp` drives selection; `--backend` CLI flag overrides.
+- `GraphicsBackend` (abstract base) defines the interface: `createTexture`,
+  `updateTexture`, `beginFrame`, `endFrame`, `captureScreenshot`, etc.
+- `VulkanBackend.cpp` — primary; uses ImGui's Vulkan backend + custom helpers.
+- `OpenGL2Backend.cpp` — fallback for SSH / software renderers (no compute,
+  no Vulkan ICD). Uses `glTexSubImage2D`, which is async from the application.
+- `VulkanHelpers.cpp` — persistent staging buffer + dedicated upload command pool.
+  Texture uploads use a `VkFence` (not `vkQueueWaitIdle`) so the GPU processes
+  the previous upload in parallel with CPU pixel generation.
+
+### Window Resizing Behavior
+
+Resizing is handled in two coordinated layers:
+
+1. **Swapchain rebuild** (`WindowManager.cpp`):
+   - GLFW calls `framebufferCallback` on any framebuffer size change.
+   - `WindowManager::onFramebufferResize()` sets `swapchainRebuildPending_ = true`.
+   - The main render loop checks `needsSwapchainRebuild()` and calls
+     `backend.rebuildSwapchain(w, h)` before the next frame.
+   - The Vulkan swapchain is rebuilt with the new dimensions; OpenGL2 backend
+     updates its viewport instead.
+
+2. **Dock layout rebuild** (`Interface.cpp`, `render()`):
+   - Each frame, `Interface::render()` compares the current ImGui viewport size
+     against `lastViewportSize_`. If they differ by more than 0.5 px, the entire
+     ImGui dock layout is rebuilt from scratch using `DockBuilder`.
+   - **All splits are fractional**, so every panel resizes proportionally with
+     the window — no panel keeps a fixed pixel width after a resize.
+   - The Tools (left) panel width fraction adapts to the number of content columns:
+     - 1 column → 30 %, 2 → 20 %, 3 → 16 %, 4+ → 13 %
+     - QC mode adds +2 % for the embedded QC row list.
+   - Content columns (volumes + optional Overlay) are split equally in the
+     remaining space using a recursive left-split loop.
+   - The dock rebuild is also triggered when volumes are added or removed
+     (`state_.layoutInitialized_` is cleared on volume list changes).
 
 ## 7. C++23 Modernization (new_register)
 
@@ -232,21 +289,58 @@ cmake .. && make
 ctest --output-on-failure
 ```
 
-## 8. QC Viewer (new_qc — merged into new_register)
+## 8. QC Modes — Two Separate Tools
 
-The standalone `new_qc/` directory has been removed. The QC viewer is now built as
-part of `new_register` (sources in `new_register/src/qc/`, built when `BUILD_NEW_QC=ON`
-which is the default).
+There are two distinct QC workflows, each producing a separate binary:
 
-**Structure (within new_register):**
+---
+
+### 8a. `new_register --qc` (Integrated MINC QC mode)
+
+Full MINC2 volume QC, embedded in the `new_register` application.
+Implemented in `new_register/src/QCState.cpp` and `Interface.cpp`.
+
+**Run:**
+```bash
+./new_register --qc input.csv --qc-output results.csv [--config qc_config.json]
+```
+
+**CSV format:**
+- Input: first column `ID`, remaining columns are MINC2 volume file paths
+  (one column per volume to display side by side).
+- Output: for each input column, two output columns: `<name>_verdict` and
+  `<name>_comment`. Verdicts: `PASS`, `FAIL`, or empty (unreviewed).
+
+**Design choices:**
+- QC verdict state lives in `QCState` (not `AppState`); `Interface` polls it.
+- Volumes for a row are loaded by `Prefetcher` on the main thread (libminc/HDF5
+  is not thread-safe). The previous/next row is prefetched speculatively.
+- Tag creation and the tag list are completely disabled in QC mode.
+- "Save Local" button is hidden; output CSV is auto-saved on every verdict change.
+- Clean mode (`C`) hides control panels but **keeps verdict panels visible**.
+- QC list panel (left, embedded in Tools) shows all rows with colour-coded status:
+  green = all pass, red = any fail, gray = unreviewed.
+- Navigate with `[` / `]` keys or by clicking rows in the QC list.
+- On launch, if the output CSV already exists, previous verdicts are loaded and
+  the viewer jumps to the first unreviewed row.
+
+---
+
+### 8b. `new_qc` (Standalone image QC viewer)
+
+A lightweight standalone viewer for reviewing arbitrary images (PNG, JPG, etc.)
+from a CSV manifest. Separate binary built from `new_register/src/qc/`.
+
+**Structure:**
 - `new_register/src/qc/main.cpp` — CLI entry point
-- `new_register/src/qc/QCApp.h/.cpp` — GLFW+ImGui+OpenGL/Vulkan GUI, image loading, keyboard input
-- `new_register/src/qc/CSVHandler.h/.cpp` — CSV I/O, QCRecord struct, RFC 4180 escaping
-- `new_register/src/qc/VulkanBackend.*` — Vulkan primary backend
-- `new_register/src/qc/OpenGL2Backend.*` — OpenGL2 fallback backend
-- `new_register/tests/csv_test.cpp` — 42 unit tests for CSVHandler
+- `new_register/src/qc/QCApp.h/.cpp` — GLFW+ImGui+Vulkan/OpenGL2 GUI, image
+  loading (stb_image), keyboard input
+- `new_register/src/qc/CSVHandler.h/.cpp` — CSV I/O, `QCRecord` struct, RFC 4180
+- `new_register/src/qc/VulkanBackend.*` — Vulkan primary backend (own copy)
+- `new_register/src/qc/OpenGL2Backend.*` — OpenGL2 fallback (own copy)
+- `new_register/tests/csv_test.cpp` — 42 unit tests for `CSVHandler`
 
-**Build (produces `new_qc` binary alongside `new_register`):**
+**Build (produces `new_qc` alongside `new_register`):**
 ```bash
 cd new_register/build && cmake .. && make
 ```
@@ -257,8 +351,8 @@ cd new_register/build && cmake .. && make
 ```
 
 **CSV Formats:**
-- Input:  `id,visit,picture`  (3 columns — id, visit, image path)
-- Output: `id,visit,picture,QC,notes`  (5 columns)
+- Input: `id,visit,picture` (3 columns — id, visit, image file path)
+- Output: `id,visit,picture,QC,notes` (5 columns)
 
 **Keyboard Shortcuts:**
 - `P` — Mark Pass (auto-advances)
@@ -268,7 +362,7 @@ cd new_register/build && cmake .. && make
 - `Ctrl+S` — Manual save
 - `Esc` — Exit
 
-**Coding Standards:**
-- C++17, namespace `QC::` for all classes
-- `PascalCase` for classes, `camelCase` for methods/variables
+**Coding standards:**
+- C++17, namespace `QC::` for all classes in `src/qc/`
+- `PascalCase` classes, `camelCase` methods/variables
 - `std::cerr` for error output
