@@ -28,6 +28,7 @@
 #include "Volume.h"
 #include "ViewManager.h"
 #include "WindowManager.h"
+#include "WaylandTouchInput.h"
 
 #include <glm/glm.hpp>
 
@@ -823,6 +824,10 @@ int main(int argc, char** argv)
 
         backend->initImGui(window);
 
+#ifdef HAS_WAYLAND_TOUCH
+        WaylandTouch::install(window);
+#endif
+
         state.dpiScale_ = backend->imguiScale();
         state.localConfigPath_ = localConfigPath;
 
@@ -970,6 +975,10 @@ int main(int argc, char** argv)
 
         // Clear framebuffer callback before destroying window
         windowManager.clearCallback();
+
+#ifdef HAS_WAYLAND_TOUCH
+        WaylandTouch::shutdown();
+#endif
 
         glfwDestroyWindow(window);
         glfwTerminate();

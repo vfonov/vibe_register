@@ -9,6 +9,7 @@
 #include <GLFW/glfw3.h>
 
 #include "imgui.h"
+#include "WaylandTouchInput.h"
 
 namespace QC
 {
@@ -148,6 +149,10 @@ bool QCApp::init(const std::string& inputFile, const std::string& outputFile,
     // Initialize ImGui through the backend
     backend_->initImGui(window_);
 
+#ifdef HAS_WAYLAND_TOUCH
+    WaylandTouch::install(window_);
+#endif
+
     // Load initial image
     loadImage(csvHandler_.getRecords()[currentIndex_].picture_path);
 
@@ -208,6 +213,10 @@ void QCApp::shutdown()
     // VK_ERROR_DEVICE_LOST on most drivers.
     backend_->shutdown();
     backend_.reset();
+
+#ifdef HAS_WAYLAND_TOUCH
+    WaylandTouch::shutdown();
+#endif
 
     if (window_)
     {

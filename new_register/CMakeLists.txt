@@ -31,18 +31,37 @@ option(ENABLE_METAL   "Build Metal backend"   OFF)
 # --- Dependencies always required ---
 include(FetchContent)
 
-# 1. GLFW 3.4 — required for correct wl_touch (touch screen) support on Wayland.
-# System GLFW 3.3.x has a broken wl_touch handler that drops touch events.
-set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
-    glfw
-    GIT_REPOSITORY https://github.com/glfw/glfw.git
-    GIT_TAG        3.4
-    GIT_SHALLOW    TRUE
-)
-FetchContent_MakeAvailable(glfw)
+# 1. GLFW — prefer system installation, fall back to fetching 3.4 from source.
+# GLFW 3.4+ fixes wl_touch handling on Wayland (touch screen support).
+# System GLFW 3.3.x has a broken wl_touch handler that silently drops touch events.
+find_package(glfw3 QUIET)
+if(glfw3_FOUND)
+    message(STATUS "GLFW: using system package (version ${glfw3_VERSION})")
+else()
+    message(STATUS "GLFW: system package not found — fetching 3.4 from source")
+    set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        glfw
+        GIT_REPOSITORY https://github.com/glfw/glfw.git
+        GIT_TAG        3.4
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(glfw)
+endif()
+
+# 1.5. Wayland client (optional — enables direct wl_touch → ImGui injection
+#      for reliable touch screen support; gracefully absent on X11-only systems)
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(WAYLAND_CLIENT QUIET wayland-client)
+endif()
+if(WAYLAND_CLIENT_FOUND)
+    message(STATUS "Wayland client found — building with direct touch input support")
+else()
+    message(STATUS "Wayland client not found — touch screen input will rely on GLFW synthesis")
+endif()
 
 # 2. Vulkan (soft find — required for new_register if ENABLE_VULKAN, optional for new_qc)
 if(ENABLE_VULKAN)
@@ -349,6 +368,11 @@ if(NOT BUILD_QC_ONLY)
         src/WindowManager.cpp
     )
 
+    # Wayland direct touch input (optional)
+    if(WAYLAND_CLIENT_FOUND)
+        list(APPEND SOURCES src/WaylandTouchInput.cpp)
+    endif()
+
     # Backend-specific sources
     if(ENABLE_VULKAN AND Vulkan_FOUND)
         list(APPEND SOURCES src/VulkanBackend.cpp src/VulkanHelpers.cpp)
@@ -378,6 +402,7 @@ if(NOT BUILD_QC_ONLY)
         ${IMGUI_DIR}
         ${IMGUI_DIR}/backends
         ${minc2-simple-static_SOURCE_DIR}/src  # minc2-simple headers (for extern "C" include)
+        include   # for WaylandTouchInput.h
     )
 
     target_compile_definitions(new_register PRIVATE)
@@ -389,6 +414,10 @@ if(NOT BUILD_QC_ONLY)
     endif()
     if(ENABLE_METAL)
         target_compile_definitions(new_register PRIVATE HAS_METAL=1)
+    endif()
+    if(WAYLAND_CLIENT_FOUND)
+        target_compile_definitions(new_register PRIVATE HAS_WAYLAND_TOUCH=1)
+        target_include_directories(new_register PRIVATE ${WAYLAND_CLIENT_INCLUDE_DIRS})
     endif()
 
     target_link_libraries(new_register PRIVATE
@@ -403,6 +432,9 @@ if(NOT BUILD_QC_ONLY)
     endif()
     if(ENABLE_OPENGL2)
         target_link_libraries(new_register PRIVATE OpenGL::GL)
+    endif()
+    if(WAYLAND_CLIENT_FOUND)
+        target_link_libraries(new_register PRIVATE ${WAYLAND_CLIENT_LIBRARIES})
     endif()
 
     # std::filesystem requires separate library on GCC 9
@@ -447,6 +479,11 @@ if(BUILD_NEW_QC OR BUILD_QC_ONLY)
         src/qc/OpenGL2Backend.cpp
     )
 
+    # Wayland direct touch input (optional)
+    if(WAYLAND_CLIENT_FOUND)
+        list(APPEND QC_SOURCES src/WaylandTouchInput.cpp)
+    endif()
+
     # Backend-specific sources
     if(ENABLE_VULKAN AND Vulkan_FOUND)
         list(APPEND QC_SOURCES
@@ -473,6 +510,7 @@ if(BUILD_NEW_QC OR BUILD_QC_ONLY)
         ${IMGUI_DIR}/backends
         ${stb_SOURCE_DIR}
         src/qc
+        include   # for WaylandTouchInput.h
     )
 
     if(ENABLE_VULKAN AND Vulkan_FOUND)
@@ -481,6 +519,10 @@ if(BUILD_NEW_QC OR BUILD_QC_ONLY)
     endif()
     if(ENABLE_OPENGL2)
         target_compile_definitions(new_qc PRIVATE HAS_OPENGL2=1)
+    endif()
+    if(WAYLAND_CLIENT_FOUND)
+        target_compile_definitions(new_qc PRIVATE HAS_WAYLAND_TOUCH=1)
+        target_include_directories(new_qc PRIVATE ${WAYLAND_CLIENT_INCLUDE_DIRS})
     endif()
 
     target_link_libraries(new_qc PRIVATE
@@ -494,6 +536,9 @@ if(BUILD_NEW_QC OR BUILD_QC_ONLY)
     endif()
     if(ENABLE_OPENGL2)
         target_link_libraries(new_qc PRIVATE OpenGL::GL)
+    endif()
+    if(WAYLAND_CLIENT_FOUND)
+        target_link_libraries(new_qc PRIVATE ${WAYLAND_CLIENT_LIBRARIES})
     endif()
     if(WIN32)
         target_link_libraries(new_qc PRIVATE user32 shell32)
