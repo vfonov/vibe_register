@@ -16,10 +16,15 @@ static VkCommandPool g_CommandPool = VK_NULL_HANDLE;
 /// Persistent staging resources reused across all UpdateTexture calls.
 /// The buffer grows to accommodate the largest texture and is never shrunk.
 /// The command buffer is allocated once and reset before each use.
+/// uploadFence is signaled when the previous upload completes; waited on
+/// at the *start* of the next upload so the GPU can process the previous
+/// upload in parallel with CPU-side pixel generation.
 struct StagingResources {
     VkBuffer buffer = VK_NULL_HANDLE;
     VkDeviceMemory memory = VK_NULL_HANDLE;
+    VkCommandPool commandPool = VK_NULL_HANDLE;  ///< Dedicated pool, independent of frame render pool.
     VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+    VkFence uploadFence = VK_NULL_HANDLE;        ///< Signaled when the previous upload completes.
     void* mappedPtr = nullptr;
     VkDeviceSize capacity = 0;
 
@@ -123,6 +128,13 @@ void StagingResources::ensureCapacity(VkDeviceSize requiredSize)
 
 void StagingResources::destroy()
 {
+    // Wait for any in-flight upload to finish before tearing down resources.
+    if (uploadFence != VK_NULL_HANDLE)
+    {
+        vkWaitForFences(g_Device, 1, &uploadFence, VK_TRUE, UINT64_MAX);
+        vkDestroyFence(g_Device, uploadFence, nullptr);
+        uploadFence = VK_NULL_HANDLE;
+    }
     if (mappedPtr)
     {
         vkUnmapMemory(g_Device, memory);
@@ -130,8 +142,13 @@ void StagingResources::destroy()
     }
     if (commandBuffer != VK_NULL_HANDLE)
     {
-        vkFreeCommandBuffers(g_Device, g_CommandPool, 1, &commandBuffer);
+        vkFreeCommandBuffers(g_Device, commandPool, 1, &commandBuffer);
         commandBuffer = VK_NULL_HANDLE;
+    }
+    if (commandPool != VK_NULL_HANDLE)
+    {
+        vkDestroyCommandPool(g_Device, commandPool, nullptr);
+        commandPool = VK_NULL_HANDLE;
     }
     if (buffer != VK_NULL_HANDLE)
     {
@@ -154,17 +171,36 @@ void Init(VkDevice device, VkPhysicalDevice physical_device, uint32_t queue_fami
     g_QueueFamily = queue_family;
     g_Queue = queue;
     g_DescriptorPool = pool;
-    g_CommandPool = command_pool;
+    g_CommandPool = command_pool;  // Kept for reference; staging uses its own pool below.
 
-    // Allocate the persistent upload command buffer.
+    // Create a dedicated command pool for texture uploads, independent of the
+    // frame render pool so that frame resets cannot invalidate upload commands.
+    VkCommandPoolCreateInfo poolInfo = {};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.queueFamilyIndex = queue_family;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    VkResult err = vkCreateCommandPool(g_Device, &poolInfo, nullptr, &g_Staging.commandPool);
+    if (err != VK_SUCCESS)
+        throw std::runtime_error("VulkanHelpers::Init: failed to create upload command pool");
+
+    // Allocate the persistent upload command buffer from the dedicated pool.
     VkCommandBufferAllocateInfo cbAllocInfo = {};
     cbAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     cbAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cbAllocInfo.commandPool = g_CommandPool;
+    cbAllocInfo.commandPool = g_Staging.commandPool;
     cbAllocInfo.commandBufferCount = 1;
-    VkResult err = vkAllocateCommandBuffers(g_Device, &cbAllocInfo, &g_Staging.commandBuffer);
+    err = vkAllocateCommandBuffers(g_Device, &cbAllocInfo, &g_Staging.commandBuffer);
     if (err != VK_SUCCESS)
         throw std::runtime_error("VulkanHelpers::Init: failed to allocate upload command buffer");
+
+    // Create the upload fence pre-signaled so the first UpdateTexture() call
+    // does not wait on an unsignaled fence.
+    VkFenceCreateInfo fenceInfo = {};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+    err = vkCreateFence(g_Device, &fenceInfo, nullptr, &g_Staging.uploadFence);
+    if (err != VK_SUCCESS)
+        throw std::runtime_error("VulkanHelpers::Init: failed to create upload fence");
 }
 
 std::unique_ptr<VulkanTexture> CreateTexture(int w, int h, const void* data) {
@@ -268,6 +304,18 @@ void UpdateTexture(VulkanTexture* tex, const void* data) {
 
     VkDeviceSize image_size = tex->width * tex->height * 4;
 
+    // Wait for the previous upload to complete before reusing the staging
+    // buffer and command buffer.  The fence is pre-signaled at Init() so this
+    // is a no-op on the first call.  This replaces the old vkQueueWaitIdle
+    // call and allows the GPU to process the previous upload in parallel with
+    // the CPU-side pixel generation that happens before UpdateTexture().
+    VkResult err = vkWaitForFences(g_Device, 1, &g_Staging.uploadFence, VK_TRUE, UINT64_MAX);
+    if (err != VK_SUCCESS)
+        throw std::runtime_error("UpdateTexture: vkWaitForFences failed");
+    err = vkResetFences(g_Device, 1, &g_Staging.uploadFence);
+    if (err != VK_SUCCESS)
+        throw std::runtime_error("UpdateTexture: vkResetFences failed");
+
     // Grow the persistent staging buffer if needed (no-op when large enough).
     g_Staging.ensureCapacity(image_size);
 
@@ -275,7 +323,7 @@ void UpdateTexture(VulkanTexture* tex, const void* data) {
     std::memcpy(g_Staging.mappedPtr, data, static_cast<size_t>(image_size));
 
     // Reset and re-record the persistent command buffer.
-    VkResult err = vkResetCommandBuffer(g_Staging.commandBuffer, 0);
+    err = vkResetCommandBuffer(g_Staging.commandBuffer, 0);
     if (err != VK_SUCCESS)
         throw std::runtime_error("UpdateTexture: vkResetCommandBuffer failed");
 
@@ -363,13 +411,13 @@ void UpdateTexture(VulkanTexture* tex, const void* data) {
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &g_Staging.commandBuffer;
 
-    err = vkQueueSubmit(g_Queue, 1, &submitInfo, VK_NULL_HANDLE);
+    // Submit with the upload fence — the GPU signals it when the transfer
+    // completes.  The next UpdateTexture() (or destroy()) will wait on it.
+    // No vkQueueWaitIdle — the GPU and CPU now run in parallel.
+    err = vkQueueSubmit(g_Queue, 1, &submitInfo, g_Staging.uploadFence);
     if (err != VK_SUCCESS)
         throw std::runtime_error("UpdateTexture: vkQueueSubmit failed (err=" +
                                  std::to_string(err) + ")");
-    err = vkQueueWaitIdle(g_Queue);
-    if (err != VK_SUCCESS)
-        throw std::runtime_error("UpdateTexture: vkQueueWaitIdle failed");
 
     tex->uploaded = true;
 }
