@@ -3,18 +3,24 @@
 // GLFW's own wl_touch → synthetic-mouse path is unreliable on 3.3.x and
 // sometimes broken on 3.4 as well.  This implementation bypasses GLFW
 // entirely for touch events: it registers its own wl_touch listener on the
-// same wl_display connection that GLFW uses, then calls ImGui's AddMouse*
-// events directly.  GLFW's own dispatch loop (glfwPollEvents) dispatches all
-// pending events on the shared wl_display, so our callbacks are called
-// automatically during the normal render loop — no extra threading needed.
+// same wl_display connection that GLFW uses, then fires the ImGui GLFW
+// backend callbacks (ImGui_ImplGlfw_CursorPosCallback / MouseButtonCallback)
+// directly.  This keeps ImGui's internal MouseLastValidPos in sync so that
+// ImGui_ImplGlfw_NewFrame() does NOT overwrite the touch position with the
+// stale value returned by glfwGetCursorPos() — which is why buttons and
+// checkboxes were ignored even though cursor movement worked.
+//
+// GLFW's own dispatch loop (glfwPollEvents) dispatches all pending events on
+// the shared wl_display, so our callbacks are invoked automatically during
+// the normal render loop — no extra threading needed.
 
 #ifdef HAS_WAYLAND_TOUCH
 
 #define GLFW_EXPOSE_NATIVE_WAYLAND
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
+#include <backends/imgui_impl_glfw.h>
 #include <wayland-client.h>
-#include <imgui.h>
 
 #include <algorithm>
 #include <cstring>
@@ -29,6 +35,7 @@ struct State
     wl_seat*     seat     = nullptr;
     wl_touch*    touch    = nullptr;
     wl_surface*  surface  = nullptr;  // our window's Wayland surface
+    GLFWwindow*  window   = nullptr;  // needed to call ImGui GLFW callbacks
     bool         active   = false;    // finger currently down
 };
 
@@ -42,14 +49,19 @@ static void touch_down(void*, wl_touch*, uint32_t /*serial*/, uint32_t /*time*/,
                        wl_surface* surface, int32_t id,
                        wl_fixed_t x, wl_fixed_t y)
 {
-    if (id != 0) return;            // track first touch point only → left mouse button
+    if (id != 0) return;               // track first touch point only → left mouse button
     if (surface != s.surface) return;  // event is for a different surface
 
     s.active = true;
-    ImGuiIO& io = ImGui::GetIO();
-    io.AddMousePosEvent(static_cast<float>(wl_fixed_to_double(x)),
-                        static_cast<float>(wl_fixed_to_double(y)));
-    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    // Route through the ImGui GLFW callbacks so that MouseLastValidPos is
+    // updated.  If we call io.AddMouse*() directly, ImGui_ImplGlfw_NewFrame()
+    // will still call glfwGetCursorPos() and overwrite our position with the
+    // stale GLFW cursor position, causing button/checkbox hits to be missed.
+    ImGui_ImplGlfw_CursorPosCallback(s.window,
+                                     wl_fixed_to_double(x),
+                                     wl_fixed_to_double(y));
+    ImGui_ImplGlfw_MouseButtonCallback(s.window,
+                                       GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, 0);
 }
 
 static void touch_up(void*, wl_touch*, uint32_t /*serial*/, uint32_t /*time*/,
@@ -57,15 +69,17 @@ static void touch_up(void*, wl_touch*, uint32_t /*serial*/, uint32_t /*time*/,
 {
     if (id != 0 || !s.active) return;
     s.active = false;
-    ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    ImGui_ImplGlfw_MouseButtonCallback(s.window,
+                                       GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, 0);
 }
 
 static void touch_motion(void*, wl_touch*, uint32_t /*time*/,
                          int32_t id, wl_fixed_t x, wl_fixed_t y)
 {
     if (id != 0) return;
-    ImGui::GetIO().AddMousePosEvent(static_cast<float>(wl_fixed_to_double(x)),
-                                    static_cast<float>(wl_fixed_to_double(y)));
+    ImGui_ImplGlfw_CursorPosCallback(s.window,
+                                     wl_fixed_to_double(x),
+                                     wl_fixed_to_double(y));
 }
 
 static void touch_frame(void*, wl_touch*) {}
@@ -74,7 +88,8 @@ static void touch_cancel(void*, wl_touch*)
 {
     if (!s.active) return;
     s.active = false;
-    ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    ImGui_ImplGlfw_MouseButtonCallback(s.window,
+                                       GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, 0);
 }
 
 // shape and orientation were added in wl_touch version 6
@@ -149,6 +164,7 @@ bool install(GLFWwindow* window)
     if (!display)
         return false;
 
+    s.window   = window;
     s.surface  = glfwGetWaylandWindow(window);
     s.registry = wl_display_get_registry(display);
     if (!s.registry)
@@ -173,6 +189,7 @@ void shutdown()
     if (s.seat)     { wl_seat_destroy(s.seat);          s.seat     = nullptr; }
     if (s.registry) { wl_registry_destroy(s.registry);  s.registry = nullptr; }
     s.active  = false;
+    s.window  = nullptr;
     s.surface = nullptr;
 }
 
