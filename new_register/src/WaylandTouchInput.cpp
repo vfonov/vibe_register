@@ -53,10 +53,13 @@ static void touch_down(void*, wl_touch*, uint32_t /*serial*/, uint32_t /*time*/,
     if (surface != s.surface) return;  // event is for a different surface
 
     s.active = true;
-    // Route through the ImGui GLFW callbacks so that MouseLastValidPos is
-    // updated.  If we call io.AddMouse*() directly, ImGui_ImplGlfw_NewFrame()
-    // will still call glfwGetCursorPos() and overwrite our position with the
-    // stale GLFW cursor position, causing button/checkbox hits to be missed.
+    // ImGui_ImplGlfw_UpdateMouseData() calls glfwGetCursorPos() as a fallback
+    // whenever bd->MouseWindow == nullptr (i.e. no wl_pointer has entered the
+    // window).  That stale position is posted AFTER our touch position and
+    // overwrites it, so ButtonBehavior never sees the cursor over the widget.
+    // Calling CursorEnterCallback(GLFW_TRUE) sets bd->MouseWindow = window,
+    // which suppresses the fallback for this frame.
+    ImGui_ImplGlfw_CursorEnterCallback(s.window, GLFW_TRUE);
     ImGui_ImplGlfw_CursorPosCallback(s.window,
                                      wl_fixed_to_double(x),
                                      wl_fixed_to_double(y));
