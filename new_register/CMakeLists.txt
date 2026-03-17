@@ -31,14 +31,22 @@ option(ENABLE_METAL   "Build Metal backend"   OFF)
 # --- Dependencies always required ---
 include(FetchContent)
 
-# 1. GLFW — prefer system installation, fall back to fetching 3.4 from source.
-# GLFW 3.4+ fixes wl_touch handling on Wayland (touch screen support).
-# System GLFW 3.3.x has a broken wl_touch handler that silently drops touch events.
-find_package(glfw3 QUIET)
+# 1. GLFW — system package preferred; set FETCH_GLFW=ON to force-fetch 3.4.
+# Note: GLFW 3.4 fixes wl_touch on Wayland; system 3.3.x drops touch events.
+option(FETCH_GLFW "Always fetch GLFW 3.4 from source, ignoring any system installation" OFF)
+
+if(NOT FETCH_GLFW)
+    find_package(glfw3 QUIET)
+endif()
+
 if(glfw3_FOUND)
     message(STATUS "GLFW: using system package (version ${glfw3_VERSION})")
 else()
-    message(STATUS "GLFW: system package not found — fetching 3.4 from source")
+    if(FETCH_GLFW)
+        message(STATUS "GLFW: FETCH_GLFW=ON — fetching 3.4 from source")
+    else()
+        message(STATUS "GLFW: system package not found — fetching 3.4 from source")
+    endif()
     set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
