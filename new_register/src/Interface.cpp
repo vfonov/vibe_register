@@ -875,6 +875,14 @@ int Interface::renderVolumeColumn(int vi) {
         if (!state_.cleanMode_) {
             ImGui::BeginChild("##controls", ImVec2(viewWidth, 0), ImGuiChildFlags_Borders);
             {
+                if (!qcState_.active && !state_.volumePaths_[vi].empty())
+                {
+                    ImGui::PushTextWrapPos(0.0f);
+                    ImGui::TextDisabled("%s", state_.volumePaths_[vi].c_str());
+                    ImGui::PopTextWrapPos();
+                    ImGui::Separator();
+                }
+
                 glm::dvec3 worldPos;
                 vol.transformVoxelToWorld(state.sliceIndices, worldPos);
                 float intensity = vol.get(state.sliceIndices.x, state.sliceIndices.y, state.sliceIndices.z);
