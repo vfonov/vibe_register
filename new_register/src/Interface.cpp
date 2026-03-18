@@ -883,6 +883,19 @@ int Interface::renderVolumeColumn(int vi) {
                     ImGui::Separator();
                 }
 
+                if (state_.hasOverlay() && state_.showOverlay_)
+                {
+                    ImGui::PushID(vi + 3000);
+                    ImGui::Text("Alpha:");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                    if (ImGui::SliderFloat("##alpha", &state_.viewStates_[vi].overlayAlpha,
+                                          0.0f, 1.0f, "%.2f"))
+                        viewManager_.updateAllOverlayTextures();
+                    ImGui::PopID();
+                    ImGui::Separator();
+                }
+
                 glm::dvec3 worldPos;
                 vol.transformVoxelToWorld(state.sliceIndices, worldPos);
                 float intensity = vol.get(state.sliceIndices.x, state.sliceIndices.y, state.sliceIndices.z);
@@ -1376,35 +1389,6 @@ void Interface::renderOverlayPanel() {
         if (!state_.cleanMode_) {
             ImGui::BeginChild("##overlay_controls", ImVec2(avail.x, 0), ImGuiChildFlags_Borders);
             {
-                bool alphaChanged = false;
-                int numVolumes = state_.volumeCount();
-
-                if (numVolumes == 2) {
-                    float a0 = state_.viewStates_[0].overlayAlpha;
-                    float a1 = state_.viewStates_[1].overlayAlpha;
-                    float blendT = (a0 + a1 > 0.0f) ? a1 / (a0 + a1) : 0.5f;
-
-                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                    if (ImGui::SliderFloat("##blend", &blendT, 0.0f, 1.0f, "%.2f")) {
-                        state_.viewStates_[0].overlayAlpha = 1.0f - blendT;
-                        state_.viewStates_[1].overlayAlpha = blendT;
-                        alphaChanged = true;
-                    }
-                } else {
-                    for (int vi = 0; vi < numVolumes; ++vi) {
-                        ImGui::PushID(vi + 2000);
-                        ImGui::Text("%s", state_.volumeNames_[vi].c_str());
-                        ImGui::SameLine();
-                        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                        if (ImGui::SliderFloat("##alpha", &state_.viewStates_[vi].overlayAlpha, 0.0f, 1.0f, "%.2f"))
-                            alphaChanged = true;
-                        ImGui::PopID();
-                    }
-                }
-
-                if (alphaChanged)
-                    viewManager_.updateAllOverlayTextures();
-
                 bool anyVolumeHasTags = false;
                 for (const auto& vol : state_.volumes_) {
                     if (vol.hasTags()) {
