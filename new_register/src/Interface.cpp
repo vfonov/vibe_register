@@ -889,8 +889,8 @@ int Interface::renderVolumeColumn(int vi) {
                     ImGui::Text("Alpha:");
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                    if (ImGui::SliderFloat("##alpha", &state_.viewStates_[vi].overlayAlpha,
-                                          0.0f, 1.0f, "%.2f"))
+                    if (ImGui::DragFloat("##alpha", &state_.viewStates_[vi].overlayAlpha,
+                                        0.01f, 0.0f, 1.0f, "%.2f"))
                         viewManager_.updateAllOverlayTextures();
                     ImGui::PopID();
                     ImGui::Separator();
@@ -1185,8 +1185,11 @@ int Interface::renderVolumeColumn(int vi) {
                     if (clampCombo("Under colour", "##under", state.underColourMode, true))
                         changed = true;
                     ImGui::SameLine();
+                    float dragSpeed = static_cast<float>((vol.max_value - vol.min_value) * 0.001);
+                    if (dragSpeed <= 0.0f) dragSpeed = 0.01f;
                     ImGui::SetNextItemWidth(inputW);
-                    if (ImGui::InputDouble("##min", &state.valueRange[0], 0.0, 0.0, "%.4g"))
+                    if (ImGui::DragScalar("##min", ImGuiDataType_Double,
+                                         &state.valueRange[0], dragSpeed, nullptr, nullptr, "%.4g"))
                         changed = true;
                     ImGui::SameLine();
                     if (ImGui::Button("Auto")) {
@@ -1196,7 +1199,8 @@ int Interface::renderVolumeColumn(int vi) {
                     }
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(inputW);
-                    if (ImGui::InputDouble("##max", &state.valueRange[1], 0.0, 0.0, "%.4g"))
+                    if (ImGui::DragScalar("##max", ImGuiDataType_Double,
+                                         &state.valueRange[1], dragSpeed, nullptr, nullptr, "%.4g"))
                         changed = true;
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(clampW);
