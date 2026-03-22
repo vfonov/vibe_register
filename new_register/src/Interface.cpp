@@ -209,14 +209,44 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
             toolsFraction += 0.02f;
             ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, toolsFraction,
                 &toolsId, &contentId);
-            // Tools takes entire column (no Hotkeys panel)
+            // Tools takes entire column — QC list is embedded as a fill-remaining child.
             ImGui::DockBuilderDockWindow("Tools", toolsId);
         } else {
             ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, toolsFraction, &toolsId, &contentId);
-            // Tools fills the entire left column; the tag list is embedded inside
-            // it as a fill-remaining child, so it always gets whatever space is left
-            // after the fixed-height controls.
-            ImGui::DockBuilderDockWindow("Tools", toolsId);
+
+            // Split the left column into a fixed-height Tools node (top) and a
+            // stretchy Tags node (bottom).  We set the Tools node to an absolute
+            // pixel height so that on every rebuild (including resize) the Tags
+            // panel always gets all remaining space, regardless of what imgui.ini
+            // may have saved for these nodes.
+            //
+            // Ideal Tools height: count the fixed UI rows:
+            //   Overlay/Sync checkboxes (~5), view checkboxes (3), Tags label (1),
+            //   Save/Load Config (2), Reset/Screenshot/Clean/Hotkeys/Quit (5),
+            //   Separators/Spacing (~4) → ~20 rows × (lineHeight + spacing)
+            float lineH   = ImGui::GetTextLineHeight() + ImGui::GetStyle().ItemSpacing.y;
+            float padding = ImGui::GetStyle().WindowPadding.y * 2.0f;
+            float idealToolsH = lineH * 22.0f + padding;        // generous fixed height
+            float minTagsH    = lineH * 6.0f  + padding;        // minimum for tag table
+
+            // Clamp so Tags always has at least minTagsH pixels
+            float availH = vpSize.y;
+            if (idealToolsH > availH - minTagsH)
+                idealToolsH = availH - minTagsH;
+            if (idealToolsH < lineH * 8.0f)
+                idealToolsH = lineH * 8.0f;   // never let Tools disappear entirely
+
+            float toolsRatio = idealToolsH / availH;
+
+            ImGuiID toolsTopId, tagsId;
+            ImGui::DockBuilderSplitNode(toolsId, ImGuiDir_Up, toolsRatio, &toolsTopId, &tagsId);
+
+            // Override the saved pixel size so it is anchored to idealToolsH
+            // even when imgui.ini contains a stale value from a previous session.
+            ImGui::DockBuilderSetNodeSize(toolsTopId, ImVec2(vpSize.x * toolsFraction, idealToolsH));
+
+            ImGui::DockBuilderDockWindow("Tools", toolsTopId);
+            ImGui::DockBuilderDockWindow("Tags",  tagsId);
         }
 
         std::vector<ImGuiID> columnIds(totalColumns);
@@ -347,7 +377,11 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
             renderOverlayPanel();
     }
 
-    // Tag list is now embedded inside the Tools panel as a fill-remaining child.
+    // Tags is a separate dock window in the left column below Tools.
+    if (!qcState_.active && !state_.cleanMode_ && state_.volumeCount() > 0) {
+        state_.tagListWindowVisible_ = true;
+        renderTagListWindow();
+    }
 
     renderTagFileDialog();
     renderConfigFileDialog();
@@ -649,16 +683,6 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
             }
             ImGui::EndChild();
         }
-    }
-
-    // Embed tag list in the Tools panel filling all remaining vertical space.
-    if (!qcState_.active && state_.volumeCount() > 0)
-    {
-        ImGui::Separator();
-        ImVec2 avail = ImGui::GetContentRegionAvail();
-        ImGui::BeginChild("##tags_embedded", avail, ImGuiChildFlags_None);
-        renderTagListContent();
-        ImGui::EndChild();
     }
 
     ImGui::End();
@@ -1393,6 +1417,24 @@ void Interface::renderOverlayPanel() {
         if (!state_.cleanMode_) {
             ImGui::BeginChild("##overlay_controls", ImVec2(avail.x, 0), ImGuiChildFlags_Borders);
             {
+                // Balance slider (2-volume mode only): controls relative alpha between
+                // volume 0 and volume 1, synced bidirectionally with the per-volume
+                // alpha DragFloat widgets in each volume column panel.
+                int numVolumes = state_.volumeCount();
+                if (numVolumes == 2)
+                {
+                    float a0 = state_.viewStates_[0].overlayAlpha;
+                    float a1 = state_.viewStates_[1].overlayAlpha;
+                    float blendT = (a0 + a1 > 0.0f) ? a1 / (a0 + a1) : 0.5f;
+                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                    if (ImGui::SliderFloat("##blend", &blendT, 0.0f, 1.0f, "Balance %.2f"))
+                    {
+                        state_.viewStates_[0].overlayAlpha = 1.0f - blendT;
+                        state_.viewStates_[1].overlayAlpha = blendT;
+                        viewManager_.updateAllOverlayTextures();
+                    }
+                }
+
                 bool anyVolumeHasTags = false;
                 for (const auto& vol : state_.volumes_) {
                     if (vol.hasTags()) {
