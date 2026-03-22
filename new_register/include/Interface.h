@@ -36,6 +36,12 @@ private:
     bool scrollToCurrentRow_ = true;
     bool autosave_ = true;
     ImVec2 lastViewportSize_{0.0f, 0.0f};
+
+    // Per-column controls-panel height measured on the previous frame.
+    // Index [0..N-1] = volume columns, index [N] = overlay column.
+    // Seeded with a reasonable default so frame 0 looks correct.
+    static constexpr int kMaxColumns = 8; // volumes + overlay
+    float controlsHeightCache_[kMaxColumns] = {};
     GLFWwindow* interfaceWindow_ = nullptr;
 
     bool tagFileDialogOpen_ = false;
