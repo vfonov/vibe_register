@@ -793,12 +793,8 @@ int Interface::renderVolumeColumn(int vi) {
             if (qcState_.active) {
                 ImGui::BeginChild("##qc_verdict", ImVec2(viewWidth, 0), ImGuiChildFlags_Borders);
                 renderQCVerdictPanel(vi);
-            ImGui::EndChild();
-            // Record actual rendered height for use next frame when
-            // pre-allocating slice view space.
-            if (vi < kMaxColumns)
-                controlsHeightCache_[vi] = ImGui::GetItemRectSize().y;
-        }
+                ImGui::EndChild();
+            }
             ImGui::End();
             return 0;
         }
@@ -816,13 +812,12 @@ int Interface::renderVolumeColumn(int vi) {
 
         ImVec2 avail = ImGui::GetContentRegionAvail();
 
-        // Layout strategy: render controls at natural height (ImGui decides),
-        // slices fill the rest above.  We use the previous frame's measured
-        // controls height only to pre-allocate slice space; the controls child
-        // itself always uses height=0 so ImGui never clips its content.
-        float cachedCtrlH = (!state_.cleanMode_ && vi < kMaxColumns)
-                            ? controlsHeightCache_[vi] : 0.0f;
-        float viewAreaHeight = avail.y - cachedCtrlH;
+        // Reserve a fixed height for the controls panel at the bottom.
+        // The controls child uses height=0 (fill remaining), so the slice views
+        // above must consume exactly (avail.y - controlsHeight) pixels to leave
+        // the right amount of space.
+        const float controlsHeight = state_.cleanMode_ ? 0.0f : 220.0f * state_.dpiScale_;
+        float viewAreaHeight = avail.y - controlsHeight;
 
         // Compute view heights, skipping hidden views and redistributing space
         float viewHeights[3];
@@ -1336,10 +1331,8 @@ void Interface::renderOverlayPanel() {
 
         ImVec2 avail = ImGui::GetContentRegionAvail();
 
-        constexpr int kOverlaySlot = kMaxColumns - 1;
-        float cachedCtrlH = (!state_.cleanMode_)
-                            ? controlsHeightCache_[kOverlaySlot] : 0.0f;
-        float viewAreaHeight = avail.y - cachedCtrlH;
+        const float controlsHeight = state_.cleanMode_ ? 0.0f : 220.0f * state_.dpiScale_;
+        float viewAreaHeight = avail.y - controlsHeight;
 
         // Compute view heights, skipping hidden views and redistributing space
         float viewHeights[3];
@@ -1465,7 +1458,6 @@ void Interface::renderOverlayPanel() {
                 }
             }
             ImGui::EndChild();
-            controlsHeightCache_[kOverlaySlot] = ImGui::GetItemRectSize().y;
         }
     }
     ImGui::End();
