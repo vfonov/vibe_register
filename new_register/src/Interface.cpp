@@ -901,7 +901,7 @@ int Interface::renderVolumeColumn(int vi) {
         }
 
         if (!state_.cleanMode_) {
-            ImGui::BeginChild("##controls", ImVec2(viewWidth, 0), ImGuiChildFlags_Borders);
+            ImGui::BeginChild("##controls", ImVec2(viewWidth, controlsHeight), ImGuiChildFlags_Borders);
             {
                 if (!qcState_.active && !state_.volumePaths_[vi].empty())
                 {
@@ -1425,7 +1425,7 @@ void Interface::renderOverlayPanel() {
         }
 
         if (!state_.cleanMode_) {
-            ImGui::BeginChild("##overlay_controls", ImVec2(avail.x, 0), ImGuiChildFlags_Borders);
+            ImGui::BeginChild("##overlay_controls", ImVec2(avail.x, controlsHeight), ImGuiChildFlags_Borders);
             {
                 // Balance slider (2-volume mode only): controls relative alpha between
                 // volume 0 and volume 1, synced bidirectionally with the per-volume
