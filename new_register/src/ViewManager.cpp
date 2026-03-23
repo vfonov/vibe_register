@@ -347,8 +347,9 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         
         if (st.useLogTransform)
         {
-            logRangeMin = std::log10(info.rangeMin);
-            logRangeMax = std::log10(info.rangeMax);
+            float logLowerThreshold = -10.0f;
+            logRangeMin = (info.rangeMin <= 0.0f) ? logLowerThreshold : std::log10(info.rangeMin);
+            logRangeMax = (info.rangeMax <= 0.0f) ? logLowerThreshold : std::log10(info.rangeMax);
         }
 
         float span = logRangeMax - logRangeMin;

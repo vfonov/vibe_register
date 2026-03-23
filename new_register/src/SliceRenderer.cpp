@@ -378,10 +378,9 @@ RenderedSlice renderOverlaySlice(
         float logRangeMax = info.rangeMax;
         if (p.useLogTransform)
         {
-            if (info.rangeMin > 0.0f)
-                logRangeMin = std::log10(info.rangeMin);
-            if (info.rangeMax > 0.0f)
-                logRangeMax = std::log10(info.rangeMax);
+            float logLowerThreshold = -10.0f;
+            logRangeMin = (info.rangeMin <= 0.0f) ? logLowerThreshold : std::log10(info.rangeMin);
+            logRangeMax = (info.rangeMax <= 0.0f) ? logLowerThreshold : std::log10(info.rangeMax);
         }
 
         float span = logRangeMax - logRangeMin;
