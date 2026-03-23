@@ -793,8 +793,12 @@ int Interface::renderVolumeColumn(int vi) {
             if (qcState_.active) {
                 ImGui::BeginChild("##qc_verdict", ImVec2(viewWidth, 0), ImGuiChildFlags_Borders);
                 renderQCVerdictPanel(vi);
-                ImGui::EndChild();
-            }
+            ImGui::EndChild();
+            // Record actual rendered height for use next frame when
+            // pre-allocating slice view space.
+            if (vi < kMaxColumns)
+                controlsHeightCache_[vi] = ImGui::GetItemRectSize().y;
+        }
             ImGui::End();
             return 0;
         }
@@ -812,13 +816,13 @@ int Interface::renderVolumeColumn(int vi) {
 
         ImVec2 avail = ImGui::GetContentRegionAvail();
 
-        // Use the controls height measured on the previous frame so the slice area
-        // always gives the controls panel exactly the space it needs.  A reasonable
-        // seed value is used on the very first frame before any measurement exists.
-        const float controlsHeight = state_.cleanMode_ ? 0.0f
-            : controlsHeightCache_[vi] > 0.0f ? controlsHeightCache_[vi]
-            : 160.0f * state_.dpiScale_;
-        float viewAreaHeight = avail.y - controlsHeight;
+        // Layout strategy: render controls at natural height (ImGui decides),
+        // slices fill the rest above.  We use the previous frame's measured
+        // controls height only to pre-allocate slice space; the controls child
+        // itself always uses height=0 so ImGui never clips its content.
+        float cachedCtrlH = (!state_.cleanMode_ && vi < kMaxColumns)
+                            ? controlsHeightCache_[vi] : 0.0f;
+        float viewAreaHeight = avail.y - cachedCtrlH;
 
         // Compute view heights, skipping hidden views and redistributing space
         float viewHeights[3];
@@ -901,7 +905,8 @@ int Interface::renderVolumeColumn(int vi) {
         }
 
         if (!state_.cleanMode_) {
-            ImGui::BeginChild("##controls", ImVec2(viewWidth, controlsHeight), ImGuiChildFlags_Borders);
+            // height=0: ImGui auto-sizes to content — controls are never clipped.
+            ImGui::BeginChild("##controls", ImVec2(viewWidth, 0), ImGuiChildFlags_Borders);
             {
                 if (!qcState_.active && !state_.volumePaths_[vi].empty())
                 {
@@ -1309,9 +1314,6 @@ int Interface::renderVolumeColumn(int vi) {
                 }
             }
             ImGui::EndChild();
-            // Measure the rendered height and update cache for next frame.
-            if (vi < kMaxColumns)
-                controlsHeightCache_[vi] = ImGui::GetItemRectSize().y;
         }
 
     }
@@ -1333,12 +1335,11 @@ void Interface::renderOverlayPanel() {
         }
 
         ImVec2 avail = ImGui::GetContentRegionAvail();
-        // Slot kMaxColumns-1 is reserved for the overlay panel's controls height.
+
         constexpr int kOverlaySlot = kMaxColumns - 1;
-        const float controlsHeight = state_.cleanMode_ ? 0.0f
-            : controlsHeightCache_[kOverlaySlot] > 0.0f ? controlsHeightCache_[kOverlaySlot]
-            : 160.0f * state_.dpiScale_;
-        float viewAreaHeight = avail.y - controlsHeight;
+        float cachedCtrlH = (!state_.cleanMode_)
+                            ? controlsHeightCache_[kOverlaySlot] : 0.0f;
+        float viewAreaHeight = avail.y - cachedCtrlH;
 
         // Compute view heights, skipping hidden views and redistributing space
         float viewHeights[3];
@@ -1425,7 +1426,7 @@ void Interface::renderOverlayPanel() {
         }
 
         if (!state_.cleanMode_) {
-            ImGui::BeginChild("##overlay_controls", ImVec2(avail.x, controlsHeight), ImGuiChildFlags_Borders);
+            ImGui::BeginChild("##overlay_controls", ImVec2(avail.x, 0), ImGuiChildFlags_Borders);
             {
                 // Balance slider (2-volume mode only): controls relative alpha between
                 // volume 0 and volume 1, synced bidirectionally with the per-volume
@@ -1464,7 +1465,6 @@ void Interface::renderOverlayPanel() {
                 }
             }
             ImGui::EndChild();
-            // Measure rendered height and update cache for next frame.
             controlsHeightCache_[kOverlaySlot] = ImGui::GetItemRectSize().y;
         }
     }
