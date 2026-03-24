@@ -297,6 +297,18 @@ if(NOT BUILD_QC_ONLY)
     endif()
     message("LIBMINC_DIR=${MINC2_LIB_DIR}")
 
+    # Build CMAKE_PREFIX_PATH for minc2-simple: libminc prefix + HDF5/NetCDF roots.
+    # ExternalProject passes list vars via CMAKE_ARGS as a single string, so
+    # semicolons (CMake list separator) must be escaped to survive the handoff.
+    set(_MINC2_PREFIX_LIST "${_MINC2_LIBMINC_PREFIX}")
+    if(DEFINED HDF5_ROOT AND HDF5_ROOT)
+        list(APPEND _MINC2_PREFIX_LIST "${HDF5_ROOT}")
+    endif()
+    if(DEFINED NETCDF_ROOT AND NETCDF_ROOT)
+        list(APPEND _MINC2_PREFIX_LIST "${NETCDF_ROOT}")
+    endif()
+    string(REPLACE ";" "\\;" _MINC2_CMAKE_PREFIX_PATH "${_MINC2_PREFIX_LIST}")
+
     ExternalProject_Add(minc2-simple-static
         GIT_REPOSITORY https://github.com/NIST-MNI/minc2-simple.git
         GIT_TAG        develop
@@ -307,11 +319,17 @@ if(NOT BUILD_QC_ONLY)
         CMAKE_ARGS
             -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
             -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
-            -DCMAKE_PREFIX_PATH=${_MINC2_LIBMINC_PREFIX}
+            "-DCMAKE_PREFIX_PATH=${_MINC2_CMAKE_PREFIX_PATH}"
             -DLIBMINC_DIR=${MINC2_LIB_DIR}/cmake
             -DBUILD_TESTING:BOOL=OFF
             -DBUILD_MINC2_SIMPLE_SHARED:BOOL=OFF
-            -DCMAKE_C_FLAGS:STRING=-I${HDF5_INCLUDE_DIRS} # HACK to make it find hdf5.h
+            -DHDF5_INCLUDE_DIRS:STRING=${HDF5_INCLUDE_DIRS}
+            -DHDF5_C_LIBRARIES:STRING=${HDF5_C_LIBRARIES}
+            -DHDF5_LIBRARY:FILEPATH=${HDF5_LIBRARY}
+            -DHDF5_hdf5_LIBRARY_RELEASE:FILEPATH=${HDF5_hdf5_LIBRARY_RELEASE}
+            -DHDF5_hdf5_LIBRARY_DEBUG:FILEPATH=${HDF5_hdf5_LIBRARY_DEBUG}
+            -DNETCDF_INCLUDE_DIR:PATH=${NETCDF_INCLUDE_DIR}
+            -DNETCDF_LIBRARY:FILEPATH=${NETCDF_LIBRARY}
         BUILD_BYPRODUCTS ${MINC2_SIMPLE_INSTALL_PREFIX}/lib/libminc2-simple-static.a
     )
     if(NOT _USE_SYSTEM_MINC)
