@@ -250,14 +250,19 @@ if(NOT BUILD_QC_ONLY)
 
         include(ExternalProject)
         set(LIBMINC_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/libminc_install")
+        # Escape semicolons in list variables before passing to ExternalProject.
+        string(REPLACE ";" "\\;" _LIBMINC_HDF5_INCLUDE_DIRS "${HDF5_INCLUDE_DIRS}")
+        string(REPLACE ";" "\\;" _LIBMINC_HDF5_C_LIBRARIES  "${HDF5_C_LIBRARIES}")
         set(_LIBMINC_ARGS
             -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
             -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
             -DBUILD_TESTING=OFF
             -DBUILD_SHARED_LIBS=OFF
             -DLIBMINC_BUILD_EZMINC=OFF
-            -DHDF5_INCLUDE_DIRS:STRING=${HDF5_INCLUDE_DIRS}
-            -DHDF5_C_LIBRARIES:STRING=${HDF5_C_LIBRARIES}
+            # Pre-set HDF5_FOUND so subproject skips its own find_package(HDF5).
+            -DHDF5_FOUND:BOOL=TRUE
+            "-DHDF5_INCLUDE_DIRS:STRING=${_LIBMINC_HDF5_INCLUDE_DIRS}"
+            "-DHDF5_C_LIBRARIES:STRING=${_LIBMINC_HDF5_C_LIBRARIES}"
             -DHDF5_LIBRARY:FILEPATH=${HDF5_LIBRARY}
             -DHDF5_hdf5_LIBRARY_RELEASE:FILEPATH=${HDF5_hdf5_LIBRARY_RELEASE}
             -DHDF5_hdf5_LIBRARY_DEBUG:FILEPATH=${HDF5_hdf5_LIBRARY_DEBUG}
@@ -309,6 +314,11 @@ if(NOT BUILD_QC_ONLY)
     endif()
     string(REPLACE ";" "\\;" _MINC2_CMAKE_PREFIX_PATH "${_MINC2_PREFIX_LIST}")
 
+    # HDF5_INCLUDE_DIRS and HDF5_C_LIBRARIES can be semicolon-separated lists;
+    # escape them so ExternalProject doesn't split on the separator.
+    string(REPLACE ";" "\\;" _MINC2_HDF5_INCLUDE_DIRS "${HDF5_INCLUDE_DIRS}")
+    string(REPLACE ";" "\\;" _MINC2_HDF5_C_LIBRARIES  "${HDF5_C_LIBRARIES}")
+
     ExternalProject_Add(minc2-simple-static
         GIT_REPOSITORY https://github.com/NIST-MNI/minc2-simple.git
         GIT_TAG        develop
@@ -323,8 +333,11 @@ if(NOT BUILD_QC_ONLY)
             -DLIBMINC_DIR=${MINC2_LIB_DIR}/cmake
             -DBUILD_TESTING:BOOL=OFF
             -DBUILD_MINC2_SIMPLE_SHARED:BOOL=OFF
-            -DHDF5_INCLUDE_DIRS:STRING=${HDF5_INCLUDE_DIRS}
-            -DHDF5_C_LIBRARIES:STRING=${HDF5_C_LIBRARIES}
+            # Pre-set HDF5_FOUND=TRUE so the subproject's find_package(HDF5)
+            # skips its own detection and trusts the variables below.
+            -DHDF5_FOUND:BOOL=TRUE
+            "-DHDF5_INCLUDE_DIRS:STRING=${_MINC2_HDF5_INCLUDE_DIRS}"
+            "-DHDF5_C_LIBRARIES:STRING=${_MINC2_HDF5_C_LIBRARIES}"
             -DHDF5_LIBRARY:FILEPATH=${HDF5_LIBRARY}
             -DHDF5_hdf5_LIBRARY_RELEASE:FILEPATH=${HDF5_hdf5_LIBRARY_RELEASE}
             -DHDF5_hdf5_LIBRARY_DEBUG:FILEPATH=${HDF5_hdf5_LIBRARY_DEBUG}
