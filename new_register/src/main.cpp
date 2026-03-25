@@ -851,6 +851,12 @@ int main(int argc, char** argv)
         {
             const auto& paths = qcState.pathsForRow(qcState.currentRowIndex);
             state.loadVolumeSet(paths);
+            // Apply global config (sync flags, overlays, colour maps, etc.)
+            state.applyConfig(mergedCfg, initW, initH);
+            // CLI sync flags override config values.
+            if (cliSyncCursor) state.syncCursors_ = true;
+            if (cliSyncZoom)   state.syncZoom_ = true;
+            if (cliSyncPan)    state.syncPan_ = true;
             // Apply per-column configs (colour map, value range)
             for (int ci = 0; ci < qcState.columnCount() && ci < state.volumeCount(); ++ci)
             {
