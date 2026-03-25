@@ -112,6 +112,15 @@ int main(int argc, char** argv)
                 params[i].underColourMode = kSliceClampTransparent;
                 params[i].overColourMode  = kSliceClampCurrent;
             }
+            if (!args.perVolOpts[i].range && args.perVolOpts[i].qrange)
+            {
+                double q0 = (*args.perVolOpts[i].qrange)[0];
+                double q1 = (*args.perVolOpts[i].qrange)[1];
+                params[i].valueMin = volumes[i].computeQuantile(q0);
+                params[i].valueMax = volumes[i].computeQuantile(q1);
+                params[i].underColourMode = kSliceClampTransparent;
+                params[i].overColourMode  = kSliceClampCurrent;
+            }
             if (i < alphas.size())
                 params[i].overlayAlpha = alphas[i];
         }

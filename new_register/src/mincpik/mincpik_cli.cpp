@@ -37,6 +37,7 @@ void printUsage()
         "  -b, --blue           Blue colour map\n"
         "      --lut <name>     Named colour map (see list below)\n"
         "      --range <min,max>  Value range for next volume\n"
+        "      --qrange <q0,q1>  Quantile range [0,1] for next volume\n"
         "  -l, --label          Mark next volume as label volume\n"
         "  -L, --labels <file>  Label description file for next volume\n"
         "\n"
@@ -96,6 +97,7 @@ std::optional<ParsedArgs> parseArgs(int argc, char** argv)
     bool pendingLabel = false;
     std::optional<std::string> pendingLabelDesc;
     std::optional<double> pendingMin, pendingMax;
+    std::optional<double> pendingQMin, pendingQMax;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -158,6 +160,30 @@ std::optional<ParsedArgs> parseArgs(int argc, char** argv)
             {
                 pendingMin = vals[0];
                 pendingMax = vals[1];
+            }
+            continue;
+        }
+
+        if (arg == "--qrange")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--qrange"))
+                return std::nullopt;
+            auto vals = parseDoubleList(argv[i]);
+            if (vals.size() >= 2)
+            {
+                if (vals[0] < 0.0 || vals[0] > 1.0 || vals[1] < 0.0 || vals[1] > 1.0)
+                {
+                    std::cerr << "Error: --qrange values must be in [0.0, 1.0].\n";
+                    return std::nullopt;
+                }
+                if (vals[0] >= vals[1])
+                {
+                    std::cerr << "Error: --qrange qmin must be less than qmax.\n";
+                    return std::nullopt;
+                }
+                pendingQMin = vals[0];
+                pendingQMax = vals[1];
             }
             continue;
         }
@@ -376,6 +402,12 @@ std::optional<ParsedArgs> parseArgs(int argc, char** argv)
             pvo.range = std::array<double, 2>{*pendingMin, *pendingMax};
             pendingMin.reset();
             pendingMax.reset();
+        }
+        if (pendingQMin && pendingQMax)
+        {
+            pvo.qrange = std::array<double, 2>{*pendingQMin, *pendingQMax};
+            pendingQMin.reset();
+            pendingQMax.reset();
         }
 
         args.volumeFiles.push_back(std::string(arg));

@@ -56,6 +56,7 @@ public:
     /// @throws std::runtime_error on any failure (file not found, bad format, etc.)
     void load(const std::string& filename);
     float get(int x, int y, int z) const;
+    float computeQuantile(double q) const;
 
     /// Unchecked voxel access — caller guarantees x,y,z are in bounds.
     /// Avoids the branch overhead of get() in hot loops.

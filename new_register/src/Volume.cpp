@@ -303,6 +303,16 @@ float Volume::get(int x, int y, int z) const
     return data[z * dimensions.y * dimensions.x + y * dimensions.x + x];
 }
 
+float Volume::computeQuantile(double q) const
+{
+    if (data.empty()) return 0.0f;
+    q = std::clamp(q, 0.0, 1.0);
+    std::vector<float> tmp = data;
+    size_t idx = static_cast<size_t>(q * (tmp.size() - 1));
+    std::nth_element(tmp.begin(), tmp.begin() + idx, tmp.end());
+    return tmp[idx];
+}
+
 void Volume::worldExtent(glm::dvec3& extent) const
 {
     extent.x = std::abs(step.x) * dimensions.x;

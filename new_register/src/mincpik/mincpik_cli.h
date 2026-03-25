@@ -19,6 +19,7 @@ struct PerVolOpts
 {
     std::optional<ColourMapType> colourMap;
     std::optional<std::array<double, 2>> range;
+    std::optional<std::array<double, 2>> qrange;  // quantile pair [0,1]
     bool isLabel = false;
     std::optional<std::string> labelDescFile;
 };
