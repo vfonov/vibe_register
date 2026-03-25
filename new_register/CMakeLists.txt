@@ -50,6 +50,13 @@ else()
     set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    # Disable Wayland in fetched GLFW if wayland-scanner is not available
+    # (GLFW 3.4 requires it to generate protocol bindings at build time)
+    find_program(WAYLAND_SCANNER_EXECUTABLE NAMES wayland-scanner)
+    if(NOT WAYLAND_SCANNER_EXECUTABLE)
+        message(STATUS "GLFW: wayland-scanner not found — disabling Wayland backend in fetched GLFW")
+        set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
+    endif()
     FetchContent_Declare(
         glfw
         GIT_REPOSITORY https://github.com/glfw/glfw.git
