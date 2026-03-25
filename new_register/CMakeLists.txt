@@ -233,6 +233,8 @@ target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
 
 if(NOT BUILD_QC_ONLY)
 
+
+    IF(FALSE) # NEUROSLOP
     # 4. LIBMINC
     # Generate fake Find*.cmake modules injected via CMAKE_MODULE_PATH into subprojects.
     # Background: cmake's FindHDF5 does `set(HDF5_INCLUDE_DIRS)` as a *local* variable
@@ -274,6 +276,7 @@ if(NOT BUILD_QC_ONLY)
         )
     endif()
     message(STATUS "Fake find modules written to: ${_FAKE_MODULES_DIR}")
+    ENDIF() # NEUROSLOP
 
     # Try system LIBMINC first, then fall back to FetchContent
     set(_USE_SYSTEM_MINC OFF)
@@ -297,15 +300,17 @@ if(NOT BUILD_QC_ONLY)
         message(STATUS "LIBMINC not found or in _deps, using ExternalProject...")
 
         include(ExternalProject)
+
         set(LIBMINC_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/libminc_install")
         set(_LIBMINC_ARGS
-            "-DCMAKE_MODULE_PATH=${_FAKE_MODULES_DIR}"
+            #"-DCMAKE_MODULE_PATH=${_FAKE_MODULES_DIR}"
             -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
             -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
             -DBUILD_TESTING=OFF
             -DBUILD_SHARED_LIBS=OFF
             -DLIBMINC_BUILD_EZMINC=OFF
         )
+
         if(NETCDF_FOUND)
             list(APPEND _LIBMINC_ARGS
                 -DLIBMINC_MINC1_SUPPORT:BOOL=ON
@@ -323,6 +328,7 @@ if(NOT BUILD_QC_ONLY)
             CMAKE_ARGS ${_LIBMINC_ARGS}
             BUILD_BYPRODUCTS ${LIBMINC_INSTALL_PREFIX}/lib/libminc2.a
         )
+
         set(MINC2_LIB "${LIBMINC_INSTALL_PREFIX}/lib/libminc2.a")
         set(MINC2_INCLUDE_DIR "${LIBMINC_INSTALL_PREFIX}/include")
         set(MINC2_LIB_DIR "${LIBMINC_INSTALL_PREFIX}/lib${LIB_SUFFIX}")
@@ -360,7 +366,7 @@ if(NOT BUILD_QC_ONLY)
         INSTALL_DIR    ${MINC2_SIMPLE_INSTALL_PREFIX}
         DEPENDS        ${_MINC2_DEPENDS}
         CMAKE_ARGS
-            "-DCMAKE_MODULE_PATH=${_FAKE_MODULES_DIR}"
+           # "-DCMAKE_MODULE_PATH=${_FAKE_MODULES_DIR}"
             -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
             -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
             "-DCMAKE_PREFIX_PATH=${_MINC2_CMAKE_PREFIX_PATH}"
@@ -404,13 +410,17 @@ if(NOT BUILD_QC_ONLY)
         ${minc2-simple-static_INCLUDE_DIR}
         ${MINC2_INCLUDE_DIR}
     )
+    message("HDF5_LIBRARIES=${HDF5_LIBRARIES}")
+    message("HDF5_C_LIBRARIES=${HDF5_C_LIBRARIES}")
+
     target_link_libraries(nr_core PUBLIC
         ${minc2-simple-static_LIB}
         ${MINC2_LIB}
         ${NETCDF_LIBRARY}
-        ${HDF5_C_LIBRARIES}
+        ${HDF5_LIBRARIES}
         nlohmann_json::nlohmann_json
         glm
+        z # Have to figure out how to do this more elegantly
     )
     add_dependencies(nr_core Eigen)
     if(NOT _USE_SYSTEM_MINC)

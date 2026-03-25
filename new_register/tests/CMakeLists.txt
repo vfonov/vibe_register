@@ -12,7 +12,7 @@ set(TEST_DATA_DIR ${PROJECT_SOURCE_DIR}/../test_data)
 set(COMMON_INCLUDES ${INC_DIR} ${glm_SOURCE_DIR} ${eigen_INCLUDE_DIR} ${minc2-simple-static_INCLUDE_DIR} ${MINC2_INCLUDE_DIR})
 
 # Library paths for linking (from parent CMakeLists)
-set(TEST_LIBS ${minc2-simple-static_LIB} ${MINC2_LIB} ${HDF5_C_LIBRARIES} ${NETCDF_LIBRARY})
+set(TEST_LIBS ${minc2-simple-static_LIB} ${MINC2_LIB} ${HDF5_C_LIBRARIES} ${NETCDF_LIBRARY} z)
 message("TEST_LIBS=${TEST_LIBS}")
 
 # --- Helper macro to reduce boilerplate ---
