@@ -220,13 +220,21 @@ int main(int argc, char** argv)
                 sliceCoords[2].push_back(worldToSliceVoxel(refVol, 2, c));
         }
 
+        // Determine per-axis crop bounds for auto-spacing
+        int cropX1=0,cropX2=0,cropY1=0,cropY2=0,cropZ1=0,cropZ2=0;
+        if (args.crop.has_value())
+        {
+            const auto& c = *args.crop;
+            cropX1=c[0]; cropX2=c[1]; cropY1=c[2]; cropY2=c[3]; cropZ1=c[4]; cropZ2=c[5];
+        }
+
         // Fall back to evenly spaced slices
         if (sliceCoords[0].empty())
-            sliceCoords[0] = evenlySpacedSlices(refVol, 0, args.nAxial);
+            sliceCoords[0] = evenlySpacedSlices(refVol, 0, args.nAxial,    cropZ1, cropZ2);
         if (sliceCoords[1].empty())
-            sliceCoords[1] = evenlySpacedSlices(refVol, 1, args.nSagittal);
+            sliceCoords[1] = evenlySpacedSlices(refVol, 1, args.nSagittal, cropX1, cropX2);
         if (sliceCoords[2].empty())
-            sliceCoords[2] = evenlySpacedSlices(refVol, 2, args.nCoronal);
+            sliceCoords[2] = evenlySpacedSlices(refVol, 2, args.nCoronal,  cropY1, cropY2);
 
         int gap = args.gap;
         int nRows = std::max(1, args.rows);
@@ -275,6 +283,10 @@ int main(int argc, char** argv)
                 {
                     raw = renderSlice(volumes[0], params[0], vi, sliceIdx);
                 }
+
+                // Apply crop before aspect resampling (crop is in voxel space)
+                if (args.crop.has_value())
+                    raw = applyCrop(raw, refVol, vi, sliceIdx, *args.crop);
 
                 // Correct for non-uniform voxel spacing so that output
                 // pixels are square in world space (matches new_register).
@@ -553,6 +565,10 @@ int main(int argc, char** argv)
         std::vector<uint32_t> finalPixels;
         int finalW = totalWidth;
         int finalH = totalHeight;
+
+        // --scale: convert to an effective target width (--width takes precedence)
+        if (args.scale.has_value() && !args.width.has_value())
+            args.width = static_cast<int>(std::round(totalWidth * *args.scale));
 
         if (args.width.has_value())
         {

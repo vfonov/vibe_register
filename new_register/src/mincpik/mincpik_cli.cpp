@@ -55,7 +55,11 @@ void printUsage()
         "Output:\n"
         "  -o, --output <path>  Output PNG path (required)\n"
         "      --width <px>     Scale output to this width in pixels\n"
+        "      --scale <f>      Scale output image by factor f (e.g. 0.5, 2.0); overridden by --width\n"
         "      --gap <px>       Cell gap in pixels (default: 2)\n"
+        "      --crop x1,x2,y1,y2,z1,z2\n"
+        "                       Crop: remove x1/x2 voxels from low/high X,\n"
+        "                       y1/y2 from Y, z1/z2 from Z before slicing\n"
         "\n"
         "Annotation:\n"
         "      --title <text>   Title text rendered above the mosaic\n"
@@ -215,12 +219,65 @@ std::optional<ParsedArgs> parseArgs(int argc, char** argv)
             continue;
         }
 
+        if (arg == "--scale")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--scale"))
+                return std::nullopt;
+            try
+            {
+                double f = std::stod(argv[i]);
+                if (f <= 0.0)
+                {
+                    std::cerr << "Error: --scale must be > 0.\n";
+                    return std::nullopt;
+                }
+                args.scale = f;
+            }
+            catch (const std::invalid_argument&)
+            {
+                std::cerr << "Error: --scale requires a numeric value.\n";
+                return std::nullopt;
+            }
+            catch (const std::out_of_range&)
+            {
+                std::cerr << "Error: --scale value out of range.\n";
+                return std::nullopt;
+            }
+            continue;
+        }
+
         if (arg == "--gap")
         {
             ++i;
             if (!requireValue(i, argc, "--gap"))
                 return std::nullopt;
             args.gap = std::stoi(argv[i]);
+            continue;
+        }
+
+        if (arg == "--crop")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--crop"))
+                return std::nullopt;
+            auto vals = parseDoubleList(argv[i]);
+            if (vals.size() != 6)
+            {
+                std::cerr << "Error: --crop requires exactly 6 values (x1,x2,y1,y2,z1,z2).\n";
+                return std::nullopt;
+            }
+            std::array<int,6> c;
+            for (int j = 0; j < 6; ++j)
+            {
+                if (vals[j] < 0.0)
+                {
+                    std::cerr << "Error: --crop values must be >= 0.\n";
+                    return std::nullopt;
+                }
+                c[j] = static_cast<int>(vals[j]);
+            }
+            args.crop = c;
             continue;
         }
 

@@ -68,7 +68,8 @@ int worldToSliceVoxel(const Volume& vol, int viewIndex, double worldCoord)
     return std::clamp(idx, 0, maxDim - 1);
 }
 
-std::vector<int> evenlySpacedSlices(const Volume& vol, int viewIndex, int count)
+std::vector<int> evenlySpacedSlices(const Volume& vol, int viewIndex, int count,
+                                    int cropLo, int cropHi)
 {
     int maxDim;
     if (viewIndex == 0)
@@ -83,13 +84,25 @@ std::vector<int> evenlySpacedSlices(const Volume& vol, int viewIndex, int count)
         return result;
     if (count == 1)
     {
-        result.push_back(maxDim / 2);
+        int mid = (cropLo > 0 || cropHi > 0)
+                    ? (cropLo + (maxDim - cropHi - 1)) / 2
+                    : maxDim / 2;
+        result.push_back(mid);
         return result;
     }
 
-    // Skip 10% at each edge to avoid blank slices
-    int lo = std::max(1, static_cast<int>(maxDim * 0.1));
-    int hi = std::min(maxDim - 2, static_cast<int>(maxDim * 0.9));
+    int lo, hi;
+    if (cropLo > 0 || cropHi > 0)
+    {
+        lo = cropLo;
+        hi = maxDim - cropHi - 1;
+    }
+    else
+    {
+        // Skip 10% at each edge to avoid blank slices
+        lo = std::max(1, static_cast<int>(maxDim * 0.1));
+        hi = std::min(maxDim - 2, static_cast<int>(maxDim * 0.9));
+    }
     if (hi <= lo)
     {
         lo = 0;
@@ -99,6 +112,63 @@ std::vector<int> evenlySpacedSlices(const Volume& vol, int viewIndex, int count)
     for (int i = 0; i < count; ++i)
         result.push_back(lo + static_cast<int>(std::round(i * step)));
 
+    return result;
+}
+
+RenderedSlice applyCrop(const RenderedSlice& slice,
+                        const Volume& vol,
+                        int viewIndex,
+                        int sliceIndex,
+                        const std::array<int,6>& crop)
+{
+    int x1=crop[0], x2=crop[1], y1=crop[2], y2=crop[3], z1=crop[4], z2=crop[5];
+    int dimX=vol.dimensions.x, dimY=vol.dimensions.y, dimZ=vol.dimensions.z;
+
+    int colLo, colHi, rowLo, rowHi;   // inclusive pixel bounds in the source slice
+    int cutLo, cutHi;                  // crop on the cutting axis
+
+    if (viewIndex == 0)        // axial, cuts Z
+    {
+        cutLo=z1; cutHi=dimZ-z2;
+        colLo=x1; colHi=dimX-x2-1;
+        rowLo=y2; rowHi=dimY-1-y1;
+    }
+    else if (viewIndex == 1)   // sagittal, cuts X
+    {
+        cutLo=x1; cutHi=dimX-x2;
+        colLo=y1; colHi=dimY-y2-1;
+        rowLo=z2; rowHi=dimZ-1-z1;
+    }
+    else                       // coronal, cuts Y
+    {
+        cutLo=y1; cutHi=dimY-y2;
+        colLo=x1; colHi=dimX-x2-1;
+        rowLo=z2; rowHi=dimZ-1-z1;
+    }
+
+    int outW = colHi - colLo + 1;
+    int outH = rowHi - rowLo + 1;
+    if (outW <= 0 || outH <= 0)
+        return {};   // degenerate crop
+
+    RenderedSlice result;
+    result.width  = outW;
+    result.height = outH;
+    result.pixels.assign(outW * outH, 0xFF000000);   // opaque black
+
+    // If slice position outside crop range → return blank tile
+    if (sliceIndex < cutLo || sliceIndex >= cutHi)
+        return result;
+
+    // Copy sub-rectangle
+    for (int r = 0; r < outH; ++r)
+    {
+        int srcRow = rowLo + r;
+        int srcOff = srcRow * slice.width + colLo;
+        int dstOff = r * outW;
+        std::memcpy(&result.pixels[dstOff], &slice.pixels[srcOff],
+                    outW * sizeof(uint32_t));
+    }
     return result;
 }
 

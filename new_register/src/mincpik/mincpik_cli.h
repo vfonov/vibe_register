@@ -34,6 +34,8 @@ struct ParsedArgs
     // Output
     std::string outputPath;
     std::optional<int> width;
+    std::optional<double> scale;   // uniform scale factor (0.5 = half size, 2.0 = double)
+    std::optional<std::array<int,6>> crop;  // [x1,x2,y1,y2,z1,z2] voxels to remove per edge
     int gap = 2;
 
     // Slice counts

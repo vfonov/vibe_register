@@ -3,6 +3,8 @@
 #ifndef MINCPIK_MOSAIC_H
 #define MINCPIK_MOSAIC_H
 
+#include <array>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -20,9 +22,21 @@ std::vector<float> parseFloatList(const std::string& str);
 int worldToSliceVoxel(const Volume& vol, int viewIndex, double worldCoord);
 
 /// Compute evenly spaced voxel indices for a given number of slices.
-/// Distributes N slices evenly across the volume extent, avoiding the
-/// very first and last slices (which are typically blank).
-std::vector<int> evenlySpacedSlices(const Volume& vol, int viewIndex, int count);
+/// cropLo / cropHi: voxels to exclude from the low/high end of the axis
+/// (defaults 0 = no crop).  When non-zero, overrides the default 10% margins.
+std::vector<int> evenlySpacedSlices(const Volume& vol, int viewIndex, int count,
+                                    int cropLo = 0, int cropHi = 0);
+
+/// Crop a rendered slice to the region specified by crop=[x1,x2,y1,y2,z1,z2].
+/// sliceIndex is the voxel index along the cutting axis.
+/// If the slice position is outside the cropped range, returns a blank
+/// (opaque-black) tile of the cropped dimensions.
+/// If crop is empty (nullopt), returns the slice unchanged.
+RenderedSlice applyCrop(const RenderedSlice& slice,
+                        const Volume& vol,
+                        int viewIndex,
+                        int sliceIndex,
+                        const std::array<int,6>& crop);
 
 /// Determine which two volume axes correspond to the in-plane (U, V)
 /// directions for a given view.
