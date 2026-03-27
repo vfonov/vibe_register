@@ -168,7 +168,7 @@ RenderedSlice renderSlice(
                 auto it = labelToIndex.find(labelId);
                 if (it != labelToIndex.end() && labelCount > 0)
                 {
-                    int idx = it->second + 1;
+                    int idx = static_cast<int>((static_cast<float>(it->second + 1) / static_cast<float>(labelCount + 1)) * 255.0f + 0.5f);
                     if (idx < 0)   return underColour;
                     if (idx > 255) return overColour;
                     return mainLut[idx];
@@ -627,7 +627,7 @@ RenderedSlice renderOverlaySlice(
                         auto it = info.labelToIndex.find(labelId);
                         if (it != info.labelToIndex.end() && info.labelCacheSize > 0)
                         {
-                            int idx = it->second + 1;
+                            int idx = static_cast<int>((static_cast<float>(it->second + 1) / static_cast<float>(info.labelCacheSize + 1)) * 255.0f + 0.5f);
                             if (idx < 0)        packed = info.underColour;
                             else if (idx > 255) packed = info.overColour;
                             else                packed = info.mainLut[idx];

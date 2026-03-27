@@ -136,7 +136,7 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
             if (useColourMapForLabel && labelToIndexPtr) {
                 auto it = labelToIndexPtr->find(labelId);
                 if (it != labelToIndexPtr->end()) {
-                    int idx = it->second + 1;
+                    int idx = static_cast<int>((static_cast<float>(it->second + 1) / static_cast<float>(labelCount + 1)) * 255.0f + 0.5f);
                     if (idx < 0)   return underColour;
                     if (idx > 255) return overColour;
                     return mainLut[idx];
@@ -524,7 +524,7 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
                     if (info.useColourMapForLabel) {
                         auto it = info.labelToIndex.find(labelId);
                         if (it != info.labelToIndex.end() && info.labelCacheSize > 0) {
-                            int idx = static_cast<int>((static_cast<float>(it->second) / static_cast<float>(info.labelCacheSize)) * 255.0f);
+                            int idx = static_cast<int>((static_cast<float>(it->second + 1) / static_cast<float>(info.labelCacheSize + 1)) * 255.0f + 0.5f);
                             packed = info.mainLut[idx];
                         } else {
                             continue;  // unknown label
