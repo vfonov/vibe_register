@@ -136,7 +136,7 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
             if (useColourMapForLabel && labelToIndexPtr) {
                 auto it = labelToIndexPtr->find(labelId);
                 if (it != labelToIndexPtr->end()) {
-                    int idx = static_cast<int>(static_cast<float>(it->second) + 0.5f);
+                    int idx = it->second + 1;
                     if (idx < 0)   return underColour;
                     if (idx > 255) return overColour;
                     return mainLut[idx];
