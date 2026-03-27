@@ -128,7 +128,7 @@ RenderedSlice renderSlice(
     // For label volumes: build label-to-index mapping if a non-default colour
     // map is selected, so labels are rendered via the colour map LUT instead
     // of per-label RGBA.
-    bool useColourMapForLabel = vol.isLabelVolume() && params.colourMap != ColourMapType::GrayScale;
+    bool useColourMapForLabel = vol.isLabelVolume();
     std::unordered_map<int, int> labelToIndex;
     size_t labelCount = 0;
     if (useColourMapForLabel)
@@ -168,7 +168,7 @@ RenderedSlice renderSlice(
                 auto it = labelToIndex.find(labelId);
                 if (it != labelToIndex.end() && labelCount > 0)
                 {
-                    int idx = static_cast<int>((static_cast<float>(it->second + 1) / static_cast<float>(labelCount + 1)) * 255.0f + 0.5f);
+                    int idx = (it->second + 1) * 255 / static_cast<int>(labelCount);
                     if (idx < 0)   return underColour;
                     if (idx > 255) return overColour;
                     return mainLut[idx];
@@ -463,7 +463,6 @@ RenderedSlice renderOverlaySlice(
         if (info.isLabelVolume)
         {
             info.labelLUT = &vol.getLabelLUT();
-            if (p.colourMap != ColourMapType::GrayScale)
             {
                 info.useColourMapForLabel = true;
                 std::vector<int> uniqueLabels = vol.getUniqueLabelIds();
@@ -627,7 +626,7 @@ RenderedSlice renderOverlaySlice(
                         auto it = info.labelToIndex.find(labelId);
                         if (it != info.labelToIndex.end() && info.labelCacheSize > 0)
                         {
-                            int idx = static_cast<int>((static_cast<float>(it->second + 1) / static_cast<float>(info.labelCacheSize + 1)) * 255.0f + 0.5f);
+                            int idx = (it->second + 1) * 255 / static_cast<int>(info.labelCacheSize);
                             if (idx < 0)        packed = info.underColour;
                             else if (idx > 255) packed = info.overColour;
                             else                packed = info.mainLut[idx];

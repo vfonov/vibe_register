@@ -89,7 +89,7 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
         : resolveClampColour(overMode, state.colourMap, true, state.invertColourMap);
 
     // For label volumes: check if we should use colour map instead of label LUT
-    bool useColourMapForLabel = vol.isLabelVolume() && state.colourMap != ColourMapType::GrayScale;
+    bool useColourMapForLabel = vol.isLabelVolume();
     const std::unordered_map<int, int>* labelToIndexPtr = nullptr;
     size_t labelCount = 0;
     if (useColourMapForLabel) {
@@ -136,7 +136,7 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
             if (useColourMapForLabel && labelToIndexPtr) {
                 auto it = labelToIndexPtr->find(labelId);
                 if (it != labelToIndexPtr->end()) {
-                    int idx = static_cast<int>((static_cast<float>(it->second + 1) / static_cast<float>(labelCount + 1)) * 255.0f + 0.5f);
+                    int idx = (it->second + 1) * 255 / static_cast<int>(labelCount);
                     if (idx < 0)   return underColour;
                     if (idx > 255) return overColour;
                     return mainLut[idx];
@@ -381,7 +381,7 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         if (info.isLabelVolume) {
             info.labelLUT = &vol.getLabelLUT();
             // Check if we should use colour map instead of label LUT
-            if (state_.viewStates_[vi].colourMap != ColourMapType::GrayScale) {
+            {
                 info.useColourMapForLabel = true;
                 auto cacheIt = labelToIndexCache_.find(vi);
                 if (cacheIt == labelToIndexCache_.end()) {
@@ -524,7 +524,7 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
                     if (info.useColourMapForLabel) {
                         auto it = info.labelToIndex.find(labelId);
                         if (it != info.labelToIndex.end() && info.labelCacheSize > 0) {
-                            int idx = static_cast<int>((static_cast<float>(it->second + 1) / static_cast<float>(info.labelCacheSize + 1)) * 255.0f + 0.5f);
+                            int idx = (it->second + 1) * 255 / static_cast<int>(info.labelCacheSize);
                             packed = info.mainLut[idx];
                         } else {
                             continue;  // unknown label
