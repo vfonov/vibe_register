@@ -169,6 +169,8 @@ Vulkan (primary) / OpenGL 2.1 (fallback), ImGui (Docking), GLFW, and nlohmann/js
 
 > **See also:** [`research.md`](research.md) for a comprehensive codebase review,
 > architecture diagram, module analysis, test coverage, and risk assessment.
+> [`mincpik_performance_review.md`](mincpik_performance_review.md) for a ranked
+> list of CPU bottlenecks in `new_mincpik` with proposed fixes.
 
 **Dependencies:**
 - `minc2-simple` (FetchContent from GitHub, develop branch)
