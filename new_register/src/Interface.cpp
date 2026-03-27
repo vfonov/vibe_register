@@ -916,10 +916,42 @@ int Interface::renderVolumeColumn(int vi) {
                     ImGui::PushID(vi + 3000);
                     ImGui::Text("Alpha:");
                     ImGui::SameLine();
-                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 110.0f);
                     if (ImGui::DragFloat("##alpha", &state_.viewStates_[vi].overlayAlpha,
                                         0.01f, 0.0f, 1.0f, "%.2f"))
                         viewManager_.updateAllOverlayTextures();
+                    ImGui::SameLine();
+                    {
+                        bool isLab = state_.volumes_[vi].isLabelVolume();
+                        if (ImGui::Checkbox("Lab", &isLab)) {
+                            state_.volumes_[vi].setLabelVolume(isLab);
+                            viewManager_.invalidateLabelCache(vi);
+                            viewManager_.updateSliceTexture(vi, 0);
+                            viewManager_.updateSliceTexture(vi, 1);
+                            viewManager_.updateSliceTexture(vi, 2);
+                            if (state_.hasOverlay())
+                                viewManager_.updateAllOverlayTextures();
+                        }
+                    }
+                    ImGui::SameLine();
+                    {
+                        bool isLab2 = state_.volumes_[vi].isLabelVolume();
+                        bool logEn = state_.viewStates_[vi].useLogTransform;
+                        if (isLab2) ImGui::BeginDisabled(true);
+                        if (ImGui::Checkbox("Log10", &logEn)) {
+                            state_.viewStates_[vi].useLogTransform = logEn;
+                            viewManager_.updateSliceTexture(vi, 0);
+                            viewManager_.updateSliceTexture(vi, 1);
+                            viewManager_.updateSliceTexture(vi, 2);
+                            if (state_.hasOverlay())
+                                viewManager_.updateAllOverlayTextures();
+                        }
+                        if (isLab2) {
+                            ImGui::EndDisabled();
+                            if (ImGui::IsItemHovered())
+                                ImGui::SetTooltip("Log10 unavailable for label volumes");
+                        }
+                    }
                     ImGui::PopID();
                     ImGui::Separator();
                 }
@@ -1260,46 +1292,8 @@ int Interface::renderVolumeColumn(int vi) {
 
                 ImGui::Separator();
 
-                // Label volume controls and Log10 transform
-                bool isLabel = vol.isLabelVolume();
-                bool logEnabled = state.useLogTransform;
-
-                if (ImGui::Checkbox("Label Volume", &isLabel)) {
-                    state_.volumes_[vi].setLabelVolume(isLabel);
-                    if (isLabel && state.colourMap != ColourMapType::GrayScale) {
-                        viewManager_.invalidateLabelCache(vi);
-                    }
-                    viewManager_.updateSliceTexture(vi, 0);
-                    viewManager_.updateSliceTexture(vi, 1);
-                    viewManager_.updateSliceTexture(vi, 2);
-                    if (state_.hasOverlay())
-                        viewManager_.updateAllOverlayTextures();
-                }
-
-                ImGui::SameLine();
-
-                // Log10 checkbox (disabled for label volumes)
-                if (isLabel)
-                    ImGui::BeginDisabled(true);
-
-                if (ImGui::Checkbox("Log10", &logEnabled))
-                {
-                    state.useLogTransform = logEnabled;
-                    viewManager_.updateSliceTexture(vi, 0);
-                    viewManager_.updateSliceTexture(vi, 1);
-                    viewManager_.updateSliceTexture(vi, 2);
-                    if (state_.hasOverlay())
-                        viewManager_.updateAllOverlayTextures();
-                }
-
-                if (isLabel)
-                {
-                    ImGui::EndDisabled();
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Log10 unavailable for label volumes");
-                }
-
                 // Show current label name at cursor position
+                bool isLabel = vol.isLabelVolume();
                 if (isLabel) {
                     std::string labelName = vol.getLabelNameAtVoxel(
                         state.sliceIndices.x, state.sliceIndices.y, state.sliceIndices.z);
