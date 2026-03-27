@@ -159,7 +159,7 @@ RenderedSlice renderSlice(
         // Label volumes
         if (vol.isLabelVolume())
         {
-            int labelId = static_cast<int>(std::round(displayVal));
+            int labelId = static_cast<int>(displayVal + 0.5f);
             if (labelId == 0)
                 return 0x00000000;  // transparent background
 
@@ -618,7 +618,7 @@ RenderedSlice renderOverlaySlice(
                 }
                 else if (info.isLabelVolume && !info.useLogTransform)
                 {
-                    int labelId = static_cast<int>(std::round(displayVal));
+                    int labelId = static_cast<int>(displayVal + 0.5f);
                     if (labelId == 0)
                         continue;
 
