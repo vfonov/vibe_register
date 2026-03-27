@@ -914,13 +914,6 @@ int Interface::renderVolumeColumn(int vi) {
                 if (state_.hasOverlay() && state_.showOverlay_)
                 {
                     ImGui::PushID(vi + 3000);
-                    ImGui::Text("Alpha:");
-                    ImGui::SameLine();
-                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 110.0f);
-                    if (ImGui::DragFloat("##alpha", &state_.viewStates_[vi].overlayAlpha,
-                                        0.01f, 0.0f, 1.0f, "%.2f"))
-                        viewManager_.updateAllOverlayTextures();
-                    ImGui::SameLine();
                     {
                         bool isLab = state_.volumes_[vi].isLabelVolume();
                         if (ImGui::Checkbox("Lab", &isLab)) {
@@ -952,6 +945,13 @@ int Interface::renderVolumeColumn(int vi) {
                                 ImGui::SetTooltip("Log10 unavailable for label volumes");
                         }
                     }
+                    ImGui::SameLine();
+                    ImGui::Text("\xce\xb1:");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                    if (ImGui::DragFloat("##alpha", &state_.viewStates_[vi].overlayAlpha,
+                                        0.01f, 0.0f, 1.0f, "%.2f"))
+                        viewManager_.updateAllOverlayTextures();
                     ImGui::PopID();
                     ImGui::Separator();
                 }
