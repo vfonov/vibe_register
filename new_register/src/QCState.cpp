@@ -174,8 +174,16 @@ void QCState::loadInputCsv(const std::string& path)
         // Initialise result to UNRATED
         QCRowResult result;
         result.id = rowIds.back();
-        result.verdicts.resize(columnNames.size(), QCVerdict::UNRATED);
-        result.comments.resize(columnNames.size());
+        if (singleVerdictMode)
+        {
+            result.verdicts.assign(1, QCVerdict::UNRATED);
+            result.comments.assign(1, "");
+        }
+        else
+        {
+            result.verdicts.resize(columnNames.size(), QCVerdict::UNRATED);
+            result.comments.resize(columnNames.size());
+        }
         results.push_back(std::move(result));
     }
 }
@@ -201,6 +209,57 @@ void QCState::loadOutputCsv(const std::string& path)
     auto outCols = parseCsvLine(lines[0]);
     if (outCols.empty())
         return;
+
+    // Single-verdict mode: expect ID,verdict,comment
+    if (singleVerdictMode)
+    {
+        // Build row ID -> index map for fast lookup
+        std::map<std::string, int> idMap;
+        for (size_t i = 0; i < rowIds.size(); ++i)
+            idMap[rowIds[i]] = static_cast<int>(i);
+
+        // Find column indices
+        std::map<std::string, size_t> hdrIdx;
+        for (size_t i = 0; i < outCols.size(); ++i)
+            hdrIdx[outCols[i]] = i;
+
+        auto verdictIt = hdrIdx.find("verdict");
+        auto commentIt = hdrIdx.find("comment");
+        if (verdictIt == hdrIdx.end())
+            return; // unrecognised format, skip
+
+        size_t vIdx = verdictIt->second;
+        size_t cIdx = commentIt != hdrIdx.end() ? commentIt->second : SIZE_MAX;
+
+        for (size_t li = 1; li < lines.size(); ++li)
+        {
+            auto fields = parseCsvLine(lines[li]);
+            if (fields.empty())
+                continue;
+
+            std::string id = fields[0];
+            auto it = idMap.find(id);
+            if (it == idMap.end())
+                continue;
+
+            int rowIdx = it->second;
+            auto& result = results[rowIdx];
+
+            if (vIdx < fields.size())
+            {
+                const auto& v = fields[vIdx];
+                if (v == "PASS")
+                    result.verdicts[0] = QCVerdict::PASS;
+                else if (v == "FAIL")
+                    result.verdicts[0] = QCVerdict::FAIL;
+                else
+                    result.verdicts[0] = QCVerdict::UNRATED;
+            }
+            if (cIdx != SIZE_MAX && cIdx < fields.size())
+                result.comments[0] = fields[cIdx];
+        }
+        return;
+    }
 
     // Build header-name -> column-index map for the output CSV
     std::map<std::string, size_t> outColIndex;
@@ -277,6 +336,29 @@ void QCState::saveOutputCsv() const
     std::ofstream ofs(outputCsvPath, std::ios::trunc);
     if (!ofs)
         return;
+
+    if (singleVerdictMode)
+    {
+        // Simplified output: ID,verdict,comment
+        writeCsvRow(ofs, {"ID", "verdict", "comment"});
+        for (size_t i = 0; i < results.size(); ++i)
+        {
+            const char* verdictStr = "";
+            if (!results[i].verdicts.empty())
+            {
+                switch (results[i].verdicts[0])
+                {
+                case QCVerdict::PASS: verdictStr = "PASS"; break;
+                case QCVerdict::FAIL: verdictStr = "FAIL"; break;
+                default: verdictStr = ""; break;
+                }
+            }
+            std::string comment = results[i].comments.empty() ? "" : results[i].comments[0];
+            writeCsvRow(ofs, {rowIds[i], verdictStr, comment});
+        }
+        ofs.flush();
+        return;
+    }
 
     // Write header: ID, col1_verdict, col1_comment, ...
     std::vector<std::string> header;

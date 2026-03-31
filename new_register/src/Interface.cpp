@@ -249,11 +249,24 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
             ImGui::DockBuilderDockWindow("Tags",  tagsId);
         }
 
+        // In single-verdict mode, carve a narrow strip at the top of the content
+        // area for the spanning "QC Verdict" window.
+        ImGuiID columnsId = contentId;
+        if (qcState_.active && qcState_.singleVerdictMode)
+        {
+            ImGuiID verdictStripId;
+            float verdictFrac = (60.0f * state_.dpiScale_) / vpSize.y;
+            verdictFrac = std::clamp(verdictFrac, 0.05f, 0.20f);
+            ImGui::DockBuilderSplitNode(contentId, ImGuiDir_Up,
+                verdictFrac, &verdictStripId, &columnsId);
+            ImGui::DockBuilderDockWindow("QC Verdict", verdictStripId);
+        }
+
         std::vector<ImGuiID> columnIds(totalColumns);
         if (totalColumns == 1) {
-            columnIds[0] = contentId;
+            columnIds[0] = columnsId;
         } else {
-            ImGuiID remaining = contentId;
+            ImGuiID remaining = columnsId;
             for (int ci = 0; ci < totalColumns - 1; ++ci) {
                 float fraction = 1.0f / static_cast<float>(totalColumns - ci);
                 ImGuiID leftId, rightId;
@@ -356,6 +369,9 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
         (ImGui::IsKeyPressed(ImGuiKey_Slash) || ImGui::IsKeyPressed(ImGuiKey_H))) {
         state_.showHotkeysPopup_ = !state_.showHotkeysPopup_;
     }
+
+    if (qcState_.active && qcState_.singleVerdictMode)
+        renderQCSingleVerdictPanel();
 
     int overlayDirtyMask = 0;
     for (int vi = 0; vi < numVolumes; ++vi) {
@@ -609,17 +625,24 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
             ImVec2 remaining = ImGui::GetContentRegionAvail();
             ImGui::BeginChild("##qc_list_embed", remaining, ImGuiChildFlags_Borders);
             {
-                int numCols = qcState_.columnCount();
-                int totalTableCols = 2 + numCols; // # + ID + one per volume column
+                int numCols = qcState_.singleVerdictMode ? 1 : qcState_.columnCount();
+                int totalTableCols = 2 + numCols; // # + ID + verdict column(s)
                 int tableFlags = ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY
                                | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollX;
                 if (ImGui::BeginTable("##qc_list", totalTableCols, tableFlags))
                 {
                     ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 30.0f);
                     ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-                    for (int ci = 0; ci < numCols; ++ci)
-                        ImGui::TableSetupColumn(qcState_.columnNames[ci].c_str(),
-                            ImGuiTableColumnFlags_WidthFixed, 30.0f);
+                    if (qcState_.singleVerdictMode)
+                    {
+                        ImGui::TableSetupColumn("V", ImGuiTableColumnFlags_WidthFixed, 30.0f);
+                    }
+                    else
+                    {
+                        for (int ci = 0; ci < numCols; ++ci)
+                            ImGui::TableSetupColumn(qcState_.columnNames[ci].c_str(),
+                                ImGuiTableColumnFlags_WidthFixed, 30.0f);
+                    }
                     ImGui::TableSetupScrollFreeze(0, 1);
                     ImGui::TableHeadersRow();
 
@@ -630,13 +653,22 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
                         const auto& result = qcState_.results[ri];
                         bool anyFail = false;
                         bool allPass = true;
-                        for (int ci = 0; ci < numCols; ++ci)
+                        if (qcState_.singleVerdictMode)
                         {
-                            QCVerdict v = result.verdicts[ci];
-                            if (v == QCVerdict::FAIL) anyFail = true;
-                            if (v != QCVerdict::PASS) allPass = false;
+                            QCVerdict v = result.verdicts.empty() ? QCVerdict::UNRATED : result.verdicts[0];
+                            anyFail = (v == QCVerdict::FAIL);
+                            allPass = (v == QCVerdict::PASS);
                         }
-                        if (numCols == 0) allPass = false;
+                        else
+                        {
+                            for (int ci = 0; ci < numCols; ++ci)
+                            {
+                                QCVerdict v = result.verdicts[ci];
+                                if (v == QCVerdict::FAIL) anyFail = true;
+                                if (v != QCVerdict::PASS) allPass = false;
+                            }
+                            if (numCols == 0) allPass = false;
+                        }
 
                         if (anyFail)
                             ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
@@ -667,16 +699,30 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
                         ImGui::TableSetColumnIndex(1);
                         ImGui::Text("%s", qcState_.rowIds[ri].c_str());
 
-                        for (int ci = 0; ci < numCols; ++ci)
+                        if (qcState_.singleVerdictMode)
                         {
-                            ImGui::TableSetColumnIndex(2 + ci);
-                            QCVerdict v = result.verdicts[ci];
+                            ImGui::TableSetColumnIndex(2);
+                            QCVerdict v = result.verdicts.empty() ? QCVerdict::UNRATED : result.verdicts[0];
                             if (v == QCVerdict::PASS)
                                 ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.2f, 1.0f), "P");
                             else if (v == QCVerdict::FAIL)
                                 ImGui::TextColored(ImVec4(0.9f, 0.2f, 0.2f, 1.0f), "F");
                             else
                                 ImGui::TextDisabled("-");
+                        }
+                        else
+                        {
+                            for (int ci = 0; ci < numCols; ++ci)
+                            {
+                                ImGui::TableSetColumnIndex(2 + ci);
+                                QCVerdict v = result.verdicts[ci];
+                                if (v == QCVerdict::PASS)
+                                    ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.2f, 1.0f), "P");
+                                else if (v == QCVerdict::FAIL)
+                                    ImGui::TextColored(ImVec4(0.9f, 0.2f, 0.2f, 1.0f), "F");
+                                else
+                                    ImGui::TextDisabled("-");
+                            }
                         }
                     }
                     ImGui::EndTable();
@@ -791,7 +837,7 @@ int Interface::renderVolumeColumn(int vi) {
             if (!state_.volumePaths_[vi].empty())
                 ImGui::TextWrapped("File: %s", state_.volumePaths_[vi].c_str());
             float viewWidth = ImGui::GetContentRegionAvail().x;
-            if (qcState_.active) {
+            if (qcState_.active && !qcState_.singleVerdictMode) {
                 ImGui::BeginChild("##qc_verdict", ImVec2(viewWidth, 0), ImGuiChildFlags_Borders);
                 renderQCVerdictPanel(vi);
                 ImGui::EndChild();
@@ -803,7 +849,7 @@ int Interface::renderVolumeColumn(int vi) {
         float viewWidth = ImGui::GetContentRegionAvail().x;
 
         // Render verdict panel at the TOP of each column so it's always visible
-        if (qcState_.active)
+        if (qcState_.active && !qcState_.singleVerdictMode)
         {
             ImGui::BeginChild("##qc_verdict_top", ImVec2(viewWidth, 60.0f * state_.dpiScale_),
                               ImGuiChildFlags_Borders);
@@ -2485,6 +2531,13 @@ void Interface::renderQCVerdictPanel(int volumeIndex) {
         qcState_.saveOutputCsv();
 
     ImGui::PopID();
+}
+
+void Interface::renderQCSingleVerdictPanel() {
+    ImGui::Begin("QC Verdict");
+    if (qcState_.currentRowIndex >= 0 && qcState_.rowCount() > 0)
+        renderQCVerdictPanel(0);
+    ImGui::End();
 }
 
 void Interface::updateTagFileDialogEntries() {

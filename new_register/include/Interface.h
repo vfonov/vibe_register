@@ -69,6 +69,7 @@ private:
     void renderTagListWindow();
     void renderTagListContent();
     void renderQCVerdictPanel(int volumeIndex);
+    void renderQCSingleVerdictPanel();
     void switchQCRow(int newRow, GraphicsBackend& backend);
     int renderSliceView(int vi, int viewIndex, const ImVec2& childSize);
     int renderOverlayView(int viewIndex, const ImVec2& childSize);

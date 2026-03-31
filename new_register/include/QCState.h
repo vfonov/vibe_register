@@ -45,6 +45,9 @@ public:
     /// Whether the overlay panel is visible in QC mode.
     bool showOverlay = true;
 
+    /// If true, one verdict+comment per row (not per column). Set by --qc1.
+    bool singleVerdictMode = false;
+
     // --- CSV I/O ---
 
     /// Parse the input CSV file. Populates columnNames, rowIds, rowPaths,

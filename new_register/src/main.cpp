@@ -71,6 +71,7 @@ struct ParsedArgs
     std::string tagsPath;
     std::string qcInputPath;
     std::string qcOutputPath;
+    bool qcSingleMode = false;
 
     bool syncAll    = false;
     bool syncCursor = false;
@@ -113,8 +114,9 @@ static void printUsage()
         "      --scale <factor> Override screen content scale (HiDPI)\n"
         "\n"
         "QC mode:\n"
-        "      --qc <csv>       Enable QC mode with input CSV\n"
-        "      --qc-output <csv>  Output CSV for QC verdicts (required with --qc)\n"
+        "      --qc <csv>       Enable QC mode with input CSV (per-column verdicts)\n"
+        "      --qc1 <csv>      Enable QC mode with single verdict per row\n"
+        "      --qc-output <csv>  Output CSV for QC verdicts (required with --qc/--qc1)\n"
         "\n"
         "Synchronization:\n"
         "      --sync           Synchronize all (cursor, zoom, pan)\n"
@@ -269,6 +271,16 @@ static std::optional<ParsedArgs> parseArgs(int argc, char** argv)
             if (!requireValue(i, argc, "--qc"))
                 return std::nullopt;
             args.qcInputPath = argv[i];
+            continue;
+        }
+
+        if (arg == "--qc1")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--qc1"))
+                return std::nullopt;
+            args.qcInputPath = argv[i];
+            args.qcSingleMode = true;
             continue;
         }
 
@@ -449,6 +461,7 @@ int main(int argc, char** argv)
         if (!qcInputPath.empty())
         {
             qcState.active = true;
+            qcState.singleVerdictMode = args.qcSingleMode;
             qcState.inputCsvPath = qcInputPath;
             qcState.outputCsvPath = qcOutputPath;
             qcState.loadInputCsv(qcInputPath);
