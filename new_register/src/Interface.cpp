@@ -196,13 +196,13 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
 
         float toolsFraction;
         if (totalColumns <= 1)
-            toolsFraction = 0.30f;
+            toolsFraction = 0.28f;
         else if (totalColumns == 2)
-            toolsFraction = 0.20f;
+            toolsFraction = 0.18f;
         else if (totalColumns == 3)
-            toolsFraction = 0.16f;
+            toolsFraction = 0.14f;
         else
-            toolsFraction = 0.13f;
+            toolsFraction = 0.11f;
 
         if (qcState_.active) {
             // QC mode: slightly wider for the embedded QC list
@@ -288,7 +288,7 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
             viewManager_.updateAllOverlayTextures();
     }
 
-    if (!ImGui::GetIO().WantTextInput) {
+    if (!ImGui::GetIO().WantCaptureKeyboard) {
         if (ImGui::IsKeyPressed(ImGuiKey_R)) {
             viewManager_.resetViews();
             if (hasOverlay)
@@ -352,7 +352,8 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
     }
 
     // Toggle hotkeys popup with '?' or 'H' - works even when popup is open
-    if (ImGui::IsKeyPressed(ImGuiKey_Slash) || ImGui::IsKeyPressed(ImGuiKey_H)) {
+    if (!ImGui::GetIO().WantCaptureKeyboard &&
+        (ImGui::IsKeyPressed(ImGuiKey_Slash) || ImGui::IsKeyPressed(ImGuiKey_H))) {
         state_.showHotkeysPopup_ = !state_.showHotkeysPopup_;
     }
 
@@ -816,7 +817,7 @@ int Interface::renderVolumeColumn(int vi) {
         // The controls child uses height=0 (fill remaining), so the slice views
         // above must consume exactly (avail.y - controlsHeight) pixels to leave
         // the right amount of space.
-        const float controlsHeight = state_.cleanMode_ ? 0.0f : 220.0f * state_.dpiScale_;
+        const float controlsHeight = state_.cleanMode_ ? 0.0f : 196.0f * state_.dpiScale_;
         float viewAreaHeight = avail.y - controlsHeight;
 
         // Compute view heights, skipping hidden views and redistributing space
@@ -1325,7 +1326,7 @@ void Interface::renderOverlayPanel() {
 
         ImVec2 avail = ImGui::GetContentRegionAvail();
 
-        const float controlsHeight = state_.cleanMode_ ? 0.0f : 220.0f * state_.dpiScale_;
+        const float controlsHeight = state_.cleanMode_ ? 0.0f : 196.0f * state_.dpiScale_;
         float viewAreaHeight = avail.y - controlsHeight;
 
         // Compute view heights, skipping hidden views and redistributing space
