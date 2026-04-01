@@ -993,7 +993,7 @@ int Interface::renderVolumeColumn(int vi) {
                         }
                     }
                     ImGui::SameLine();
-                    ImGui::Text("\xce\xb1:");
+                    ImGui::Text("alpha:");
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
                     if (ImGui::DragFloat("##alpha", &state_.viewStates_[vi].overlayAlpha,
