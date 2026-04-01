@@ -174,6 +174,20 @@ add_test(NAME MincpikTest COMMAND test_mincpik
     ${TEST_DATA_DIR}/mni_icbm152_t1_tal_nlin_sym_09c.mnc
 )
 
+# ------------------------------------------------------------------
+# Overlay rendering correctness test
+# ------------------------------------------------------------------
+
+add_nr_test(test_overlap
+    INCLUDES  ${COMMON_INCLUDES} ${stb_SOURCE_DIR}
+    LINKS     nr_core
+)
+add_test(NAME OverlapTest COMMAND test_overlap
+    ${CMAKE_CURRENT_SOURCE_DIR}/sq1.mnc
+    ${CMAKE_CURRENT_SOURCE_DIR}/sq2_tr.mnc
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
 # --- GCC < 10 needs -lstdc++fs for std::filesystem ---
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 10)
     foreach(_tgt test_qc_csv test_app_config test_matrix_debug test_world_to_voxel test_coordinate_sync)
