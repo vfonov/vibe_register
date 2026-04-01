@@ -7,7 +7,11 @@
 #include "AppConfig.h"
 
 /// Verdict for a single volume column within a QC row.
-enum class QCVerdict { UNRATED, PASS, FAIL };
+/// Stored as an integer index into QCState::verdictOptions.
+/// -1 (QC_UNKNOWN) means the user has not yet made a choice.
+/// 0..N-1 are valid choices, where 0 is the "best" and N-1 is the "worst".
+using QCVerdict = int;
+constexpr QCVerdict QC_UNKNOWN = -1;
 
 /// Per-row QC result: one verdict + comment per column.
 struct QCRowResult
@@ -42,6 +46,12 @@ public:
     /// Currently displayed row index (-1 if none).
     int currentRowIndex = -1;
 
+    /// Ordered list of verdict option labels (best → worst).
+    /// Index 0 is the "best" verdict (shown green), index N-1 is the "worst" (red).
+    /// Minimum 2, maximum 10 options. Defaults to {"PASS","WARN","FAIL"}.
+    /// In the future this can be populated from a CLI flag before loadInputCsv().
+    std::vector<std::string> verdictOptions = {"PASS", "WARN", "FAIL"};
+
     /// Whether the overlay panel is visible in QC mode.
     bool showOverlay = true;
 
@@ -51,7 +61,7 @@ public:
     // --- CSV I/O ---
 
     /// Parse the input CSV file. Populates columnNames, rowIds, rowPaths,
-    /// and initialises results to UNRATED/empty.
+    /// and initialises results to unknown (-1) / empty.
     /// Throws std::runtime_error on missing ID column or empty file.
     void loadInputCsv(const std::string& path);
 
@@ -67,10 +77,10 @@ public:
     int columnCount() const;
     int rowCount() const;
 
-    /// Number of rows with at least one non-UNRATED verdict.
+    /// Number of rows with at least one non-unknown verdict.
     int ratedCount() const;
 
-    /// Index of first row where ALL verdicts are UNRATED, or -1 if all rated.
+    /// Index of first row where ALL verdicts are unknown (-1), or -1 if all rated.
     int firstUnratedRow() const;
 
     /// Get file paths for a specific row.

@@ -28,6 +28,12 @@ static int testsFailed = 0;
     do { if (!(x)) throw std::runtime_error( \
         std::string(#x " is false at line ") + std::to_string(__LINE__)); } while(0)
 
+/// Convenience aliases: indices into the default verdictOptions {"PASS","WARN","FAIL"}
+static constexpr QCVerdict VERDICT_PASS    = 0;
+static constexpr QCVerdict VERDICT_WARN    = 1;
+static constexpr QCVerdict VERDICT_FAIL    = 2;
+static constexpr QCVerdict VERDICT_UNRATED = QC_UNKNOWN;
+
 /// Helper to write a temporary file and clean up on destruction.
 struct TmpFile
 {
@@ -66,7 +72,7 @@ TEST(parse_input_csv)
     for (const auto& r : qc.results)
     {
         for (auto v : r.verdicts)
-            ASSERT_EQ(v, QCVerdict::UNRATED);
+            ASSERT_EQ(v, VERDICT_UNRATED);
         for (const auto& c : r.comments)
             ASSERT_TRUE(c.empty());
     }
@@ -107,11 +113,11 @@ TEST(output_round_trip)
     qc1.loadInputCsv(fin.path);
     qc1.outputCsvPath = outPath;
 
-    qc1.results[0].verdicts[0] = QCVerdict::PASS;
-    qc1.results[0].verdicts[1] = QCVerdict::FAIL;
+    qc1.results[0].verdicts[0] = VERDICT_PASS;
+    qc1.results[0].verdicts[1] = VERDICT_FAIL;
     qc1.results[0].comments[1] = "Bad quality";
-    qc1.results[1].verdicts[0] = QCVerdict::PASS;
-    qc1.results[1].verdicts[1] = QCVerdict::PASS;
+    qc1.results[1].verdicts[0] = VERDICT_PASS;
+    qc1.results[1].verdicts[1] = VERDICT_PASS;
     qc1.results[2].comments[0] = "Comment with, comma";
 
     qc1.saveOutputCsv();
@@ -121,12 +127,12 @@ TEST(output_round_trip)
     qc2.loadInputCsv(fin.path);
     qc2.loadOutputCsv(outPath);
 
-    ASSERT_EQ(qc2.results[0].verdicts[0], QCVerdict::PASS);
-    ASSERT_EQ(qc2.results[0].verdicts[1], QCVerdict::FAIL);
+    ASSERT_EQ(qc2.results[0].verdicts[0], VERDICT_PASS);
+    ASSERT_EQ(qc2.results[0].verdicts[1], VERDICT_FAIL);
     ASSERT_EQ(qc2.results[0].comments[1], "Bad quality");
-    ASSERT_EQ(qc2.results[1].verdicts[0], QCVerdict::PASS);
-    ASSERT_EQ(qc2.results[1].verdicts[1], QCVerdict::PASS);
-    ASSERT_EQ(qc2.results[2].verdicts[0], QCVerdict::UNRATED);
+    ASSERT_EQ(qc2.results[1].verdicts[0], VERDICT_PASS);
+    ASSERT_EQ(qc2.results[1].verdicts[1], VERDICT_PASS);
+    ASSERT_EQ(qc2.results[2].verdicts[0], VERDICT_UNRATED);
     ASSERT_EQ(qc2.results[2].comments[0], "Comment with, comma");
 
     std::filesystem::remove(outPath);
@@ -146,7 +152,7 @@ TEST(missing_output_file)
     qc.loadOutputCsv("/nonexistent/path/results.csv");
 
     // Results should remain UNRATED
-    ASSERT_EQ(qc.results[0].verdicts[0], QCVerdict::UNRATED);
+    ASSERT_EQ(qc.results[0].verdicts[0], VERDICT_UNRATED);
 }
 
 // ---- Test 5: Partial output (fewer rows) ----
@@ -171,10 +177,10 @@ TEST(partial_output)
     qc.loadInputCsv(fin.path);
     qc.loadOutputCsv(outPath);
 
-    ASSERT_EQ(qc.results[0].verdicts[0], QCVerdict::UNRATED); // sub01 not in output
-    ASSERT_EQ(qc.results[1].verdicts[0], QCVerdict::PASS);    // sub02 matched
+    ASSERT_EQ(qc.results[0].verdicts[0], VERDICT_UNRATED); // sub01 not in output
+    ASSERT_EQ(qc.results[1].verdicts[0], VERDICT_PASS);    // sub02 matched
     ASSERT_EQ(qc.results[1].comments[0], "looks good");
-    ASSERT_EQ(qc.results[2].verdicts[0], QCVerdict::UNRATED); // sub03 not in output
+    ASSERT_EQ(qc.results[2].verdicts[0], VERDICT_UNRATED); // sub03 not in output
 
     std::filesystem::remove(outPath);
 }
@@ -195,17 +201,17 @@ TEST(rated_count_and_first_unrated)
     ASSERT_EQ(qc.firstUnratedRow(), 0);
 
     // Rate sub01 partially (one column)
-    qc.results[0].verdicts[0] = QCVerdict::PASS;
+    qc.results[0].verdicts[0] = VERDICT_PASS;
     ASSERT_EQ(qc.ratedCount(), 1);
     ASSERT_EQ(qc.firstUnratedRow(), 1); // sub02 is first fully unrated
 
     // Rate sub02
-    qc.results[1].verdicts[1] = QCVerdict::FAIL;
+    qc.results[1].verdicts[1] = VERDICT_FAIL;
     ASSERT_EQ(qc.ratedCount(), 2);
     ASSERT_EQ(qc.firstUnratedRow(), 2); // sub03
 
     // Rate sub03
-    qc.results[2].verdicts[0] = QCVerdict::PASS;
+    qc.results[2].verdicts[0] = VERDICT_PASS;
     ASSERT_EQ(qc.ratedCount(), 3);
     ASSERT_EQ(qc.firstUnratedRow(), -1); // all rated
 }

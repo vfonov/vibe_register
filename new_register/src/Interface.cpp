@@ -322,6 +322,25 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
                 switchQCRow(qcState_.currentRowIndex + 1, backend);
             if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket, false))
                 switchQCRow(qcState_.currentRowIndex - 1, backend);
+
+            if (qcState_.singleVerdictMode && qcState_.currentRowIndex >= 0)
+            {
+                static const ImGuiKey digitKeys[] = {
+                    ImGuiKey_1, ImGuiKey_2, ImGuiKey_3, ImGuiKey_4, ImGuiKey_5,
+                    ImGuiKey_6, ImGuiKey_7, ImGuiKey_8, ImGuiKey_9, ImGuiKey_0
+                };
+                int nOpts = static_cast<int>(qcState_.verdictOptions.size());
+                for (int i = 0; i < std::min(nOpts, 10); ++i)
+                {
+                    if (ImGui::IsKeyPressed(digitKeys[i], false))
+                    {
+                        qcState_.results[qcState_.currentRowIndex].verdicts[0] = i;
+                        if (autosave_) qcState_.saveOutputCsv();
+                        switchQCRow(qcState_.currentRowIndex + 1, backend);
+                        break;
+                    }
+                }
+            }
         }
 
         // +/- keys: step through slices of the last-clicked view.
@@ -371,7 +390,7 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
     }
 
     if (qcState_.active && qcState_.singleVerdictMode)
-        renderQCSingleVerdictPanel();
+        renderQCSingleVerdictPanel(backend);
 
     int overlayDirtyMask = 0;
     for (int vi = 0; vi < numVolumes; ++vi) {
@@ -651,29 +670,35 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
                         ImGui::TableNextRow();
 
                         const auto& result = qcState_.results[ri];
-                        bool anyFail = false;
-                        bool allPass = true;
+                        int nOpts = static_cast<int>(qcState_.verdictOptions.size());
+                        // worstVerdict: highest index seen (worst = last option).
+                        // allBest: all verdicts are index 0.
+                        int worstVerdict = QC_UNKNOWN;
+                        bool allBest = true;
                         if (qcState_.singleVerdictMode)
                         {
-                            QCVerdict v = result.verdicts.empty() ? QCVerdict::UNRATED : result.verdicts[0];
-                            anyFail = (v == QCVerdict::FAIL);
-                            allPass = (v == QCVerdict::PASS);
+                            int v = result.verdicts.empty() ? QC_UNKNOWN : result.verdicts[0];
+                            worstVerdict = v;
+                            allBest = (v == 0);
                         }
                         else
                         {
                             for (int ci = 0; ci < numCols; ++ci)
                             {
-                                QCVerdict v = result.verdicts[ci];
-                                if (v == QCVerdict::FAIL) anyFail = true;
-                                if (v != QCVerdict::PASS) allPass = false;
+                                int v = result.verdicts[ci];
+                                if (v > worstVerdict) worstVerdict = v;
+                                if (v != 0) allBest = false;
                             }
-                            if (numCols == 0) allPass = false;
+                            if (numCols == 0) allBest = false;
                         }
 
-                        if (anyFail)
+                        if (worstVerdict == nOpts - 1)
                             ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
                                 IM_COL32(180, 40, 40, 60));
-                        else if (allPass)
+                        else if (worstVerdict > 0)
+                            ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
+                                IM_COL32(180, 140, 40, 60));
+                        else if (allBest && worstVerdict == 0)
                             ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
                                 IM_COL32(40, 180, 40, 60));
 
@@ -699,29 +724,39 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
                         ImGui::TableSetColumnIndex(1);
                         ImGui::Text("%s", qcState_.rowIds[ri].c_str());
 
+                        // Helper: colour-code a single verdict cell by index.
+                        // Index 0 = best (green), N-1 = worst (red), middle = amber.
+                        auto renderVerdictCell = [&](QCVerdict v) {
+                            if (v == QC_UNKNOWN)
+                            {
+                                ImGui::TextDisabled("-");
+                                return;
+                            }
+                            std::string label = (v >= 0 && v < nOpts)
+                                ? qcState_.verdictOptions[v].substr(0, 1)
+                                : "?";
+                            ImVec4 col;
+                            if (v == 0)
+                                col = ImVec4(0.2f, 0.9f, 0.2f, 1.0f);           // green
+                            else if (v == nOpts - 1)
+                                col = ImVec4(0.9f, 0.2f, 0.2f, 1.0f);           // red
+                            else
+                                col = ImVec4(0.9f, 0.75f, 0.1f, 1.0f);          // amber
+                            ImGui::TextColored(col, "%s", label.c_str());
+                        };
+
                         if (qcState_.singleVerdictMode)
                         {
                             ImGui::TableSetColumnIndex(2);
-                            QCVerdict v = result.verdicts.empty() ? QCVerdict::UNRATED : result.verdicts[0];
-                            if (v == QCVerdict::PASS)
-                                ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.2f, 1.0f), "P");
-                            else if (v == QCVerdict::FAIL)
-                                ImGui::TextColored(ImVec4(0.9f, 0.2f, 0.2f, 1.0f), "F");
-                            else
-                                ImGui::TextDisabled("-");
+                            QCVerdict v = result.verdicts.empty() ? QC_UNKNOWN : result.verdicts[0];
+                            renderVerdictCell(v);
                         }
                         else
                         {
                             for (int ci = 0; ci < numCols; ++ci)
                             {
                                 ImGui::TableSetColumnIndex(2 + ci);
-                                QCVerdict v = result.verdicts[ci];
-                                if (v == QCVerdict::PASS)
-                                    ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.2f, 1.0f), "P");
-                                else if (v == QCVerdict::FAIL)
-                                    ImGui::TextColored(ImVec4(0.9f, 0.2f, 0.2f, 1.0f), "F");
-                                else
-                                    ImGui::TextDisabled("-");
+                                renderVerdictCell(result.verdicts[ci]);
                             }
                         }
                     }
@@ -762,6 +797,8 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
             if (qcState_.active)
             {
                 row("[/]",   "Prev/next QC");
+                if (qcState_.singleVerdictMode)
+                    row("1..N",  "Set verdict & advance (QC)");
             }
 
             // Separator row
@@ -804,6 +841,8 @@ void Interface::renderHotkeyPanel() {
             if (qcState_.active)
             {
                 row("[/]",   "Prev/next QC");
+                if (qcState_.singleVerdictMode)
+                    row("1..N",  "Set verdict & advance (QC)");
             }
 
             // Separator row
@@ -2500,21 +2539,20 @@ void Interface::renderQCVerdictPanel(int volumeIndex) {
     bool changed = false;
 
     int vInt = static_cast<int>(verdict);
-    if (ImGui::RadioButton("PASS", &vInt, static_cast<int>(QCVerdict::PASS)))
+    int nOpts = static_cast<int>(qcState_.verdictOptions.size());
+    for (int i = 0; i < nOpts; ++i)
     {
-        verdict = QCVerdict::PASS;
-        changed = true;
+        if (i > 0) ImGui::SameLine();
+        if (ImGui::RadioButton(qcState_.verdictOptions[i].c_str(), &vInt, i))
+        {
+            verdict = i;
+            changed = true;
+        }
     }
     ImGui::SameLine();
-    if (ImGui::RadioButton("FAIL", &vInt, static_cast<int>(QCVerdict::FAIL)))
+    if (ImGui::RadioButton("---", &vInt, QC_UNKNOWN))
     {
-        verdict = QCVerdict::FAIL;
-        changed = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::RadioButton("---", &vInt, static_cast<int>(QCVerdict::UNRATED)))
-    {
-        verdict = QCVerdict::UNRATED;
+        verdict = QC_UNKNOWN;
         changed = true;
     }
 
@@ -2535,10 +2573,80 @@ void Interface::renderQCVerdictPanel(int volumeIndex) {
     ImGui::PopID();
 }
 
-void Interface::renderQCSingleVerdictPanel() {
+void Interface::renderQCSingleVerdictPanel(GraphicsBackend& backend) {
     ImGui::Begin("QC Verdict");
     if (qcState_.currentRowIndex >= 0 && qcState_.rowCount() > 0)
-        renderQCVerdictPanel(0);
+    {
+        auto& result  = qcState_.results[qcState_.currentRowIndex];
+        auto& verdict = result.verdicts[0];
+        auto& comment = result.comments[0];
+
+        const int nOpts = static_cast<int>(qcState_.verdictOptions.size());
+
+        // Colour helper: index 0 = green (best), N-1 = red (worst), middle = amber
+        auto verdictColour = [&](int v) -> ImVec4 {
+            if (v < 0)          return {0.5f, 0.5f, 0.5f, 1.0f};
+            if (v == 0)         return {0.2f, 0.9f, 0.2f, 1.0f};
+            if (v == nOpts - 1) return {0.9f, 0.2f, 0.2f, 1.0f};
+            return                     {0.9f, 0.8f, 0.1f, 1.0f};
+        };
+
+        // Key labels: 1-9 for indices 0-8, 0 for index 9
+        static const char* keyLabels[] = {
+            "1","2","3","4","5","6","7","8","9","0"
+        };
+
+        // Verdict buttons with hotkey prefix
+        float btnWidth = (ImGui::GetContentRegionAvail().x
+                          - ImGui::GetStyle().ItemSpacing.x * nOpts) / (nOpts + 1);
+        bool changed = false;
+        for (int i = 0; i < nOpts; ++i)
+        {
+            if (i > 0) ImGui::SameLine();
+            std::string label = std::string("[")
+                + (i < 10 ? keyLabels[i] : "?")
+                + "] "
+                + qcState_.verdictOptions[i];
+
+            // Highlight active verdict
+            ImVec4 col = verdictColour(i);
+            bool isActive = (verdict == i);
+            if (isActive)
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(col.x, col.y, col.z, 0.7f));
+            else
+                ImGui::PushStyleColor(ImGuiCol_Button,
+                    ImGui::GetStyleColorVec4(ImGuiCol_Button));
+
+            if (ImGui::Button(label.c_str(), ImVec2(btnWidth, 0)))
+            {
+                verdict = i;
+                changed = true;
+                if (autosave_) qcState_.saveOutputCsv();
+                switchQCRow(qcState_.currentRowIndex + 1, backend);
+            }
+            ImGui::PopStyleColor();
+        }
+
+        // Clear button (no auto-advance)
+        ImGui::SameLine();
+        if (ImGui::Button("---", ImVec2(btnWidth, 0)))
+        {
+            verdict = QC_UNKNOWN;
+            changed = true;
+        }
+
+        // Comment input
+        char buf[256];
+        std::snprintf(buf, sizeof(buf), "%s", comment.c_str());
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+        if (ImGui::InputText("##sv_comment", buf, sizeof(buf)))
+            comment = buf;
+        if (ImGui::IsItemDeactivatedAfterEdit())
+            changed = true;
+
+        if (changed && autosave_)
+            qcState_.saveOutputCsv();
+    }
     ImGui::End();
 }
 

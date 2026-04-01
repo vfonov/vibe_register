@@ -171,17 +171,17 @@ void QCState::loadInputCsv(const std::string& path)
         }
         rowPaths.push_back(std::move(paths));
 
-        // Initialise result to UNRATED
+        // Initialise result to unknown
         QCRowResult result;
         result.id = rowIds.back();
         if (singleVerdictMode)
         {
-            result.verdicts.assign(1, QCVerdict::UNRATED);
+            result.verdicts.assign(1, QC_UNKNOWN);
             result.comments.assign(1, "");
         }
         else
         {
-            result.verdicts.resize(columnNames.size(), QCVerdict::UNRATED);
+            result.verdicts.resize(columnNames.size(), QC_UNKNOWN);
             result.comments.resize(columnNames.size());
         }
         results.push_back(std::move(result));
@@ -248,12 +248,10 @@ void QCState::loadOutputCsv(const std::string& path)
             if (vIdx < fields.size())
             {
                 const auto& v = fields[vIdx];
-                if (v == "PASS")
-                    result.verdicts[0] = QCVerdict::PASS;
-                else if (v == "FAIL")
-                    result.verdicts[0] = QCVerdict::FAIL;
-                else
-                    result.verdicts[0] = QCVerdict::UNRATED;
+                auto it = std::find(verdictOptions.begin(), verdictOptions.end(), v);
+                result.verdicts[0] = (it != verdictOptions.end())
+                    ? static_cast<int>(it - verdictOptions.begin())
+                    : QC_UNKNOWN;
             }
             if (cIdx != SIZE_MAX && cIdx < fields.size())
                 result.comments[0] = fields[cIdx];
@@ -314,12 +312,10 @@ void QCState::loadOutputCsv(const std::string& path)
             if (idx.verdictIdx < fields.size())
             {
                 const auto& v = fields[idx.verdictIdx];
-                if (v == "PASS")
-                    result.verdicts[ci] = QCVerdict::PASS;
-                else if (v == "FAIL")
-                    result.verdicts[ci] = QCVerdict::FAIL;
-                else
-                    result.verdicts[ci] = QCVerdict::UNRATED;
+                auto it = std::find(verdictOptions.begin(), verdictOptions.end(), v);
+                result.verdicts[ci] = (it != verdictOptions.end())
+                    ? static_cast<int>(it - verdictOptions.begin())
+                    : QC_UNKNOWN;
             }
 
             if (idx.hasComment && idx.commentIdx < fields.size())
@@ -346,12 +342,9 @@ void QCState::saveOutputCsv() const
             const char* verdictStr = "";
             if (!results[i].verdicts.empty())
             {
-                switch (results[i].verdicts[0])
-                {
-                case QCVerdict::PASS: verdictStr = "PASS"; break;
-                case QCVerdict::FAIL: verdictStr = "FAIL"; break;
-                default: verdictStr = ""; break;
-                }
+                int v = results[i].verdicts[0];
+                if (v >= 0 && v < static_cast<int>(verdictOptions.size()))
+                    verdictStr = verdictOptions[v].c_str();
             }
             std::string comment = results[i].comments.empty() ? "" : results[i].comments[0];
             writeCsvRow(ofs, {rowIds[i], verdictStr, comment});
@@ -380,12 +373,9 @@ void QCState::saveOutputCsv() const
             const char* verdictStr = "";
             if (ci < results[i].verdicts.size())
             {
-                switch (results[i].verdicts[ci])
-                {
-                case QCVerdict::PASS: verdictStr = "PASS"; break;
-                case QCVerdict::FAIL: verdictStr = "FAIL"; break;
-                default: verdictStr = ""; break;
-                }
+                int v = results[i].verdicts[ci];
+                if (v >= 0 && v < static_cast<int>(verdictOptions.size()))
+                    verdictStr = verdictOptions[v].c_str();
             }
             row.push_back(verdictStr);
 
@@ -420,7 +410,7 @@ int QCState::ratedCount() const
     for (const auto& r : results)
     {
         bool anyRated = std::any_of(r.verdicts.begin(), r.verdicts.end(),
-            [](QCVerdict v) { return v != QCVerdict::UNRATED; });
+            [](QCVerdict v) { return v != QC_UNKNOWN; });
         if (anyRated)
             ++count;
     }
@@ -433,7 +423,7 @@ int QCState::firstUnratedRow() const
     {
         bool allUnrated = std::all_of(results[i].verdicts.begin(),
             results[i].verdicts.end(),
-            [](QCVerdict v) { return v == QCVerdict::UNRATED; });
+            [](QCVerdict v) { return v == QC_UNKNOWN; });
         if (allUnrated)
             return static_cast<int>(i);
     }
