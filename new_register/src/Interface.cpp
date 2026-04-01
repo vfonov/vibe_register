@@ -1361,7 +1361,7 @@ void Interface::renderOverlayPanel() {
     ImGui::Begin("Overlay");
     {
         // In QC mode, add a placeholder to align with verdict panels in volume columns
-        if (qcState_.active)
+        if (qcState_.active && !qcState_.singleVerdictMode)
         {
             float placeholderHeight = 60.0f * state_.dpiScale_;
             float viewWidth = ImGui::GetContentRegionAvail().x;
