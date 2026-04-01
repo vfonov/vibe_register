@@ -60,6 +60,13 @@ cd new_register/build && cmake .. && make
 ctest --output-on-failure
 ```
 
+**Debug tools** (built with `make`, run manually — not ctests):
+
+| Binary | Usage | Purpose |
+|--------|-------|---------|
+| `tests/dump_vol` | `dump_vol <file.mnc> [...]` | Print dims, step, start, dirCos, voxelToWorld, corner world coords |
+| `tests/generate_overlap_refs` | `generate_overlap_refs <sq1.mnc> <sq2_tr.mnc> <out_dir>` | Render and save reference PNGs for OverlapTest |
+
 **Key architectural notes:**
 - `nr_core` static library bundles GPU-agnostic code (Volume, Transform, AppConfig, SliceRenderer, etc.) for reuse by `new_mincpik`.
 - QC mode: `--qc input.csv --qc-output results.csv`; input columns are volume paths; verdicts written per-column.

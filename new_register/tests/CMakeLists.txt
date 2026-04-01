@@ -188,6 +188,39 @@ add_test(NAME OverlapTest COMMAND test_overlap
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+# ------------------------------------------------------------------
+# Overlay rendering correctness test — sq1 + sq2 (unregistered)
+# ------------------------------------------------------------------
+
+add_nr_test(test_overlap2
+    INCLUDES  ${COMMON_INCLUDES} ${stb_SOURCE_DIR}
+    LINKS     nr_core
+)
+add_test(NAME Overlap2Test COMMAND test_overlap2
+    ${CMAKE_CURRENT_SOURCE_DIR}/sq1.mnc
+    ${CMAKE_CURRENT_SOURCE_DIR}/sq2.mnc
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+# ------------------------------------------------------------------
+# Volume metadata dump tool (run manually for debugging)
+# ------------------------------------------------------------------
+
+add_executable(dump_vol
+    ${CMAKE_CURRENT_SOURCE_DIR}/dump_vol.cpp)
+target_include_directories(dump_vol PRIVATE ${COMMON_INCLUDES})
+target_link_libraries(dump_vol PRIVATE nr_core)
+
+# ------------------------------------------------------------------
+# Reference PNG generator for test_overlap (run manually, not a ctest)
+# ------------------------------------------------------------------
+
+add_executable(generate_overlap_refs
+    ${CMAKE_CURRENT_SOURCE_DIR}/generate_overlap_refs.cpp)
+target_include_directories(generate_overlap_refs PRIVATE
+    ${COMMON_INCLUDES} ${stb_SOURCE_DIR})
+target_link_libraries(generate_overlap_refs PRIVATE nr_core)
+
 # --- GCC < 10 needs -lstdc++fs for std::filesystem ---
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 10)
     foreach(_tgt test_qc_csv test_app_config test_matrix_debug test_world_to_voxel test_coordinate_sync)

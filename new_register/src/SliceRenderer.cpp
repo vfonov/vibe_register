@@ -311,18 +311,20 @@ RenderedSlice renderOverlaySlice(
     // --- Per-volume precomputed data ---
     struct PerVolInfo
     {
-        glm::dmat4 combined;         // ref-voxel -> target-voxel transform
+        glm::dmat4 worldToVox;       // vol.worldToVoxel, applied per-pixel
         const float* vdata;
         glm::ivec3 dims;
         int dimXY;
         float rangeMin, rangeMax, invSpan;
         float logRangeMin, logRangeMax;  // Log-transformed range values
         const uint32_t* mainLut;
+        std::array<uint32_t, 256> ownedLut{};  // storage when invertColourMap (prevents dangling ptr)
         uint32_t underColour, overColour;
         bool underTransparent, overTransparent;
         float alpha;
-        bool useTPSInverse = false;
-        glm::dmat4 targetWorldToVox;
+        bool isRef    = false;  // vi==0: sample at (rx,ry,rz) directly
+        bool useTPS   = false;  // vi==1 with TPS transform
+        int  volIndex = 0;      // original vi, for transform dispatch
         bool isLabelVolume = false;
         const std::unordered_map<int, LabelInfo>* labelLUT = nullptr;
         bool useColourMapForLabel = false;
@@ -353,20 +355,10 @@ RenderedSlice renderOverlaySlice(
 
         PerVolInfo info;
 
-        if (vi == 1 && hasLinearTransform)
-        {
-            info.combined = vol.worldToVoxel * invLinear * ref.voxelToWorld;
-        }
-        else if (vi == 1 && hasTPSTransform)
-        {
-            info.combined = vol.worldToVoxel * ref.voxelToWorld;  // unused in pixel loop
-            info.useTPSInverse = true;
-            info.targetWorldToVox = vol.worldToVoxel;
-        }
-        else
-        {
-            info.combined = vol.worldToVoxel * ref.voxelToWorld;
-        }
+        info.worldToVox = vol.worldToVoxel;
+        info.isRef      = (vi == 0);
+        info.useTPS     = (vi == 1 && hasTPSTransform);
+        info.volIndex   = vi;
 
         info.vdata = vol.data.data();
         info.dims = vol.dimensions;
@@ -395,7 +387,8 @@ RenderedSlice renderOverlaySlice(
         if (p.invertColourMap)
         {
             ColourLut invertedLut = invertColourLut(baseLut);
-            info.mainLut = invertedLut.table.data();
+            info.ownedLut = invertedLut.table;  // own the storage
+            info.mainLut  = info.ownedLut.data();
         }
         else
         {
@@ -480,74 +473,10 @@ RenderedSlice renderOverlaySlice(
 
     result.pixels.resize(w * h);
 
-    // Precompute ref-voxel base and row/col deltas for the 2D scan
-    glm::dvec3 refBase, refDpx, refDpy;
-    if (viewIndex == 0)
-    {
-        int z = std::clamp(sliceIndex, 0, ref.dimensions.z - 1);
-        refBase = glm::dvec3(0.0, 0.0, static_cast<double>(z));
-        refDpx = glm::dvec3(1.0, 0.0, 0.0);
-        refDpy = glm::dvec3(0.0, 1.0, 0.0);
-    }
-    else if (viewIndex == 1)
-    {
-        int x = std::clamp(sliceIndex, 0, ref.dimensions.x - 1);
-        refBase = glm::dvec3(static_cast<double>(x), 0.0, 0.0);
-        refDpx = glm::dvec3(0.0, 1.0, 0.0);
-        refDpy = glm::dvec3(0.0, 0.0, 1.0);
-    }
-    else
-    {
-        int y = std::clamp(sliceIndex, 0, ref.dimensions.y - 1);
-        refBase = glm::dvec3(0.0, static_cast<double>(y), 0.0);
-        refDpx = glm::dvec3(1.0, 0.0, 0.0);
-        refDpy = glm::dvec3(0.0, 0.0, 1.0);
-    }
+    const glm::dmat4& refV2W = ref.voxelToWorld;
 
-    // Precompute scanline parameters per volume
-    struct ScanInfo
-    {
-        glm::dvec3 base;
-        glm::dvec3 dpx;
-        glm::dvec3 dpy;
-    };
-    std::vector<ScanInfo> scans(infos.size());
-    for (size_t i = 0; i < infos.size(); ++i)
-    {
-        if (infos[i].useTPSInverse)
-            continue;
-        const auto& M = infos[i].combined;
-        glm::dvec4 bH = M * glm::dvec4(refBase, 1.0);
-        glm::dvec4 dxH = M * glm::dvec4(refDpx, 0.0);
-        glm::dvec4 dyH = M * glm::dvec4(refDpy, 0.0);
-        scans[i].base = glm::dvec3(bH);
-        scans[i].dpx = glm::dvec3(dxH);
-        scans[i].dpy = glm::dvec3(dyH);
-    }
-
-    // For TPS per-pixel path: precompute ref-voxel -> world scanline params
-    glm::dvec3 worldBase(0.0), worldDpx(0.0), worldDpy(0.0);
-    bool anyTPS = false;
-    for (const auto& info : infos)
-    {
-        if (info.useTPSInverse)
-        {
-            anyTPS = true;
-            break;
-        }
-    }
-    if (anyTPS)
-    {
-        const auto& V2W = ref.voxelToWorld;
-        glm::dvec4 bH  = V2W * glm::dvec4(refBase, 1.0);
-        glm::dvec4 dxH = V2W * glm::dvec4(refDpx, 0.0);
-        glm::dvec4 dyH = V2W * glm::dvec4(refDpy, 0.0);
-        worldBase = glm::dvec3(bH);
-        worldDpx  = glm::dvec3(dxH);
-        worldDpy  = glm::dvec3(dyH);
-    }
-
-    // Pixel loop
+    // Pixel loop — for each output pixel, compute ref voxel (rx,ry,rz) directly,
+    // convert to world once, then map to each target volume's voxel space.
     for (int py = 0; py < h; ++py)
     {
         int dstRowOff = (h - 1 - py) * w;
@@ -557,38 +486,59 @@ RenderedSlice renderOverlaySlice(
             float accR = 0.0f, accG = 0.0f, accB = 0.0f;
             float totalWeight = 0.0f;
 
+            // Reference voxel coordinates (no clamping — out-of-bounds → background)
+            int rx, ry, rz;
+            if      (viewIndex == 0) { rx = px; ry = py; rz = sliceIndex; }
+            else if (viewIndex == 1) { rx = sliceIndex; ry = px; rz = py; }
+            else                     { rx = px; ry = sliceIndex; rz = py; }
+
+            // World position of this ref voxel — computed once, reused for all volumes
+            glm::dvec4 world = refV2W * glm::dvec4(
+                static_cast<double>(rx), static_cast<double>(ry),
+                static_cast<double>(rz), 1.0);
+
             for (size_t vi = 0; vi < infos.size(); ++vi)
             {
                 const auto& info = infos[vi];
 
+                // ── Compute fractional target voxel ──────────────────────
                 glm::dvec3 tv;
-                if (info.useTPSInverse)
+                if (info.isRef)
                 {
-                    glm::dvec3 worldPt = worldBase + static_cast<double>(px) * worldDpx
-                                                   + static_cast<double>(py) * worldDpy;
-                    glm::dvec3 vol1World = transform->inverseTransformPoint(worldPt);
-                    glm::dvec4 vox = info.targetWorldToVox * glm::dvec4(vol1World, 1.0);
-                    tv = glm::dvec3(vox);
+                    tv = glm::dvec3(rx, ry, rz);
+                }
+                else if (info.volIndex == 1 && info.useTPS)
+                {
+                    glm::dvec3 vw = transform->inverseTransformPoint(glm::dvec3(world));
+                    tv = glm::dvec3(info.worldToVox * glm::dvec4(vw, 1.0));
+                }
+                else if (info.volIndex == 1 && hasLinearTransform)
+                {
+                    tv = glm::dvec3(info.worldToVox * (invLinear * world));
                 }
                 else
                 {
-                    const auto& sc = scans[vi];
-                    tv = sc.base + static_cast<double>(px) * sc.dpx
-                                 + static_cast<double>(py) * sc.dpy;
+                    tv = glm::dvec3(info.worldToVox * world);
                 }
 
-                int tx = static_cast<int>(std::round(tv.x));
-                int ty = static_cast<int>(std::round(tv.y));
-                int tz = static_cast<int>(std::round(tv.z));
-
-                // Bounds check
-                if (tx < 0 || tx >= info.dims.x ||
-                    ty < 0 || ty >= info.dims.y ||
-                    tz < 0 || tz >= info.dims.z)
+                // ── Out-of-bounds → skip (no contribution) ───────────────
+                // Use half-voxel extended range to match nearest-neighbour extent.
+                if (tv.x < -0.5 || tv.x >= info.dims.x - 0.5 ||
+                    tv.y < -0.5 || tv.y >= info.dims.y - 0.5 ||
+                    tv.z < -0.5 || tv.z >= info.dims.z - 0.5)
                     continue;
 
-                float raw = info.vdata[tz * info.dimXY + ty * info.dims.x + tx];
+                // ── Sample voxel value (nearest-neighbour) ───────────────
+                float raw;
+                {
+                    int tx = std::clamp(static_cast<int>(std::round(tv.x)), 0, info.dims.x - 1);
+                    int ty = std::clamp(static_cast<int>(std::round(tv.y)), 0, info.dims.y - 1);
+                    int tz = std::clamp(static_cast<int>(std::round(tv.z)), 0, info.dims.z - 1);
+                    raw = info.vdata[tz * info.dimXY + ty * info.dims.x + tx];
+                }
 
+                uint32_t packed;
+                {
                 // Apply log transform if enabled
                 float displayVal = raw;
                 bool logSkipPixel = false;
@@ -596,7 +546,7 @@ RenderedSlice renderOverlaySlice(
 
                 if (info.useLogTransform)
                 {
-                    if (raw <= 0.0f)
+                    if (displayVal <= 0.0f)
                     {
                         // Non-positive values use under-colour setting
                         if (info.underTransparent)
@@ -606,11 +556,10 @@ RenderedSlice renderOverlaySlice(
                     }
                     else
                     {
-                        displayVal = std::log10(raw);
+                        displayVal = std::log10(displayVal);
                     }
                 }
 
-                uint32_t packed;
                 if (logSkipPixel)
                 {
                     packed = logSkipColour;
@@ -689,6 +638,8 @@ RenderedSlice renderOverlaySlice(
                         lutIdx = 255;
                     packed = info.mainLut[lutIdx];
                 }
+
+                } // end inBounds else
 
                 if ((packed >> 24) == 0)
                     continue;
