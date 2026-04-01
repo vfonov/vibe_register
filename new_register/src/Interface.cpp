@@ -301,7 +301,7 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
             viewManager_.updateAllOverlayTextures();
     }
 
-    if (!ImGui::GetIO().WantCaptureKeyboard) {
+    if (!ImGui::GetIO().WantTextInput) {
         if (ImGui::IsKeyPressed(ImGuiKey_R)) {
             viewManager_.resetViews();
             if (hasOverlay)
@@ -365,7 +365,7 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
     }
 
     // Toggle hotkeys popup with '?' or 'H' - works even when popup is open
-    if (!ImGui::GetIO().WantCaptureKeyboard &&
+    if (!ImGui::GetIO().WantTextInput &&
         (ImGui::IsKeyPressed(ImGuiKey_Slash) || ImGui::IsKeyPressed(ImGuiKey_H))) {
         state_.showHotkeysPopup_ = !state_.showHotkeysPopup_;
     }
@@ -1422,7 +1422,7 @@ void Interface::renderOverlayPanel() {
 
                 ImRect splitterBb;
                 splitterBb.Min = ImVec2(ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y);
-                splitterBb.Max = ImVec2(splitterBb.Min.x + avail.x, splitterBb.Min.y + 8.0f);
+                splitterBb.Max = ImVec2(splitterBb.Min.x + avail.x, splitterBb.Min.y + 4.0f);
 
                 bool changed = ImGui::SplitterBehavior(
                     splitterBb, splitterId, ImGuiAxis_Y,
@@ -1445,7 +1445,7 @@ void Interface::renderOverlayPanel() {
                     state_.sharedViewRatios[vNext] = newRatio2 * oldCombined;
                 }
 
-                ImGui::SetCursorScreenPos(ImVec2(splitterBb.Min.x, splitterBb.Min.y + 8.0f));
+                ImGui::SetCursorScreenPos(ImVec2(splitterBb.Min.x, splitterBb.Min.y + 4.0f));
             }
         }
 
@@ -2066,7 +2066,9 @@ int Interface::renderOverlayView(int viewIndex, const ImVec2& childSize) {
     char childId[64];
     std::snprintf(childId, sizeof(childId), "##overlay_%d", viewIndex);
 
-    ImGui::BeginChild(childId, childSize, ImGuiChildFlags_Borders);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::BeginChild(childId, childSize, ImGuiChildFlags_None);
+    ImGui::PopStyleVar();
     {
         if (state_.overlay_.textures[viewIndex]) {
             Texture* tex = state_.overlay_.textures[viewIndex].get();
