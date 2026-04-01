@@ -7,6 +7,9 @@ set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake-modules" "${CMAKE_MODUL
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Export compile commands for clangd LSP support
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # --- Disable installation of all dependencies by default ---
 # Must be set before any FetchContent_MakeAvailable or add_subdirectory
 set(CMAKE_DISABLE_INSTALL_PACKAGES ON)
