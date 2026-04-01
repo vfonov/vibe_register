@@ -3,7 +3,7 @@
 /// Usage: test_overlap <sq1.mnc> <sq2_tr.mnc> <tests_dir>
 ///
 /// Renders the axial, sagittal, and coronal central slices of a two-volume
-/// overlay (sq1 in GrayScale, sq2_tr in HotMetal) using renderOverlaySlice()
+/// overlay (sq1 in GrayScale, sq2_tr in GrayScale) using renderOverlaySlice()
 /// and pixel-compares the output against reference PNGs in <tests_dir>:
 ///   correct_overlap_ax.png, correct_overlap_sa.png, correct_overlap_co.png
 ///
@@ -139,7 +139,7 @@ int main(int argc, char** argv)
 
     pars[1].valueMin    = vol2.min_value;
     pars[1].valueMax    = vol2.max_value;
-    pars[1].colourMap   = ColourMapType::HotMetal;
+    pars[1].colourMap   = ColourMapType::GrayScale;
     pars[1].overlayAlpha = 0.5f;
 
     // Central slice indices in the reference volume (vol1)
