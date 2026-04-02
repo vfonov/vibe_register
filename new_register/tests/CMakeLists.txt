@@ -203,6 +203,19 @@ add_test(NAME Overlap2Test COMMAND test_overlap2
 )
 
 # ------------------------------------------------------------------
+# Coordinate-chain diagnostic test (H1/H2/H3 for sq2_tr)
+# ------------------------------------------------------------------
+
+add_nr_test(test_coord_sq2tr
+    INCLUDES  ${COMMON_INCLUDES}
+    LINKS     nr_core
+)
+add_test(NAME CoordSq2TrTest COMMAND test_coord_sq2tr
+    ${CMAKE_CURRENT_SOURCE_DIR}/sq1.mnc
+    ${CMAKE_CURRENT_SOURCE_DIR}/sq2_tr.mnc
+)
+
+# ------------------------------------------------------------------
 # Volume metadata dump tool (run manually for debugging)
 # ------------------------------------------------------------------
 

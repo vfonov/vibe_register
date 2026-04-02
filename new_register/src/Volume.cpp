@@ -233,22 +233,23 @@ void Volume::load(const std::string& filename)
         }
     }
 
-    // Build voxel-to-world transformation matrix
-    // MINC: voxel i corner is at start + i * step * dirCos
-    // For 4x4 matrix: world = affine * voxel + start
-    // where affine = dirCos * diag(step)
+    // Build voxel-to-world transformation matrix.
+    // MINC: world = dirCos * diag(step) * voxel + dirCos * start
+    // start[i] is along dimension i's axis, so the world translation = dirCos * start.
     
     glm::dmat3 dirCos3(dirCos[0][0], dirCos[0][1], dirCos[0][2],
                        dirCos[1][0], dirCos[1][1], dirCos[1][2],
                        dirCos[2][0], dirCos[2][1], dirCos[2][2]);
     
     glm::dvec3 scale(step.x, step.y, step.z);
-    glm::dvec3 trans(start.x, start.y, start.z);
-    
-    // dirCos * diag(scale) = each column scaled by scale
+    // start[i] is a coordinate along dimension i's own axis; rotate into world space.
+    // Formula from minc2-simple geo.py: aff[0:3,3] = dir_cos @ start
+    glm::dvec3 trans = dirCos3 * glm::dvec3(start.x, start.y, start.z);
+
+    // dirCos * diag(scale): scale column i by scale[i] (scalar), not element-wise by scale vector.
     glm::dmat3 affine = dirCos3;
     for (int i = 0; i < 3; ++i)
-        affine[i] *= scale;
+        affine[i] *= scale[i];
     
     // For 4x4 matrix: world = affine * voxel + start
     voxelToWorld = glm::dmat4(

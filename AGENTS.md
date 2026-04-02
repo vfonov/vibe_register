@@ -1,191 +1,79 @@
-# AGENTS.md
+# AGENTS.md — Agent Operating Guide
 
-> **Note to Agents:** This file contains instructions for operating within this repository. Please read it carefully before making changes.
+This is the single authoritative reference for AI agents working in this repository.
+Read this file before making any changes.
 
-## 1. Project Overview & Environment
+---
 
-- **Stack:** C/C++ (Legacy codebase), CMake, Autotools (configure/make)
-- **Legacy code:** 
-  - `register`: Volume registration tool (application), this is the code we are re-implementing
-  - `bicgl`: BIC Graphics Library (internal) - also will be reimplemented in the new version
-  - `bicpl`: BIC Programming Library (dependency) - will try not to use any functionality from here
-  - `libminc`: Medical Imaging NetCDF (dependency), medial image IO library
-- **Structure:**
-  - `legacy/bicgl/`: **BIC Graphics Library** source code.
-    - `OpenGL_graphics/`: OpenGL implementation.
-    - `GLUT_windows/`: GLUT windowing system integration.
-    - `Testing/`: Test suite for graphics functions.
-  - `legacy/register/`: **Register** application source code.
-    - `User_interface/`: UI components and event handling.
-    - `Functionality/`: Core logic for slicing, tagging, and volume management.
-- **Config Files:**
-  - `CMakeLists.txt` (located in subdirectories `legacy/bicgl`, `legacy/register`)
-  - `configure.in` / `Makefile.am` (Autotools legacy configs), do not use
+## 1. Repository Overview
 
-## 2. Build, Lint, & Test Commands
+| Directory | Description |
+|-----------|-------------|
+| `legacy/register/` | Original BIC `register` C tool — **read-only reference, do not modify** |
+| `legacy/bicgl/` | Original BIC Graphics Library — **read-only reference, do not modify** |
+| `new_register/` | Modern C++17 rewrite of `register` (Vulkan + ImGui + MINC2) — includes `new_qc` viewer |
 
-### Build
-**Use  CMake**
-This method is preferred for modern environments.
-1. Navigate to the specific project directory (e.g., `cd legacy/register`).
-2. Create a separate build directory to keep source clean:
-   ```bash
-   mkdir build && cd build
-   ```
-3. Configure the project:
-   ```bash
-   cmake ..
-   ```
-   *Note: You may need to specify paths for MINC or BICPL if they are in non-standard locations.*
-4. Compile:
-   ```bash
-   make
-   ```
+**Key documentation files:**
 
-**Option 2: Autotools (Legacy)**
-Do not use.
+| File | What it covers |
+|------|----------------|
+| [`research.md`](research.md) | Deep codebase review — architecture diagrams, module analysis, test coverage, risks |
+| [`PLAN.md`](PLAN.md) | Feature roadmap and remaining work items |
+| [`problem.md`](problem.md) | Known open bugs requiring investigation |
+| [`new_register/README.md`](new_register/README.md) | User-facing usage documentation for new_register and new_qc |
 
-### Linting & Formatting
-- **Linting:** No automated linter is currently configured.
-  - **Recommended:** Use `cppcheck .` or `clang-tidy` to analyze changes.
-  - **Rule:** Fix only errors in the files you touch. Avoid "cleaning up" legacy code unless it fixes a bug.
-- **Formatting:** No `.clang-format` exists.
-  - **Rule:** strictly follow the **existing coding style** of the file you are editing.
-  - **Do NOT** reformat entire files. This obscures the git history.
-
-### Testing
-- **Test Runner:** CTest (integrated with CMake).
-- **Run All Tests:**
-  ```bash
-  cd build
-  ctest --output-on-failure
-  ```
-- **Run Specific Tests:**
-  ```bash
-  ctest -R test_read  # Runs tests matching regex "test_read"
-  ```
-- **Manual Testing:**
-  - Build the test executables (e.g., in `legacy/bicgl/Testing`).
-  - Run them directly: `./test_read`
-
-## 3. Code Style & Conventions
-
-### Imports/Includes
-- **Order:**
-  1. System Headers: `<stdio.h>`, `<stdlib.h>`, `<string.h>`
-  2. Library Headers: `<GL/gl.h>`, `<minc/minc.h>`, `<bicpl/globals.h>`
-  3. Local Headers: `"graphics.h"`, `"GS_graphics.h"`
-- **Syntax:** Use `<>` for external/system libraries and `""` for project-local headers.
-
-### Formatting
-- **Indentation:** **4 spaces**. Do not use tabs.
-- **Braces:** **Allman style** (braces always on a new line).
-  ```c
-  // Correct
-  if (condition)
-  {
-      statement();
-  }
-  
-  // Incorrect
-  if (condition) {
-      statement();
-  }
-  ```
-- **Loops:**
-  ```c
-  for (i = 0; i < count; ++i)
-  {
-      // ...
-  }
-  ```
-- **Switch Statements:**
-  ```c
-  switch (variable)
-  {
-  case CONSTANT_ONE:
-      do_something();
-      break;
-  default:
-      break;
-  }
-  ```
-
-### Naming Conventions
-- **Variables:** `snake_case` (e.g., `volume_filenames`, `tag_filename`).
-- **Functions:** `snake_case` (e.g., `initialize_global_colours`, `print_usage`).
-  - Public API often uses prefixes: `GS_set_point`, `VIO_Status`.
-- **Types/Structs:** `PascalCase` or `Capitalized_Snake_Case` (e.g., `VIO_Point`, `UI_struct`).
-- **Macros/Constants:** `UPPER_SNAKE_CASE` (e.g., `N_VOLUMES`, `MAX_RETRY_COUNT`, `DEFAULT_CHUNK_SIZE`).
-- **File Names:** `snake_case.c` or `snake_case.h`.
-
-### Error Handling
-- **Return Codes:** low level minc Functions often return status codes (e.g., `VIO_Status` which can be `VIO_OK` or `VIO_ERROR`).
-  ```c
-  if (func() != VIO_OK)
-  {
-      return VIO_ERROR;
-  }
-  ```
-- **Logging:**
-  - Use `print_error(message)` or `fprintf(stderr, ...)` for errors.
-  - Do not use `printf` for errors.
-- **Memory Management:**
-  - Be extremely careful with `malloc` and `free`.
-  - Ensure every `malloc` has a corresponding `free` in the appropriate lifecycle method.
-  - Use project-specific macros like `FREE()` if available (check `bicpl/globals.h`).
-
-## 4. Workflow Rules for Agents
-
-1. **Analysis First:**
-   - Always run `ls -F` and `grep` to locate relevant files.
-   - Read the `CMakeLists.txt` to understand dependencies for the file you are editing.
-2. **Contextual Awareness:**
-   - Read the entire function you are modifying to understand the logic flow.
-   - Check `register_UI.globals` or `config.h` if modifying configuration logic.
-3. **Atomic & Safe Changes:**
-   - do not touch any code in legacy directory, use it only as a reference
-   - new code should use C++17 (the CMake standard is set to 17), with modern features available in that standard
-4. **Verification:**
-   - **Compile:** Always attempt to compile after changes: `make`.
-   - **Test:** If modifying logic, write a small test case or run existing tests.
-5. **Documentation:**
-   - Update Doxygen comments (`/** ... */`) if you change function signatures.
-   - Add inline comments (`/* ... */`) for obscure logic.
-
-## 5. Cursor/Copilot Specific Rules
-*(No specific rules found in repository)*
-
-- **General:** Be concise and efficient.
-- **Tech-Specific:**
-  - Respect the legacy C nature of the project.
-  - Prefer `snake_case` over `camelCase`.
-  - Do not assume modern C++ standard library availability (e.g., `std::vector`) unless you see it being used.
-
-## 6. Modern Rewrite (new_register)
-
-This is a feature-complete rewrite of the `register` application using C++17,
-Vulkan (primary) / OpenGL 2.1 (fallback), ImGui (Docking), GLFW, and nlohmann/json.
-
-> **See also:** [`research.md`](research.md) for a comprehensive codebase review,
-> architecture diagram, module analysis, test coverage, and risk assessment.
-> [`mincpik_performance_review.md`](mincpik_performance_review.md) for a ranked
-> list of CPU bottlenecks in `new_mincpik` with proposed fixes.
-
-**Dependencies:**
+**Dependencies (new_register):**
 - `minc2-simple` (FetchContent from GitHub, develop branch)
-- `ImGui` (fetched via CMake)
+- `ImGui` (fetched via CMake, Docking branch)
 - `GLFW` (system)
 - `Vulkan` (system, optional — OpenGL2 fallback available)
 - `nlohmann/json` (v3.11.3, FetchContent)
 - `Eigen` (FetchContent, for transform math)
 
-**Structure:**
-- `new_register/src/`: Source files (~15 `.cpp` files + `qc/` subdirectory)
-- `new_register/include/`: Headers mirroring `src/`
-- `new_register/tests/`: 16 CTest suites
+---
 
-**Build Instructions:**
+## 2. new_register — Source Layout
+
+```
+new_register/
+├── CMakeLists.txt              Build: nr_core lib + new_register exe + new_mincpik exe
+├── src/
+│   ├── main.cpp                CLI parsing (cxxopts), GLFW/backend init, render loop
+│   ├── AppConfig.cpp           JSON config load/save (nlohmann/json)
+│   ├── AppState.cpp            Volume lifecycle, LRU cache, tag management, transform dispatch
+│   ├── Interface.cpp           All ImGui UI — slice views, QC panels, tag list, hotkeys
+│   ├── ViewManager.cpp         Texture generation, overlay compositing, cursor sync
+│   ├── Volume.cpp              MINC2 file loading (minc2-simple), voxel I/O, world↔voxel transforms
+│   ├── Transform.cpp           Tag-based registration: LSQ6/7/9/10/12 + TPS (Eigen SVD)
+│   ├── ColourMap.cpp           21 colour map LUTs (piecewise-linear, 256 entries)
+│   ├── SliceRenderer.cpp       CPU slice extraction and colour mapping (used by new_mincpik too)
+│   ├── QCState.cpp             QC batch mode: RFC 4180 CSV parsing, verdict tracking
+│   ├── TagWrapper.cpp          .tag file I/O (minc2-simple C API wrapper)
+│   ├── Prefetcher.cpp          Main-thread-only volume prefetching for QC row switches
+│   ├── VulkanBackend.cpp       Vulkan GPU backend (device, swapchain, textures, screenshots)
+│   ├── OpenGL2Backend.cpp      OpenGL 2.1 fallback backend (for SSH/software renderers)
+│   ├── VulkanHelpers.cpp       Shared Vulkan state (device, queues, command pools)
+│   └── BackendFactory.cpp      Runtime backend selection with fallback chain
+├── include/                    Headers mirroring src/ structure
+└── tests/                      16 CTest suites + debug tools
+```
+
+**Legacy layout (reference only — do not modify):**
+
+```
+legacy/
+├── register/       Original C register application
+│   ├── User_interface/
+│   └── Functionality/
+└── bicgl/          BIC Graphics Library
+    ├── OpenGL_graphics/
+    └── GLUT_windows/
+```
+
+---
+
+## 3. Build & Test
+
 ```bash
 cd new_register/build
 cmake ..
@@ -193,178 +81,157 @@ make -j$(nproc)
 ctest --output-on-failure
 ```
 
-**Implemented Features:**
+Run a specific test by regex:
+```bash
+ctest -R OverlapTest
+```
+
+**Debug tools** (built with `make`, run manually — not ctests):
+
+| Binary | Usage | Purpose |
+|--------|-------|---------|
+| `tests/dump_vol` | `dump_vol <file.mnc> [...]` | Print dims, step, start, dirCos, voxelToWorld, corner world coords |
+| `tests/generate_overlap_refs` | `generate_overlap_refs <sq1.mnc> <sq2_tr.mnc> <out_dir>` | Render and save reference PNGs for OverlapTest |
+
+---
+
+## 4. Architecture Notes
+
+- `nr_core` static library bundles GPU-agnostic code (Volume, Transform, AppConfig, SliceRenderer, etc.) for reuse by `new_mincpik`.
+- QC mode: `--qc input.csv --qc-output results.csv`; input columns are volume paths; verdicts written per-column.
+- **Backend fallback chain:** Vulkan → OpenGL2 → OpenGL2-EGL. `BackendFactory.cpp` drives selection; `--backend` CLI flag overrides.
+- Prefetcher runs on the **main thread only** (libminc/HDF5 not thread-safe).
+- `Interface.cpp` (~2300 lines) is the largest file and a refactoring candidate.
+
+### Graphics Backend
+
+- `GraphicsBackend` (abstract base) defines the interface: `createTexture`, `updateTexture`, `beginFrame`, `endFrame`, `captureScreenshot`, etc.
+- `VulkanBackend.cpp` — primary; uses ImGui's Vulkan backend + custom helpers. Texture uploads use a `VkFence` (not `vkQueueWaitIdle`).
+- `OpenGL2Backend.cpp` — fallback for SSH / software renderers.
+- `VulkanHelpers.cpp` — persistent staging buffer + dedicated upload command pool.
+
+### Window & Dock Layout
+
+- GLFW `framebufferCallback` triggers swapchain rebuild on resize.
+- `Interface::render()` rebuilds the ImGui dock layout from scratch whenever the viewport size changes. All splits are fractional (proportional resize).
+- Tools panel fraction: 1 column → 28%, 2 → 18%, 3 → 14%, 4+ → 11% (QC mode adds +2%).
+- Content columns (volumes + optional Overlay) are split equally in the remaining space.
+
+---
+
+## 5. Implemented Features
+
 - MINC2 volume loading via `minc2-simple`, multi-volume side-by-side display
-- Three orthogonal slice views per volume (sagittal, coronal, axial)
+- Three orthogonal slice views per volume (axial, sagittal, coronal)
 - Crosshair navigation with optional cursor sync across volumes
 - 21 colour maps, per-volume display range, zoom/pan per view
 - Overlay compositing (volume 2 alpha-blended over volume 1)
 - Tag point placement, editing, and `.tag` file I/O
 - Registration transforms: LSQ6/7/9/10/12 and TPS (Eigen SVD)
-- QC (Quality Control) batch review mode — see below
+- QC batch review mode (see Section 8)
 - Screenshot capture (`P` key → `screenshot000001.png`, auto-incrementing)
-- JSON config persistence (load/save `config.json`)
+- JSON config persistence (`config.json`)
 - Hotkey reference panel in the UI
 
-**Coding Standards (New Project):**
-- C++17 (`CMAKE_CXX_STANDARD 17`); `std::vector`, `std::string`, smart pointers allowed.
-- `PascalCase` for classes, `camelCase` for methods/variables.
-- `std::cerr` for error output; never `printf` to stderr.
-- Namespace `QC::` for all code in `src/qc/`.
+---
 
-**Hotkey Reference Panel:**
-- `Interface::renderHotkeyPanel()` in `Interface.cpp` shows all current keyboard
-  shortcuts and mouse interactions in the running UI.
-- **When adding, removing, or changing any hotkey or mouse interaction, update
-  `renderHotkeyPanel()` to keep the panel accurate.**
+## 6. Coding Standards
 
-### Graphics Backend Design
+### new_register (C++17)
 
-The backend is selected at runtime with a fallback chain:
-**Vulkan → OpenGL2 → OpenGL2-EGL**
+| Aspect | Rule |
+|--------|------|
+| Standard | C++17 (`CMAKE_CXX_STANDARD 17`); `std::vector`, `std::string`, smart pointers are fine |
+| Classes | `PascalCase` |
+| Methods / variables | `camelCase` |
+| Namespace | `QC::` for all code in `src/qc/` |
+| Error output | `std::cerr` — never `printf` to stderr |
+| Braces | Allman style (opening brace on its own line) |
+| Indentation | 4 spaces, no tabs |
 
-- `BackendFactory.cpp` drives selection; `--backend` CLI flag overrides.
-- `GraphicsBackend` (abstract base) defines the interface: `createTexture`,
-  `updateTexture`, `beginFrame`, `endFrame`, `captureScreenshot`, etc.
-- `VulkanBackend.cpp` — primary; uses ImGui's Vulkan backend + custom helpers.
-- `OpenGL2Backend.cpp` — fallback for SSH / software renderers (no compute,
-  no Vulkan ICD). Uses `glTexSubImage2D`, which is async from the application.
-- `VulkanHelpers.cpp` — persistent staging buffer + dedicated upload command pool.
-  Texture uploads use a `VkFence` (not `vkQueueWaitIdle`) so the GPU processes
-  the previous upload in parallel with CPU pixel generation.
+**Hotkey panel rule:** When adding, removing, or changing any hotkey or mouse interaction, always update `Interface::renderHotkeyPanel()` to keep the panel accurate.
 
-### Window Resizing Behavior
+**Never touch `legacy/`.** Use it only as a read-only reference.
 
-Resizing is handled in two coordinated layers:
+### legacy/ (C, read-only reference)
 
-1. **Swapchain rebuild** (`WindowManager.cpp`):
-   - GLFW calls `framebufferCallback` on any framebuffer size change.
-   - `WindowManager::onFramebufferResize()` sets `swapchainRebuildPending_ = true`.
-   - The main render loop checks `needsSwapchainRebuild()` and calls
-     `backend.rebuildSwapchain(w, h)` before the next frame.
-   - The Vulkan swapchain is rebuilt with the new dimensions; OpenGL2 backend
-     updates its viewport instead.
+| Aspect | Rule |
+|--------|------|
+| Variables / functions | `snake_case` |
+| Types / structs | `PascalCase` or `Capitalized_Snake_Case` |
+| Macros / constants | `UPPER_SNAKE_CASE` |
+| Error output | `print_error()` or `fprintf(stderr, ...)` — never `printf` |
+| Memory | Every `malloc` must have a corresponding `free`; use `FREE()` macro if available |
 
-2. **Dock layout rebuild** (`Interface.cpp`, `render()`):
-   - Each frame, `Interface::render()` compares the current ImGui viewport size
-     against `lastViewportSize_`. If they differ by more than 0.5 px, the entire
-     ImGui dock layout is rebuilt from scratch using `DockBuilder`.
-   - **All splits are fractional**, so every panel resizes proportionally with
-     the window — no panel keeps a fixed pixel width after a resize.
-   - The Tools (left) panel width fraction adapts to the number of content columns:
-     - 1 column → 30 %, 2 → 20 %, 3 → 16 %, 4+ → 13 %
-     - QC mode adds +2 % for the embedded QC row list.
-   - Content columns (volumes + optional Overlay) are split equally in the
-     remaining space using a recursive left-split loop.
-   - The dock rebuild is also triggered when volumes are added or removed
-     (`state_.layoutInitialized_` is cleared on volume list changes).
-
-## 7. C++23 Modernization (new_register)
-
-The codebase currently targets C++17 (`CMAKE_CXX_STANDARD 17`). A future upgrade to C++23 is planned. Phases 1-2 are complete (unique_ptr, std::array). Remaining phases (blocked on C++23 upgrade):
-
-### Phase 3: Range-Based For and C++23 Ranges
-- ColourMap.cpp: Replace manual for loops with `std::views::iota` + lambda
-- Volume.cpp: Use `std::ranges::minmax_element` for min/max calculation
-- Volume.cpp: Use range-based for for dimension loops
-
-### Phase 4: constexpr and consteval
-- ColourMap.cpp: Replace custom `countOf` template with `std::size()`
-- Consider making `packRGBA` constexpr
-
-### Phase 5: auto Type and Structured Bindings
-- AppConfig.cpp: Use structured bindings in merge loop
-- TagWrapper.cpp: Use range-based for for point/label copy loops
-- main.cpp: Use direct assignment for config serialization
-
-### Phase 6: Replace Magic Numbers
-- Volume.cpp: Replace hardcoded `256` with `dimensions.x * dimensions.y * dimensions.z`
-- main.cpp: Replace `sizeof(quickMaps) / sizeof(quickMaps[0])` with `std::size(quickMaps)`
-
-### Phase 7: Use std::format
-- Replace `printf`/`fprintf`/`std::cout` with `std::print` where applicable
-
-### Build & Test
-```bash
-cd new_register/build
-cmake .. && make
-ctest --output-on-failure
-```
-
-## 8. QC Modes — Two Separate Tools
-
-There are two distinct QC workflows, each producing a separate binary:
+Include order (both projects): system headers → library headers → local headers.
 
 ---
 
-### 8a. `new_register --qc` (Integrated MINC QC mode)
+## 7. Workflow Rules
 
-Full MINC2 volume QC, embedded in the `new_register` application.
-Implemented in `new_register/src/QCState.cpp` and `Interface.cpp`.
+1. **Read before writing** — read the full function you are modifying; check `CMakeLists.txt` for dependencies.
+2. **Legacy is read-only** — do not modify anything under `legacy/`.
+3. **C++17 for new code** — use modern C++ features; do not back-port to C-style.
+4. **Compile after every change** — `make` must succeed before moving on.
+5. **Run tests** — if modifying logic, run `ctest --output-on-failure`.
+6. **No reformatting** — follow the existing style of the file you are editing; do not reformat unrelated lines.
+7. **Lint only what you touch** — `cppcheck` or `clang-tidy` on changed files only.
+8. **Use LSP for code search** — prefer the LSP tool (go-to-definition, find-references, hover) over `grep`/`rg` when searching for symbols, definitions, or usages in `new_register/`.
 
-**Run:**
+---
+
+## 8. QC Modes
+
+### 8a. `new_register --qc` (Integrated MINC QC)
+
+Full MINC2 volume QC embedded in `new_register`. Implemented in `QCState.cpp` and `Interface.cpp`.
+
 ```bash
 ./new_register --qc input.csv --qc-output results.csv [--config qc_config.json]
+# Single-verdict mode (one verdict per row, not per column):
+./new_register --qc1 input.csv --qc-output results.csv
 ```
 
-**CSV format:**
-- Input: first column `ID`, remaining columns are MINC2 volume file paths
-  (one column per volume to display side by side).
-- Output: for each input column, two output columns: `<name>_verdict` and
-  `<name>_comment`. Verdicts: `PASS`, `FAIL`, or empty (unreviewed).
+**CSV format:** Input — first column `ID`, remaining columns are MINC2 volume file paths. Output — `<name>_verdict` and `<name>_comment` per input column.
 
-**Design choices:**
-- QC verdict state lives in `QCState` (not `AppState`); `Interface` polls it.
-- Volumes for a row are loaded by `Prefetcher` on the main thread (libminc/HDF5
-  is not thread-safe). The previous/next row is prefetched speculatively.
-- Tag creation and the tag list are completely disabled in QC mode.
-- "Save Local" button is hidden; output CSV is auto-saved on every verdict change.
-- Clean mode (`C`) hides control panels but **keeps verdict panels visible**.
-- QC list panel (left, embedded in Tools) shows all rows with colour-coded status:
-  green = all pass, red = any fail, gray = unreviewed.
+**Design notes:**
+- Verdict state lives in `QCState` (not `AppState`); `Interface` polls it.
+- Volumes are loaded by `Prefetcher` on the main thread (libminc/HDF5 not thread-safe).
+- Tag creation and tag list are disabled in QC mode.
+- Output CSV is auto-saved on every verdict change.
 - Navigate with `[` / `]` keys or by clicking rows in the QC list.
-- On launch, if the output CSV already exists, previous verdicts are loaded and
-  the viewer jumps to the first unreviewed row.
+- On launch, existing output CSV is loaded and the viewer jumps to the first unreviewed row.
 
----
+### 8b. `new_qc` (Standalone Image QC Viewer)
 
-### 8b. `new_qc` (Standalone image QC viewer)
+Lightweight standalone viewer for reviewing arbitrary images (PNG, JPG, etc.) from a CSV manifest.
 
-A lightweight standalone viewer for reviewing arbitrary images (PNG, JPG, etc.)
-from a CSV manifest. Separate binary built from `new_register/src/qc/`.
-
-**Structure:**
-- `new_register/src/qc/main.cpp` — CLI entry point
-- `new_register/src/qc/QCApp.h/.cpp` — GLFW+ImGui+Vulkan/OpenGL2 GUI, image
-  loading (stb_image), keyboard input
-- `new_register/src/qc/CSVHandler.h/.cpp` — CSV I/O, `QCRecord` struct, RFC 4180
-- `new_register/src/qc/VulkanBackend.*` — Vulkan primary backend (own copy)
-- `new_register/src/qc/OpenGL2Backend.*` — OpenGL2 fallback (own copy)
-- `new_register/tests/csv_test.cpp` — 42 unit tests for `CSVHandler`
-
-**Build (produces `new_qc` alongside `new_register`):**
-```bash
-cd new_register/build && cmake .. && make
-```
-
-**Run:**
 ```bash
 ./new_qc input.csv output.csv [--scale <factor>]
 ```
 
-**CSV Formats:**
-- Input: `id,visit,picture` (3 columns — id, visit, image file path)
-- Output: `id,visit,picture,QC,notes` (5 columns)
+**CSV:** Input — `id,visit,picture`. Output — `id,visit,picture,QC,notes`.
 
-**Keyboard Shortcuts:**
-- `P` — Mark Pass (auto-advances)
-- `F` — Mark Fail (auto-advances)
-- `←` / `Page Up` — Previous case
-- `→` / `Page Down` — Next case
-- `Ctrl+S` — Manual save
-- `Esc` — Exit
+**Keyboard:** `P` Pass (auto-advance), `F` Fail (auto-advance), `←`/`Page Up` previous, `→`/`Page Down` next, `Ctrl+S` save, `Esc` exit.
 
-**Coding standards:**
-- C++17, namespace `QC::` for all classes in `src/qc/`
-- `PascalCase` classes, `camelCase` methods/variables
-- `std::cerr` for error output
+**Structure:** `new_register/src/qc/` — `QCApp`, `CSVHandler`, own Vulkan/OpenGL2 backends.
+
+---
+
+## 9. C++23 Modernization (Future)
+
+The codebase targets C++17. A future upgrade to C++23 is planned. Phases 1–2 (unique_ptr, std::array) are complete. Remaining work is blocked on the C++23 upgrade:
+
+- **Phase 3:** `std::views::iota`, `std::ranges::minmax_element` in ColourMap.cpp / Volume.cpp
+- **Phase 4:** `constexpr` / `consteval` for LUT helpers; replace `countOf` template with `std::size()`
+- **Phase 5:** Structured bindings in AppConfig.cpp, TagWrapper.cpp, main.cpp
+- **Phase 6:** Replace magic numbers (hardcoded `256`, `sizeof`/`sizeof` ratios)
+- **Phase 7:** `std::format` / `std::print` replacing `printf`/`fprintf`/`std::cout`
+
+---
+
+## 10. Known Open Issues
+
+See [`problem.md`](problem.md) for full details.
+
+**OverlapTest** — `renderOverlaySlice()` in `SliceRenderer.cpp` produces incorrect world-space resampling for volumes with non-identity direction cosines (`sq2_tr.mnc`). The reference PNGs are ground truth generated by an external tool (nearest-neighbor resample + `new_mincpik` render). The bug is in the coordinate transform chain (`voxelToWorld` / `worldToVoxel` construction in `Volume.cpp`). `Overlap2Test` (identity dirCos) passes.
