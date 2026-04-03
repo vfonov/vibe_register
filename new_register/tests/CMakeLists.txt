@@ -152,6 +152,18 @@ add_nr_test(test_app_config
 add_test(NAME AppConfigTest COMMAND test_app_config)
 
 # ------------------------------------------------------------------
+# NIfTI file loading test
+# ------------------------------------------------------------------
+add_nr_test(test_nifti_load
+    SOURCES   NiftiVolume.cpp
+    INCLUDES  ${INC_DIR}
+    LINKS     nr_core
+)
+add_test(NAME NiftiLoadTest COMMAND test_nifti_load
+    ${TEST_DATA_DIR}/mni_icbm152_t1_tal_nlin_sym_09c.nii.gz
+)
+
+# ------------------------------------------------------------------
 # Transform computation test — nr_core provides Transform
 # ------------------------------------------------------------------
 

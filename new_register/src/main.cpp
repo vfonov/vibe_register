@@ -90,7 +90,9 @@ static void printUsage()
     std::cout <<
         "Usage: new_register [OPTIONS] [VOLUMES...]\n"
         "\n"
-        "Medical imaging volume viewer.\n"
+        "Medical imaging volume viewer (MINC and NIfTI formats).\n"
+        "\n"
+        "Supported formats: .mnc, .mnc.gz, .nii, .nii.gz\n"
         "\n"
         "Volume display options (apply to the NEXT volume file):\n"
         "  -G, --gray           GrayScale colour map\n"

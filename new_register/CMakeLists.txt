@@ -222,6 +222,18 @@ if(NOT BUILD_QC_ONLY)
     set(eigen_BINARY_DIR "${CMAKE_BINARY_DIR}/eigen-build")
     set(eigen_INCLUDE_DIR "${EIGEN_INSTALL_PREFIX}/include/eigen3")
 
+    # 3.9. NIfTI-1 library (for .nii and .nii.gz file support)
+    # Note: We compile nifti1_io and znzlib directly (bundled with libminc)
+    # This avoids network fetch and uses the same version as legacy nii2mnc tool
+    set(nifti_INCLUDE_DIR "${CMAKE_BINARY_DIR}/libminc-prefix/src/libminc/nifti")
+    set(nifti_SOURCE_DIR "${CMAKE_BINARY_DIR}/libminc-prefix/src/libminc/nifti")
+    
+    # Compile nifti1_io.c and znzlib.c as part of nr_core
+    set(NIFTI_SOURCES
+        ${nifti_SOURCE_DIR}/nifti1_io.c
+        ${nifti_SOURCE_DIR}/znzlib.c
+    )
+
 endif() # NOT BUILD_QC_ONLY
 
 # Create ImGui library target (core only — backends compiled per-executable)
@@ -403,7 +415,11 @@ if(NOT BUILD_QC_ONLY)
         src/TagWrapper.cpp
         src/AppConfig.cpp
         src/SliceRenderer.cpp
+        src/NiftiVolume.cpp  # NIfTI file support
     )
+    
+    # Add NIfTI sources (nifti1_io.c and znzlib.c)
+    list(APPEND NR_CORE_SOURCES ${NIFTI_SOURCES})
 
     add_library(nr_core STATIC ${NR_CORE_SOURCES})
     target_include_directories(nr_core PUBLIC
@@ -412,6 +428,8 @@ if(NOT BUILD_QC_ONLY)
         ${eigen_INCLUDE_DIR}
         ${minc2-simple-static_INCLUDE_DIR}
         ${MINC2_INCLUDE_DIR}
+        ${nifti_INCLUDE_DIR}  # NIfTI headers (nifti1_io.h, znzlib.h)
+        ${CMAKE_BINARY_DIR}/libminc-prefix/src/libminc-build  # config.h for nifti
     )
     message("HDF5_LIBRARIES=${HDF5_LIBRARIES}")
     message("HDF5_C_LIBRARIES=${HDF5_C_LIBRARIES}")

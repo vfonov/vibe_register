@@ -1,4 +1,5 @@
 #include "Volume.h"
+#include "NiftiVolume.h"
 #include <cmath>
 #include <vector>
 #include <algorithm>
@@ -182,6 +183,12 @@ void Volume::load(const std::string& filename)
 {
     if (filename.empty())
         throw std::runtime_error("Empty filename provided");
+
+    // Detect NIfTI files by extension
+    if (isNiftiFile(filename)) {
+        loadNiftiFile(filename, *this);
+        return;
+    }
 
     Minc2Handle h;
     h.open(filename);
