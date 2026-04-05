@@ -164,6 +164,19 @@ add_test(NAME NiftiLoadTest COMMAND test_nifti_load
 )
 
 # ------------------------------------------------------------------
+# NIfTI vs MINC coordinate matching test
+# ------------------------------------------------------------------
+add_nr_test(test_nifti_mnc_match
+    SOURCES   NiftiVolume.cpp
+    INCLUDES  ${INC_DIR}
+    LINKS     nr_core
+)
+add_test(NAME NiftiMncMatchTest COMMAND test_nifti_mnc_match
+    ${TEST_DATA_DIR}/clp_VF_20190508_t1.nii.gz
+    ${TEST_DATA_DIR}/clp_VF_20190508_t1.mnc
+)
+
+# ------------------------------------------------------------------
 # Transform computation test — nr_core provides Transform
 # ------------------------------------------------------------------
 

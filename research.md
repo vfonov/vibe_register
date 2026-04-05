@@ -449,6 +449,304 @@ From PLAN.md — features remaining from the legacy tool:
 
 ---
 
+## 11. NIfTI Coordinate System Analysis
+
+> **Date:** 2026-04-05
+> **Scope:** Mathematical analysis of NIfTI vs MINC coordinate representations,
+> the `nii2mnc` conversion algorithm, and bugs in the current `NiftiVolume.cpp` loader.
+
+### 11.1 NIfTI Coordinate Representation
+
+NIfTI stores a 4×4 affine matrix `A` (the **sform** or **qform**) that maps
+integer voxel indices to world coordinates in **RAS**
+(Right-Anterior-Superior) orientation:
+
+```
+┌ x ┐       ┌ a₀₀  a₀₁  a₀₂  t₀ ┐   ┌ i ┐
+│ y │   =   │ a₁₀  a₁₁  a₁₂  t₁ │ · │ j │
+│ z │       │ a₂₀  a₂₁  a₂₂  t₂ │   │ k │
+└ 1 ┘       └  0    0    0    1  ┘   └ 1 ┘
+```
+
+- `(i, j, k)` = integer voxel indices along the three file axes.
+- `(x, y, z)` = world coordinates: x = Right/Left, y = Anterior/Posterior,
+  z = Superior/Inferior.
+- The 3×3 upper-left encodes rotation + scaling.  Column `j` of this
+  submatrix is the world-space direction vector for file axis `j`, scaled
+  by the voxel spacing along that axis.
+- `(t₀, t₁, t₂)` = translation = world position of voxel `(0, 0, 0)`.
+- sform is preferred over qform when both are present.
+- `nii_ptr->xyz_units` declares spatial units (mm, meters, or microns).
+
+### 11.2 MINC Coordinate Representation
+
+MINC decomposes the equivalent affine into three **per-axis** scalar/vector
+attributes for each spatial dimension `d ∈ {xspace, yspace, zspace}`:
+
+| Attribute | Symbol | Type | Meaning |
+|-----------|--------|------|---------|
+| `direction_cosines` | **cₐ** | 3-vector (unit) | World direction of axis `d` |
+| `step` | **sₐ** | signed scalar | Voxel spacing (mm); sign encodes axis orientation |
+| `start` | **oₐ** | scalar | Position of voxel 0 *projected onto* direction **cₐ** |
+
+MINC also uses a RAS-like world coordinate system: xspace = R/L, yspace = A/P,
+zspace = S/I.  There is no sign flip between NIfTI and MINC world coordinates.
+
+**Reconstruction formula** — MINC rebuilds the 4×4 voxel-to-world matrix as:
+
+```
+Column d of M₃ₓ₃ = cₐ · sₐ     (direction cosine scaled by step)
+Translation T     = C · o        (where C = [c_x | c_y | c_z], o = [o_x, o_y, o_z]ᵀ)
+```
+
+Or written out:
+
+```
+        ┌ c_x[0]·s_x   c_y[0]·s_y   c_z[0]·s_z ┐
+M₃ₓ₃ = │ c_x[1]·s_x   c_y[1]·s_y   c_z[1]·s_z │
+        └ c_x[2]·s_x   c_y[2]·s_y   c_z[2]·s_z ┘
+
+        ┌ c_x[0]·o_x + c_y[0]·o_y + c_z[0]·o_z ┐
+T     = │ c_x[1]·o_x + c_y[1]·o_y + c_z[1]·o_z │
+        └ c_x[2]·o_x + c_y[2]·o_y + c_z[2]·o_z ┘
+```
+
+The full transform is:  **world = M₃ₓ₃ · voxel + T**
+
+**Critical point:** `start` is NOT the world coordinate of voxel 0.  It is the
+scalar projection of the origin onto the direction cosine basis.  The actual
+world position of voxel 0 is `T = C · o`, which mixes all three start values
+through the direction cosine matrix.
+
+### 11.3 The nii2mnc Conversion Algorithm
+
+The canonical conversion (implemented identically in both
+`legacy/minc-tools/conversion/nifti1/nii2mnc.c` lines 379–636 and
+`legacy/libminc/volume_io/Volumes/input_nifti.c` lines 130–267) has
+three stages:
+
+#### Stage 1 — Spatial Axis Permutation (`nii2mnc.c` lines 417–430)
+
+NIfTI file axes `(i, j, k)` can be in any order relative to world axes.
+For each file axis `j ∈ {0, 1, 2}`, determine which MINC spatial dimension
+it most closely aligns with:
+
+```
+spatial_axes[j] = argmax over d ∈ {0,1,2} of |A[d][j]|
+```
+
+This examines column `j` of the affine (the world-space direction vector for
+file axis `j`) and picks the world axis with the largest absolute component.
+
+Result: `spatial_axes[j]` = the MINC spatial axis index (0=xspace, 1=yspace,
+2=zspace) that NIfTI file axis `j` maps to.
+
+#### Stage 2 — Column Permutation (`nii2mnc.c` lines 433–438)
+
+Rearrange the columns of `A` into a new matrix `M_perm` so that each column
+corresponds to its MINC spatial axis:
+
+```
+M_perm[row][spatial_axes[j]] = A[row][j]     for row ∈ {0,1,2}, j ∈ {0,1,2}
+M_perm[row][3]               = A[row][3]     (translation copied directly)
+```
+
+After this, column 0 of `M_perm` is the xspace direction vector, column 1 is
+yspace, column 2 is zspace — regardless of the original NIfTI file storage
+order.
+
+This permutation also reorders the dimension names so that the MINC file
+dimensions match the permuted columns.
+
+#### Stage 3 — Decomposition via `convert_transform_to_starts_and_steps()`
+
+This function (`legacy/libminc/volume_io/Volumes/volumes.c` lines 1252–1324)
+decomposes the permuted 4×4 matrix into MINC's (dirCos, step, start) triplets.
+
+**Step 3a — Extract columns and origin:**
+
+```
+axes[d] = column d of M_perm     (3-vector, for d = 0, 1, 2)
+origin  = column 3 of M_perm     (3-vector = translation)
+```
+
+Each `axes[d]` is the product `dirCos[d] × step[d]` — a direction cosine
+vector scaled by the step size.
+
+**Step 3b — Compute step magnitude:**
+
+```
+mag_d = ‖axes[d]‖₂ = √(axes[d] · axes[d])
+```
+
+**Step 3c — Determine step sign** (when `step_signs` is NULL, which is the
+`nii2mnc` case):
+
+```
+sign_d = { −1   if axes[d][d] < 0
+          { +1   otherwise
+```
+
+The sign is determined by the **diagonal element** `axes[d][d]` — the
+component of the d-th axis vector along the d-th world direction.  If the
+xspace direction vector has a negative X component, the step is negative.
+
+This convention ensures that the direction cosines, after normalization,
+have a positive diagonal (i.e., each axis mostly points in the positive
+direction of its corresponding world axis).
+
+**Step 3d — Compute step and direction cosines:**
+
+```
+step[d]   = sign_d × mag_d
+dirCos[d] = axes[d] / step[d]
+```
+
+Dividing by the **signed** step normalizes the vector to unit length and
+flips it if the step is negative.  The result is `‖dirCos[d]‖ = 1` with
+`dirCos[d][d] > 0` (positive diagonal).
+
+**Step 3e — Compute starts** via `convert_transform_origin_to_starts()`
+(`volumes.c` lines 1146–1231):
+
+Solve the 3×3 linear system:
+
+```
+C · o = origin
+
+where C = [dirCos[0] | dirCos[1] | dirCos[2]]   (columns)
+      o = [start_x, start_y, start_z]ᵀ           (unknowns)
+      origin = translation from column 3
+```
+
+This is solved via Gaussian elimination (`solve_linear_system()`).
+
+**Step 3f — Unit conversion** (`nii2mnc.c` lines 590–609):
+
+Scale `starts` and `steps` from NIfTI's declared units to millimeters:
+- meters → multiply by 1000
+- microns → divide by 1000
+- mm → no change
+
+### 11.4 Complete Algorithm Summary
+
+```
+NIfTI file
+    │
+    ▼
+1. Read sform (preferred) or qform → mat44 A
+   A.m[row][col], rows = world XYZ, cols = file axes i,j,k + translation
+    │
+    ▼
+2. Permute: for each file axis j, find spatial_axes[j] = argmax_d |A[d][j]|
+    │
+    ▼
+3. Rearrange columns: M_perm[row][spatial_axes[j]] = A[row][j]
+   Now column d of M_perm = direction for MINC spatial axis d
+    │
+    ▼
+4. Decompose M_perm:
+   a. axes[d] = column d               (scaled direction vector)
+   b. mag_d   = ‖axes[d]‖              (absolute step size)
+   c. sign_d  = sgn(axes[d][d])        (from diagonal element)
+   d. step[d] = sign_d × mag_d         (signed step)
+   e. dirCos[d] = axes[d] / step[d]    (unit direction cosine)
+   f. Solve C·o = origin for starts    (3×3 linear system)
+    │
+    ▼
+5. Scale starts and steps to mm if needed
+    │
+    ▼
+6. Write step[d], dirCos[d], start[d] to MINC xspace/yspace/zspace
+```
+
+### 11.5 Key Mathematical Identity
+
+The decomposition is exact and invertible.  Given the MINC components, the
+original permuted affine is perfectly reconstructed:
+
+```
+M_perm = C · diag(step)      (columns 0–2)
+origin = C · start            (column 3)
+```
+
+And: `world = C · diag(step) · voxel + C · start = C · (diag(step) · voxel + start)`
+
+### 11.6 Bugs in the Current NiftiVolume.cpp
+
+The current loader (`new_register/src/NiftiVolume.cpp` lines 89–149)
+has five distinct bugs:
+
+#### Bug 1: No spatial axis permutation (Stages 1–2 missing)
+
+The code uses the raw NIfTI affine columns directly as if file axis 0 = xspace,
+axis 1 = yspace, axis 2 = zspace.  For volumes whose file axes don't align with
+world axes in this canonical order (which is common — many NIfTI files store
+data in a different axis order), the direction cosines and steps are assigned to
+the wrong MINC spatial dimensions.
+
+This is the permutation performed at `nii2mnc.c` lines 417–438 that the
+current code entirely omits.
+
+#### Bug 2: No step sign convention
+
+The step is always computed as the positive column magnitude (`len`), with no
+check of the diagonal element `axes[d][d]`.  MINC requires the step sign to
+match the convention in `convert_transform_to_starts_and_steps()`: negative
+when the diagonal is negative.  Without this, the direction cosines are not
+normalized to have positive diagonals, which breaks the MINC contract.
+
+#### Bug 3: Incorrect start computation
+
+The code sets `start = transformVoxelToWorld(0,0,0)`, which gives the raw
+world coordinate of voxel (0,0,0).  But MINC's `start` is the scalar projection
+of the origin onto the direction cosine basis — it must be computed by solving
+the linear system `C · o = origin`.  The two are only equal when direction
+cosines are the identity matrix.
+
+#### Bug 4: Inconsistent voxelToWorld construction
+
+The `voxelToWorld` matrix is built directly from the raw NIfTI affine
+(lines 129–142) rather than being reconstructed from the decomposed MINC
+components using the formula `M = C · diag(step)`, `T = C · start`.  This
+means `voxelToWorld` doesn't match the stored dirCos/step/start — the two
+representations are inconsistent with each other.
+
+#### Bug 5: Double unit_scale on step
+
+`vol.step` is set to `len * unit_scale` on line 117, where `len` is the column
+magnitude from the NIfTI affine.  The affine columns already encode voxel
+spacing in NIfTI's declared units.  Meanwhile, the 3×3 rotation/scaling columns
+of `voxelToWorld` (lines 129–132) use the raw affine values without unit
+scaling.  For the common case of mm (`unit_scale = 1.0`) this is harmless, but
+for meters or microns the step would be scaled while the matrix wouldn't,
+creating an inconsistency.
+
+#### Bug 6: GLM column-major transposition pitfall
+
+The `glm::dmat3` constructor at lines 96–100 fills column-major: the first
+three arguments become column 0, not row 0.  Since `nii_xfm.m[row][col]` is
+row-major, the resulting `affine` matrix is the **transpose** of the NIfTI 3×3.
+The code works around this on line 112 by extracting elements as
+`(affine[0][axis], affine[1][axis], affine[2][axis])`, which happens to recover
+the correct NIfTI column.  But the `affine` matrix itself is wrong and must not
+be used for matrix-vector multiplication.  Lines 129–132 do use individual
+element access that compensates for the transposition, so the `voxelToWorld`
+rotation part is accidentally correct.  This is fragile and confusing.
+
+### 11.7 Test Validation
+
+A test (`NiftiMncMatchTest`) loads the same brain volume as both NIfTI
+(`clp_VF_20190508_t1.nii.gz`) and MINC (`clp_VF_20190508_t1.mnc`), renders
+central axial/sagittal/coronal slices from each, and compares pixel data.
+
+Current results confirm the bugs:
+- Corner (0,0,0) world coordinates differ by **388.8 mm**
+  (NIfTI: 114.7, 121.6, 99.4 vs MINC: −105.4, −92.7, −138.8)
+- **31,000–40,000 pixel mismatches** per slice across all three views
+
+---
+
 # Part B — new_qc (Merged into new_register)
 
 > **Review date:** 2026-03-16 (merged)

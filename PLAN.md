@@ -264,26 +264,126 @@ Copy/move semantics, threading, trivial accessors.
 
 ### Additional Volume Support
 - [ ] Support up to 8 volumes (legacy supports `N_VOLUMES = 8`)
-- [ ] NIfTI-1 format support
+- [x] NIfTI-1 format support (loader exists, coordinate bug — see below)
 - [ ] RGB/vector volume support
 - [ ] 4D volumes with time dimension
 
-### UI Features Not Yet Ported
-- [x] Crosshair visibility toggle (in Tools panel, persisted in config)
-- [ ] Per-volume Load button / filename entry
-- [ ] Quit confirmation dialog
-- [ ] Save slice images to file
+---
 
-### Metal Backend (Future)
-- [ ] `include/MetalBackend.h` / `src/MetalBackend.mm` (Objective-C++)
-- [ ] CMake: `enable_language(OBJCXX)`, find Metal and QuartzCore frameworks
-- [ ] GLFW: `GLFW_NO_API`, create `CAMetalLayer` on native Cocoa view
-- [ ] ImGui: `ImGui_ImplGlfw_InitForOther()` + `ImGui_ImplMetal_Init(device)`
-- [ ] Texture: `MTLTexture` objects, `ImTextureID = MTLTexture*`
+## NIfTI Loader Coordinate Fix
 
-### Remaining CLI Options
-- [x] `-sync`: start with volumes synced (also `--sync-cursor`, `--sync-zoom`, `--sync-pan` for granular control)
-- [ ] `-range VOLUME MIN MAX`: force initial colour range
+The NIfTI loader (`NiftiVolume.cpp`) can load and display NIfTI files, but
+produces incorrect world coordinates compared to the equivalent MINC file.
+The root cause is that the loader skips the spatial axis permutation and
+decomposition that `nii2mnc` performs.  See `research.md` §11 for the full
+mathematical analysis.
+
+### Current state
+
+- `NiftiMncMatchTest` loads the same volume as `.nii.gz` and `.mnc` and
+  compares rendered central slices.  Currently fails: 31k–40k pixel
+  mismatches per view, 388 mm corner distance.
+- All 20 other tests pass.
+
+### Fix plan
+
+The fix replaces lines 89–149 of `NiftiVolume.cpp` with an implementation
+that replicates the `nii2mnc` algorithm exactly.  The algorithm has three
+stages (see `research.md` §11.3 for derivation):
+
+#### Step 1 — Read the affine
+
+Read `sform` (preferred) or `qform` from the `nifti_image`.  This is already
+correct in the current code (lines 72–87).  No changes needed.
+
+#### Step 2 — Spatial axis permutation
+
+For each file axis `j ∈ {0,1,2}`, determine which MINC spatial dimension it
+most closely aligns with by finding the largest absolute component in column
+`j` of the affine:
+
+```cpp
+int spatial_axes[3];
+for (int j = 0; j < 3; ++j)
+{
+    float cx = fabsf(nii_xfm.m[0][j]);
+    float cy = fabsf(nii_xfm.m[1][j]);
+    float cz = fabsf(nii_xfm.m[2][j]);
+    if (cy > cx && cy > cz)      spatial_axes[j] = 1;
+    else if (cz > cx && cz > cy) spatial_axes[j] = 2;
+    else                          spatial_axes[j] = 0;
+}
+```
+
+#### Step 3 — Permute columns into MINC order
+
+Create a permuted matrix where column `d` corresponds to MINC spatial axis `d`:
+
+```cpp
+double perm[3][3], origin[3];
+for (int j = 0; j < 3; ++j)
+    for (int row = 0; row < 3; ++row)
+        perm[row][spatial_axes[j]] = nii_xfm.m[row][j];
+for (int row = 0; row < 3; ++row)
+    origin[row] = nii_xfm.m[row][3];
+```
+
+#### Step 4 — Decompose into dirCos, step, start
+
+For each spatial dimension `d`:
+
+```
+axes[d]   = column d of perm            (3-vector)
+mag       = ‖axes[d]‖
+sign      = (axes[d][d] < 0) ? −1 : +1
+step[d]   = sign × mag × unit_scale
+dirCos[d] = axes[d] / (sign × mag)      (unit vector, positive diagonal)
+```
+
+Then solve the 3×3 linear system `C · start = origin × unit_scale` where
+`C = [dirCos[0] | dirCos[1] | dirCos[2]]` using `glm::inverse(C) * origin`.
+
+#### Step 5 — Build voxelToWorld from MINC components
+
+Reconstruct the 4×4 matrix using the same formula as `Volume.cpp` lines
+247–267 (the MINC loader):
+
+```
+M₃ₓ₃ = C · diag(step)
+T     = C · start
+voxelToWorld = [M₃ₓ₃ | T; 0 0 0 1]
+worldToVoxel = inverse(voxelToWorld)
+```
+
+This ensures `voxelToWorld` is consistent with the stored dirCos/step/start.
+
+#### Step 6 — Permute voxel data to match MINC axis order
+
+After the spatial axis permutation, the MINC dimension order may differ from
+the NIfTI file order.  The voxel data array must be transposed so that the
+fastest-varying axis in memory corresponds to xspace (axis 0), the next to
+yspace (axis 1), and the slowest to zspace (axis 2).
+
+If `spatial_axes = {0, 1, 2}` (identity — file axes already match MINC
+order), no transpose is needed.  Otherwise, transpose the 3D data array
+according to the permutation.  Also permute `vol.dimensions` accordingly.
+
+### Verification
+
+1. `NiftiMncMatchTest` must pass (0 pixel mismatches on all three views).
+2. All 20 existing tests must continue to pass.
+3. `NiftiLoadTest` (existing) must continue to pass.
+4. Manual check: load the `.nii.gz` and `.mnc` side-by-side in
+   `new_register` — slices must look identical with synced cursors.
+
+### Files to modify
+
+| File | Changes |
+|------|---------|
+| `src/NiftiVolume.cpp` | Replace lines 89–149 with the 6-step algorithm above |
+
+No other files need changes.  The test and CMakeLists.txt registration
+already exist.
 
 ---
 

@@ -34,120 +34,171 @@ void loadNiftiIntoVolume(const std::string& filename, Volume& vol)
         throw std::runtime_error("Failed to read NIfTI file: " + filename);
     }
     
-    // Extract dimensions (NIfTI stores X, Y, Z in order)
-    vol.dimensions = glm::ivec3(nii_ptr->nx, nii_ptr->ny, nii_ptr->nz);
-    
-    if (vol.dimensions.x <= 0 || vol.dimensions.y <= 0 || vol.dimensions.z <= 0) {
+    // NIfTI file dimensions (before any axis permutation)
+    int nii_dims[3] = { nii_ptr->nx, nii_ptr->ny, nii_ptr->nz };
+
+    if (nii_dims[0] <= 0 || nii_dims[1] <= 0 || nii_dims[2] <= 0)
+    {
         nifti_image_free(nii_ptr);
         throw std::runtime_error("Invalid NIfTI dimensions: " + filename);
     }
-    
+
     // Handle unit conversions (NIfTI stores xyz_units)
     double unit_scale = 1.0;
-    switch (nii_ptr->xyz_units) {
+    switch (nii_ptr->xyz_units)
+    {
     case NIFTI_UNITS_METER:
         unit_scale = 1000.0;  // meters → millimeters
         break;
     case NIFTI_UNITS_MM:
     case NIFTI_UNITS_UNKNOWN:
-        unit_scale = 1.0;  // already in mm
+        unit_scale = 1.0;
         break;
     case NIFTI_UNITS_MICRON:
         unit_scale = 0.001;  // microns → millimeters
         break;
     default:
-        std::cerr << "Warning: Unknown NIfTI xyz_units code " 
+        std::cerr << "Warning: Unknown NIfTI xyz_units code "
                   << nii_ptr->xyz_units << ", assuming mm\n";
         break;
     }
-    
-    // Extract pixdim (voxel spacing)
-    vol.step = glm::dvec3(
-        nii_ptr->dx * unit_scale,
-        nii_ptr->dy * unit_scale,
-        nii_ptr->dz * unit_scale
-    );
-    
+
     // Determine which transform to use: s-form preferred, q-form fallback
     mat44 nii_xfm;
-    if (nii_ptr->sform_code != NIFTI_XFORM_UNKNOWN) {
+    if (nii_ptr->sform_code != NIFTI_XFORM_UNKNOWN)
+    {
         nii_xfm = nii_ptr->sto_xyz;
-    } else if (nii_ptr->qform_code != NIFTI_XFORM_UNKNOWN) {
+    }
+    else if (nii_ptr->qform_code != NIFTI_XFORM_UNKNOWN)
+    {
         nii_xfm = nii_ptr->qto_xyz;
-    } else {
-        // No valid transform - create identity matrix manually
+    }
+    else
+    {
+        // No valid transform — create identity matrix from pixdim
+        for (int r = 0; r < 4; ++r)
+            for (int c = 0; c < 4; ++c)
+                nii_xfm.m[r][c] = 0.0f;
         nii_xfm.m[0][0] = nii_ptr->dx;
         nii_xfm.m[1][1] = nii_ptr->dy;
         nii_xfm.m[2][2] = nii_ptr->dz;
-        nii_xfm.m[0][1] = nii_xfm.m[0][2] = nii_xfm.m[1][0] = 
-        nii_xfm.m[1][2] = nii_xfm.m[2][0] = nii_xfm.m[2][1] = 0.0f;
-        nii_xfm.m[0][3] = nii_xfm.m[1][3] = nii_xfm.m[2][3] = 0.0f;
-        nii_xfm.m[3][0] = nii_xfm.m[3][1] = nii_xfm.m[3][2] = 0.0f;
         nii_xfm.m[3][3] = 1.0f;
     }
-    
-    // NIfTI uses RAS coordinate system. We need to extract the affine
-    // transform and convert to MINC format (direction cosines + starts/steps)
-    
-    // The NIfTI 4×4 matrix maps voxel indices (i,j,k) to world (x,y,z) in RAS
-    // world = nii_xfm * [i, j, k, 1]^T
-    
-    // Extract rotation/scaling part (3×3 upper-left)
-    glm::dmat3 affine(
-        nii_xfm.m[0][0], nii_xfm.m[0][1], nii_xfm.m[0][2],
-        nii_xfm.m[1][0], nii_xfm.m[1][1], nii_xfm.m[1][2],
-        nii_xfm.m[2][0], nii_xfm.m[2][1], nii_xfm.m[2][2]
-    );
-    
-    // Extract translation (world coordinate of voxel 0,0,0)
-    glm::dvec3 translation(
-        nii_xfm.m[0][3],
-        nii_xfm.m[1][3],
-        nii_xfm.m[2][3]
-    );
-    
-    // Decompose affine into direction cosines and step sizes
-    // The columns of the affine matrix give the world-space direction of each voxel axis
-    for (int axis = 0; axis < 3; ++axis) {
-        glm::dvec3 col(affine[0][axis], affine[1][axis], affine[2][axis]);
-        double len = glm::length(col);
-        
-        if (len > 1e-12) {
-            vol.dirCos[axis] = col / len;  // Unit vector
-            vol.step[axis] = len * unit_scale;  // Voxel size along this axis
-        } else {
-            // Degenerate case - use identity
-            vol.dirCos[axis] = glm::dvec3(0.0);
-            vol.dirCos[axis][axis] = 1.0;
-            vol.step[axis] = 1.0;
+
+    // ----------------------------------------------------------------
+    // NIfTI → MINC coordinate conversion (replicates nii2mnc algorithm).
+    // See research.md §11.3 for the full mathematical derivation.
+    // ----------------------------------------------------------------
+
+    // Stage 1: Spatial axis permutation.
+    // For each NIfTI file axis j, determine which MINC spatial dimension
+    // (0=xspace, 1=yspace, 2=zspace) it most closely aligns with by
+    // finding the largest absolute component in column j of the affine.
+    int spatial_axes[3];
+    for (int j = 0; j < 3; ++j)
+    {
+        float cx = std::fabs(nii_xfm.m[0][j]);
+        float cy = std::fabs(nii_xfm.m[1][j]);
+        float cz = std::fabs(nii_xfm.m[2][j]);
+        if (cy > cx && cy > cz)
+            spatial_axes[j] = 1;
+        else if (cz > cx && cz > cy)
+            spatial_axes[j] = 2;
+        else
+            spatial_axes[j] = 0;
+    }
+
+    // Stage 2: Permute columns into MINC canonical order.
+    // After this, column d of perm corresponds to MINC spatial axis d.
+    double perm[3][3];
+    double origin[3];
+    for (int j = 0; j < 3; ++j)
+    {
+        for (int row = 0; row < 3; ++row)
+        {
+            perm[row][spatial_axes[j]] = static_cast<double>(nii_xfm.m[row][j]);
         }
     }
-    
-    // Calculate start (world coordinate of first voxel center)
-    // In MINC, voxelToWorld = dirCos * diag(step) * voxel + dirCos * start + translation
-    // But NIfTI already gives us the full transform, so we use it directly
+    for (int row = 0; row < 3; ++row)
+    {
+        origin[row] = static_cast<double>(nii_xfm.m[row][3]) * unit_scale;
+    }
+
+    // Permute dimensions to match MINC axis order.
+    int mnc_dims[3];
+    for (int j = 0; j < 3; ++j)
+    {
+        mnc_dims[spatial_axes[j]] = nii_dims[j];
+    }
+    vol.dimensions = glm::ivec3(mnc_dims[0], mnc_dims[1], mnc_dims[2]);
+
+    // Stage 3: Decompose into dirCos, step, start.
+    // Replicates convert_transform_to_starts_and_steps() from libminc.
+    for (int d = 0; d < 3; ++d)
+    {
+        // Column d of perm = scaled direction vector for spatial axis d
+        double ax[3] = { perm[0][d], perm[1][d], perm[2][d] };
+
+        double mag = std::sqrt(ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]);
+        if (mag <= 0.0)
+            mag = 1.0;
+
+        // Sign from diagonal element (MINC convention)
+        double sign = (ax[d] < 0.0) ? -1.0 : 1.0;
+
+        vol.step[d] = sign * mag * unit_scale;
+
+        vol.dirCos[d][0] = ax[0] / (sign * mag);
+        vol.dirCos[d][1] = ax[1] / (sign * mag);
+        vol.dirCos[d][2] = ax[2] / (sign * mag);
+    }
+
+    // Solve C · start = origin for start (3×3 linear system).
+    // C = [dirCos[0] | dirCos[1] | dirCos[2]] as columns in GLM.
+    glm::dmat3 dirCos3(
+        vol.dirCos[0][0], vol.dirCos[0][1], vol.dirCos[0][2],
+        vol.dirCos[1][0], vol.dirCos[1][1], vol.dirCos[1][2],
+        vol.dirCos[2][0], vol.dirCos[2][1], vol.dirCos[2][2]
+    );
+    glm::dvec3 originVec(origin[0], origin[1], origin[2]);
+    glm::dvec3 startVec = glm::inverse(dirCos3) * originVec;
+    vol.start = startVec;
+
+    // Stage 4: Normalize negative steps.
+    // MINC's minc2_setup_standard_order() enforces positive steps.
+    // When a step is negative, we must:
+    //   1. Flip the step sign to positive
+    //   2. Shift start to the opposite end of the axis
+    //   3. Mark that axis for data reversal (done after data load)
+    // dirCos stays the same since the decomposition already factored the sign.
+    bool flipAxis[3] = { false, false, false };
+    for (int d = 0; d < 3; ++d)
+    {
+        if (vol.step[d] < 0.0)
+        {
+            flipAxis[d] = true;
+            // start shifts to the far end: new_start = start + step * (N-1)
+            vol.start[d] = vol.start[d] + vol.step[d] * (vol.dimensions[d] - 1);
+            vol.step[d]  = -vol.step[d];
+        }
+    }
+
+    // Build voxelToWorld from MINC components (same formula as Volume.cpp).
+    // M₃ₓ₃ = dirCos3 * diag(step),  T = dirCos3 * start
+    glm::dmat3 affine3 = dirCos3;
+    for (int i = 0; i < 3; ++i)
+        affine3[i] *= vol.step[i];
+
+    glm::dvec3 trans = dirCos3 * glm::dvec3(vol.start.x, vol.start.y, vol.start.z);
+
     vol.voxelToWorld = glm::dmat4(
-        glm::dvec4(affine[0][0], affine[1][0], affine[2][0], 0.0),
-        glm::dvec4(affine[0][1], affine[1][1], affine[2][1], 0.0),
-        glm::dvec4(affine[0][2], affine[1][2], affine[2][2], 0.0),
-        glm::dvec4(translation.x, translation.y, translation.z, 1.0)
+        glm::dvec4(affine3[0], 0.0),
+        glm::dvec4(affine3[1], 0.0),
+        glm::dvec4(affine3[2], 0.0),
+        glm::dvec4(trans, 1.0)
     );
-    
-    // Apply unit scale to translation
-    vol.voxelToWorld[3] = glm::dvec4(
-        translation.x * unit_scale,
-        translation.y * unit_scale,
-        translation.z * unit_scale,
-        1.0
-    );
-    
     vol.worldToVoxel = glm::inverse(vol.voxelToWorld);
-    
-    // Calculate start from corner voxel (0,0,0)
-    glm::dvec3 corner_world;
-    vol.transformVoxelToWorld(glm::ivec3(0, 0, 0), corner_world);
-    vol.start = corner_world;
-    
+
     // Extract voxel data
     size_t total_voxels = nii_ptr->nvox;
     vol.data.resize(total_voxels);
@@ -231,7 +282,64 @@ void loadNiftiIntoVolume(const std::string& filename, Volume& vol)
         vol.min_value = vol.min_value * nii_ptr->scl_slope + nii_ptr->scl_inter;
         vol.max_value = vol.max_value * nii_ptr->scl_slope + nii_ptr->scl_inter;
     }
-    
+
+    // Stage 6: Transpose and/or flip voxel data to match MINC axis order.
+    // NIfTI data is stored as array[k][j][i] (file axis 0 = fastest).
+    // MINC expects data[z][y][x] where z=zspace, y=yspace, x=xspace.
+    //
+    // Two transformations may be needed:
+    //   (a) Axis permutation — if spatial_axes is not identity
+    //   (b) Axis reversal — for each axis where flipAxis[d] is true
+    //       (negative step was normalized to positive, data must be mirrored)
+    bool needTranspose = (spatial_axes[0] != 0 ||
+                          spatial_axes[1] != 1 ||
+                          spatial_axes[2] != 2);
+    bool needFlip = (flipAxis[0] || flipAxis[1] || flipAxis[2]);
+
+    if (needTranspose || needFlip)
+    {
+        int mx = vol.dimensions.x;
+        int my = vol.dimensions.y;
+        int mz = vol.dimensions.z;
+
+        std::vector<float> reordered(total_voxels);
+
+        for (int z = 0; z < mz; ++z)
+        {
+            for (int y = 0; y < my; ++y)
+            {
+                for (int x = 0; x < mx; ++x)
+                {
+                    // Destination MINC indices (after flip)
+                    int mnc[3] = { x, y, z };
+
+                    // Apply axis reversal: flip MINC index for axes with
+                    // negative original step (now positive after normalization).
+                    // This mirrors the data so voxel 0 maps to the new start.
+                    int src_mnc[3] = {
+                        flipAxis[0] ? (mx - 1 - mnc[0]) : mnc[0],
+                        flipAxis[1] ? (my - 1 - mnc[1]) : mnc[1],
+                        flipAxis[2] ? (mz - 1 - mnc[2]) : mnc[2]
+                    };
+
+                    // Map from (possibly permuted) MINC index to NIfTI file index
+                    int ni = src_mnc[spatial_axes[0]];
+                    int nj = src_mnc[spatial_axes[1]];
+                    int nk = src_mnc[spatial_axes[2]];
+
+                    size_t src_idx = static_cast<size_t>(nk) * nii_dims[1] * nii_dims[0]
+                                   + static_cast<size_t>(nj) * nii_dims[0]
+                                   + ni;
+                    size_t dst_idx = static_cast<size_t>(z) * my * mx
+                                   + static_cast<size_t>(y) * mx
+                                   + x;
+                    reordered[dst_idx] = vol.data[src_idx];
+                }
+            }
+        }
+        vol.data = std::move(reordered);
+    }
+
     nifti_image_free(nii_ptr);
 }
 
