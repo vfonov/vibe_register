@@ -84,11 +84,6 @@ cmake -S "${BICGL_SRC}" -B "${BICGL_BUILD}" \
 echo "--- Building bicgl ---"
 cmake --build "${BICGL_BUILD}" --parallel "${JOBS}"
 
-# ── Collect bicgl paths for register ─────────────────────────────────────────
-BICGL_INCLUDE_DIRS="${BICGL_SRC}/OpenGL_graphics/Include;${BICGL_SRC}/Include;${BICGL_SRC}/EGL_windows/Include"
-BICGL_LIBRARY_DIRS="${BICGL_BUILD}"
-BICGL_LIBRARIES="bicgl;EGL;X11;GL"
-
 # ── Build register ────────────────────────────────────────────────────────────
 echo "--- Configuring register ---"
 mkdir -p "${REGISTER_BUILD}"
@@ -96,9 +91,7 @@ cmake -S "${REGISTER_SRC}" -B "${REGISTER_BUILD}" \
     -DCMAKE_PREFIX_PATH="${MINC_PREFIX}" \
     -DLIBMINC_DIR="${MINC_PREFIX}/lib/cmake" \
     -DBICPL_DIR="${MINC_PREFIX}/lib" \
-    -DBICGL_INCLUDE_DIRS="${BICGL_INCLUDE_DIRS}" \
-    -DBICGL_LIBRARY_DIRS="${BICGL_LIBRARY_DIRS}" \
-    -DBICGL_LIBRARIES="${BICGL_LIBRARIES}" \
+    -DBICGL_EGL_BUILD_DIR="${BICGL_BUILD}" \
     -DCMAKE_BUILD_TYPE=Release \
     -Wno-dev
 
