@@ -2,6 +2,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 
 #ifdef HAS_VULKAN
 #include "VulkanBackend.h"
@@ -28,11 +29,26 @@ std::unique_ptr<Backend> Backend::create(BackendType type)
     }
 }
 
+static bool isRemoteX11Display()
+{
+    // x2go sets X2GO_SESSION; general SSH X11 forwarding sets SSH_CONNECTION/SSH_CLIENT
+    if (std::getenv("X2GO_SESSION"))
+        return true;
+    if (std::getenv("SSH_CONNECTION") || std::getenv("SSH_CLIENT"))
+    {
+        const char* disp = std::getenv("DISPLAY");
+        return disp && disp[0] != '\0';
+    }
+    return false;
+}
+
 BackendType Backend::detectBest()
 {
 #ifdef HAS_VULKAN
-    return BackendType::Vulkan;
-#elif defined(HAS_OPENGL2)
+    if (!isRemoteX11Display())
+        return BackendType::Vulkan;
+#endif
+#ifdef HAS_OPENGL2
     return BackendType::OpenGL2;
 #else
     throw std::runtime_error("No graphics backends compiled in");
