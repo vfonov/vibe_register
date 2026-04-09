@@ -1,7 +1,7 @@
 # research.md — Comprehensive Codebase Review
 
-> **Last updated:** 2026-04-02 (WARN verdict system, clangd LSP config, OverlapTest resolved)
-> **Scope:** Full source review of `new_register` (merged codebase: 24 `.cpp`, 19 headers in src/, 18 test suites).
+> **Last updated:** 2026-04-09 (NIfTI native support added + bugs fixed, x2go/SSH Vulkan auto-skip, WindowManager extracted, 21 test suites)
+> **Scope:** Full source review of `new_register` (merged codebase: 27 `.cpp`, 21 headers in src/, 21 test suites).
 
 ---
 
@@ -18,8 +18,8 @@ viewer/registration tool. It provides multi-volume MINC2 viewing with 3-plane sl
 views, alpha-blended overlay compositing, tag-point registration (6 transform types),
 QC batch review mode, and dual GPU backends (Vulkan + OpenGL 2).
 
-**Codebase size:** ~14,100 lines across 24 `.cpp` + 19 `.h` files in `src/`, plus ~4,000 lines
-of tests across 18 test suites.
+**Codebase size:** ~14,250 lines across 27 `.cpp` + 21 `.h` files in `src/`, plus ~4,500 lines
+of tests across 21 test suites.
 
 **Note:** `new_qc` was merged into `new_register/src/qc/` on 2026-03-16 (commit a75fb1a).
 
@@ -69,16 +69,18 @@ ExternalProject for Eigen, libminc, minc2-simple.
 
 ### Key Design Decisions
 
-- **Abstract backend**: `GraphicsBackend` provides a unified interface; `BackendFactory` selects at runtime with automatic fallback (Vulkan -> OpenGL2 -> OpenGL2-EGL).
+- **Abstract backend**: `GraphicsBackend` provides a unified interface; `BackendFactory` selects at runtime with automatic fallback (Vulkan -> OpenGL2 -> OpenGL2-EGL). Vulkan is automatically skipped when running under x2go or SSH X11 forwarding (detected via `X2GO_SESSION`, `SSH_CONNECTION`, `SSH_CLIENT` env vars).
 - **Synchronous prefetching**: Despite `Prefetcher` having thread-safety primitives, actual loading is main-thread-only because libminc/HDF5 are not thread-safe.
 - **LRU volume cache**: `VolumeCache` (default 8 entries) avoids re-reading MINC files during QC row switches.
 - **CPU compositing**: Overlay blending and colour mapping are done in software (not GPU shaders).
+- **NIfTI native loading**: `NiftiVolume.cpp` implements the full `nii2mnc` algorithm so NIfTI world-space coordinates are identical to those of an equivalent MINC file.
+- **WindowManager**: Framebuffer resize callback and swapchain rebuild flag are encapsulated in `WindowManager.cpp`, keeping `main.cpp` free from GLFW callback boilerplate.
 
 ---
 
 ## 3. Module-by-Module Analysis
 
-### 3.1 main.cpp (966 lines)
+### 3.1 main.cpp (1015 lines)
 
 Entry point, CLI parsing (via `cxxopts`), GLFW window creation, main render loop.
 
@@ -126,7 +128,7 @@ MINC2 volume representation: loading, coordinate transforms, label support.
 **Strengths:** Clean data-driven design.
 **Note:** Uses custom `countOf()` template — could be `std::size()`.
 
-### 3.5 Interface.cpp (2720 lines) — Largest file
+### 3.5 Interface.cpp (2914 lines) — Largest file
 
 Full ImGui UI: dock layout, volume columns, overlay panel, tag list, QC verdicts, file dialogs, hotkey panel.
 
@@ -138,9 +140,9 @@ Full ImGui UI: dock layout, volume columns, overlay panel, tag list, QC verdicts
 - `renderHotkeyPanel()` (new): displays keyboard shortcuts reference
 
 **Strengths:** Comprehensive feature coverage; clean data/presentation separation.
-**Concerns:** File is oversized (candidate for splitting). Significant code duplication between `renderSliceView()` and `renderOverlayView()`.
+**Concerns:** File is oversized (2914 lines — candidate for splitting). Significant code duplication between `renderSliceView()` and `renderOverlayView()`.
 
-### 3.6 ViewManager.cpp (734 lines)
+### 3.6 ViewManager.cpp (804 lines)
 
 Slice texture generation, overlay compositing, view synchronization.
 
@@ -165,7 +167,7 @@ Tag-point registration: LSQ6/7/9/10/12 + TPS.
 **Strengths:** Mathematically rigorous; well-structured parameterization (`R * S` for correct convergence).
 **Note:** LSQ10 has no dedicated test.
 
-### 3.8 VulkanBackend.cpp (1096 lines) + VulkanHelpers.cpp (406 lines)
+### 3.8 VulkanBackend.cpp (1096 lines) + VulkanHelpers.cpp (454 lines)
 
 Full Vulkan backend: device selection, swapchain, textures, screenshots.
 
@@ -223,11 +225,17 @@ Main-thread synchronous volume prefetching for QC mode.
 - Skips already-cached volumes
 - Intentionally synchronous (libminc/HDF5 not thread-safe)
 
-### 3.14 BackendFactory.cpp (76 lines)
+### 3.14 BackendFactory.cpp (99 lines)
 
 Factory pattern for graphics backends with compile-time conditionals and string aliases.
 
-### 3.15 SliceRenderer.cpp (729 lines) — NEW
+- `detectBest()` skips Vulkan automatically when `isRemoteX11Display()` returns true.
+- `isRemoteX11Display()` checks: `X2GO_SESSION` (x2go sessions), or `SSH_CONNECTION` / `SSH_CLIENT` combined with a non-empty `DISPLAY` (SSH X11 forwarding).
+- Same logic applied in `src/qc/BackendFactory.cpp` (78 lines) for the `new_qc` backend.
+
+**Rationale:** Vulkan over x2go / SSH X11 forwarding causes an uncatchable `XIO: fatal IO error 11` (SIGPIPE from the X server), which kills the process even with the existing SIGSEGV guard. OpenGL2-EGL is used instead and works correctly.
+
+### 3.15 SliceRenderer.cpp (680 lines)
 
 Slice rendering abstraction layer for multi-volume visualization.
 
@@ -238,19 +246,46 @@ Slice rendering abstraction layer for multi-volume visualization.
 **Strengths:** Clean abstraction for slice rendering logic.
 **Concerns:** Tightly coupled with ViewManager.
 
-### 3.16 QC Module (src/qc/) — MERGED
+### 3.16 NiftiVolume.cpp (350 lines) — NEW (2026-04-03)
+
+Native NIfTI-1 volume loader supporting `.nii` and `.nii.gz` files.
+
+- Reads sform (preferred) or qform from the NIfTI header; falls back to pixdim diagonal.
+- Replicates the `nii2mnc` algorithm in three stages:
+  1. **Spatial axis permutation** — maps NIfTI file axes to MINC spatial dimensions by finding the largest absolute component of each affine column.
+  2. **Decomposition** — extracts signed step, direction cosines, and start values via the `convert_transform_to_starts_and_steps()` logic (sign from diagonal element; start solved as `C⁻¹ · origin`).
+  3. **Negative-step normalization** — flips steps to positive, shifts starts to the far end, and reverses voxel data along affected axes (replicating `minc2_setup_standard_order()`).
+- Builds `voxelToWorld` / `worldToVoxel` from the decomposed MINC components — guaranteed consistent with `dirCos`, `step`, `start`.
+- Converts meters/microns to millimeters via `xyz_units`.
+- Supports DT_INT8, DT_UINT8, DT_INT16, DT_UINT16, DT_INT32, DT_UINT32, DT_FLOAT32, DT_FLOAT64.
+- Applies `scl_slope` / `scl_inter` rescaling when present.
+- Integrated into `Volume::load()` via `isNiftiFile()` extension check.
+
+**Strengths:** Coordinate-identical to MINC for the same brain volume (validated by `NiftiMncMatchTest`).
+**Concerns:** Full volume loaded into memory as float (same as MINC path). No lazy loading or memory mapping.
+
+### 3.17 WindowManager.cpp (90 lines) — NEW
+
+GLFW framebuffer callback management, extracted from `main.cpp`.
+
+- Encapsulates `glfwSetFramebufferSizeCallback`, last-known framebuffer size, and `swapchainRebuildPending_` flag.
+- Main loop polls `needsSwapchainRebuild()` / `resetRebuildFlag()` rather than accessing GLFW internals.
+
+**Strengths:** Cleaner separation of GLFW lifecycle from main render loop.
+
+### 3.18 QC Module (src/qc/) — MERGED
 
 The `new_qc` tool was merged into `new_register/src/qc/` on 2026-03-16. See **Part B** for full analysis.
 
 **Files added:**
 - `qc/main.cpp` (153 lines): CLI entry point for standalone QC tool
-- `qc/QCApp.cpp` (537 lines) + `qc/QCApp.h` (70 lines): GLFW+ImGui+OpenGL GUI application
+- `qc/QCApp.cpp` (570 lines) + `qc/QCApp.h` (70 lines): GLFW+ImGui+OpenGL GUI application
 - `qc/CSVHandler.cpp` (245 lines) + `qc/CSVHandler.h` (58 lines): CSV I/O with RFC 4180 compliance
 - `qc/VulkanBackend.cpp` (945 lines) + `qc/VulkanBackend.h` (82 lines): Vulkan GPU backend for QC
 - `qc/VulkanHelpers.cpp` (378 lines) + `qc/VulkanHelpers.h` (33 lines): Vulkan helper functions
 - `qc/OpenGL2Backend.cpp` (318 lines) + `qc/OpenGL2Backend.h` (57 lines): OpenGL2 fallback backend
 - `qc/Backend.h` (136 lines): Abstract backend interface
-- `qc/BackendFactory.cpp` (62 lines): Backend selection factory
+- `qc/BackendFactory.cpp` (78 lines): Backend selection factory (includes x2go/SSH Vulkan skip)
 
 **Key differences from new_register:**
 - JPEG/PNG image datasets instead of MINC2 volumes
@@ -297,13 +332,16 @@ The `new_qc` tool was merged into `new_register/src/qc/` on 2026-03-16. See **Pa
 | `MincDimsTest` | test_minc_dims.cpp | Raw MINC2 dimension metadata |
 | `ColourMapTests` | test_colour_map.cpp | All 21 LUT endpoints, name lookup |
 | `LabelRoundingTest` | test_label_rounding.cpp | Label value rounding correctness |
+| `NiftiLoadTest` | test_nifti_load.cpp | NIfTI volume loading dimensions and world-coord sanity |
+| `NiftiMncMatchTest` | test_nifti_mnc_match.cpp | NIfTI and MINC produce identical slices for the same brain volume |
 | `QCCsvTest` | test_qc_csv.cpp | CSV parsing, quoting, round-trip, edge cases |
 | `AppConfigTest` | test_app_config.cpp | JSON config round-trip, defaults, optional fields |
 | `TransformTest` | test_transform.cpp | All transform types, XFM I/O |
-| `MincpikTest` | test_mincpik.cpp | Mosaic image generation (NEW) |
-| `CsvTest` | csv_test.cpp | CSVHandler unit tests (42 tests, NEW) |
-| `OverlapTest` | test_overlap.cpp | Overlay rendering with non-identity direction cosines (RESOLVED) |
+| `MincpikTest` | test_mincpik.cpp | Mosaic image generation |
+| `QCCsvHandlerTest` | csv_test.cpp | CSVHandler unit tests (42 tests) |
+| `OverlapTest` | test_overlap.cpp | Overlay rendering with non-identity direction cosines |
 | `Overlap2Test` | test_overlap2.cpp | Overlay rendering with identity direction cosines (baseline) |
+| `CoordSq2TrTest` | (implicit) | Coordinate transform for sq2_tr volume |
 
 ### Coverage by Module
 
@@ -317,7 +355,7 @@ The `new_qc` tool was merged into `new_register/src/qc/` on 2026-03-16. See **Pa
 | Volume | 18 | 8 | **44%** |
 | AppState | 25 | 0 | **0%** |
 
-**Approximate overall coverage of unit-testable functions: ~35% (improved with CSVHandler tests).**
+**Approximate overall coverage of unit-testable functions: ~38% (improved with NIfTI and CSVHandler tests).**
 
 ### Coverage Gaps (Priority Order)
 
@@ -339,8 +377,9 @@ The `new_qc` tool was merged into `new_register/src/qc/` on 2026-03-16. See **Pa
 **LOW:**
 - Copy/move semantics (Volume, TagWrapper)
 - Prefetcher integration test
-- BackendFactory name parsing
+- BackendFactory name parsing / x2go detection logic
 - SliceRenderer unit tests
+- NiftiVolume edge cases (non-square voxels, qform-only, all datatype paths)
 
 ---
 
@@ -404,9 +443,11 @@ A feature-rich, functional application that covers the core functionality of the
 - Label volume support with FreeSurfer LUT parsing
 - JSON config persistence with file dialogs
 - Screenshot (PNG) for both backends
-- 18 passing test suites (including OverlapTest for overlay rendering correctness)
+- 21 passing test suites (including OverlapTest, NiftiMncMatchTest)
 - WARN verdict system with configurable verdict options and 1..N hotkeys
 - clangd LSP configuration with auto-generated compile commands
+- **NIfTI-1 support** (`.nii`, `.nii.gz`) via native loader replicating the `nii2mnc` algorithm — coordinate-identical to MINC for the same volume (2026-04-03/05)
+- **Automatic Vulkan skip on x2go / SSH X11 forwarding** — `detectBest()` detects remote X11 via env vars and falls through to OpenGL2-EGL; applies to both `new_register` and `new_qc` (2026-04-09)
 
 ---
 
@@ -417,7 +458,7 @@ From PLAN.md — features remaining from the legacy tool:
 - **Resampling**: Resample volume 2 into volume 1's space using computed transform
 - **Slice filtering**: Per-view filter type (nearest, linear, box, triangle, gaussian) with configurable FWHM
 - **Interpolation**: Per-volume interpolation type selection
-- **Additional volume support**: Up to 8 volumes, NIfTI-1 format, RGB/vector volumes, 4D volumes
+- **Additional volume support**: Up to 8 volumes, RGB/vector volumes, 4D volumes (NIfTI-1 is now supported)
 - **UI features**: Tag label editing in table, per-volume load buttons, quit confirmation dialog
 - **Metal backend**: macOS support (stub exists in CMakeLists.txt)
 - **WebAssembly build**: Plan exists in PLAN.md but not started
@@ -444,16 +485,16 @@ From PLAN.md — features remaining from the legacy tool:
 
 ### Long-term (Features)
 11. Implement resampling and slice filtering.
-12. Add NIfTI-1 support for broader compatibility.
+12. RGB/vector volume support and 4D volumes.
 13. Metal backend for macOS.
 
 ---
 
 ## 11. NIfTI Coordinate System Analysis
 
-> **Date:** 2026-04-05
+> **Date:** 2026-04-05 (analysis); **Fixed:** 2026-04-05 (commit 545f1a5)
 > **Scope:** Mathematical analysis of NIfTI vs MINC coordinate representations,
-> the `nii2mnc` conversion algorithm, and bugs in the current `NiftiVolume.cpp` loader.
+> the `nii2mnc` conversion algorithm, and bugs that existed in the initial `NiftiVolume.cpp` loader (all now resolved).
 
 ### 11.1 NIfTI Coordinate Representation
 
@@ -672,10 +713,10 @@ origin = C · start            (column 3)
 
 And: `world = C · diag(step) · voxel + C · start = C · (diag(step) · voxel + start)`
 
-### 11.6 Bugs in the Current NiftiVolume.cpp
+### 11.6 Bugs in the Initial NiftiVolume.cpp (All Fixed — commit 545f1a5)
 
-The current loader (`new_register/src/NiftiVolume.cpp` lines 89–149)
-has five distinct bugs:
+The initial loader (`new_register/src/NiftiVolume.cpp`, commit ff875ce)
+had six distinct bugs, all corrected in commit 545f1a5:
 
 #### Bug 1: No spatial axis permutation (Stages 1–2 missing)
 
@@ -736,14 +777,18 @@ rotation part is accidentally correct.  This is fragile and confusing.
 
 ### 11.7 Test Validation
 
-A test (`NiftiMncMatchTest`) loads the same brain volume as both NIfTI
+`NiftiMncMatchTest` (test #15) loads the same brain volume as both NIfTI
 (`clp_VF_20190508_t1.nii.gz`) and MINC (`clp_VF_20190508_t1.mnc`), renders
 central axial/sagittal/coronal slices from each, and compares pixel data.
 
-Current results confirm the bugs:
-- Corner (0,0,0) world coordinates differ by **388.8 mm**
+**Before fix (commit ff875ce):**
+- Corner (0,0,0) world coordinates differed by **388.8 mm**
   (NIfTI: 114.7, 121.6, 99.4 vs MINC: −105.4, −92.7, −138.8)
-- **31,000–40,000 pixel mismatches** per slice across all three views
+- **31,000–40,000 pixel mismatches** per slice
+
+**After fix (commit 545f1a5):**
+- Zero pixel mismatches across all three slice views.
+- `NiftiMncMatchTest` passes as part of the 21-suite CTest run.
 
 ---
 
