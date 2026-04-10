@@ -74,7 +74,7 @@ fi
 echo "--- Configuring bicgl (EGL backend) ---"
 mkdir -p "${BICGL_BUILD}"
 cmake -S "${BICGL_SRC}" -B "${BICGL_BUILD}" \
-    -DBICGL_USE_EGL=ON \
+    -DBICGL_USE_GLFW=ON \
     -DBICGL_USE_GLUT=OFF \
     -DCMAKE_PREFIX_PATH="${MINC_PREFIX}" \
     -DLIBMINC_DIR="${MINC_PREFIX}/lib/cmake" \
