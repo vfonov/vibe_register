@@ -8,8 +8,9 @@
 #
 # Prerequisites (Ubuntu/Debian):
 #   sudo apt install cmake build-essential \
-#        libegl-dev libgl-dev libx11-dev \
+#        libglfw3-dev libgl-dev libx11-dev \
 #        libhdf5-dev libnetcdf-dev
+# (libglfw3-dev brings EGL support via Mesa; no separate libegl-dev needed)
 #
 # The MINC toolkit (libminc + bicpl) must be available. Pass its prefix
 # via the MINC_TOOLKIT environment variable or the --minc argument.
