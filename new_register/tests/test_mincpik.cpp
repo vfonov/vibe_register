@@ -639,6 +639,126 @@ int main(int argc, char** argv)
             FAIL("expected empty (only bg label)");
     }
 
+    // --- Test 20: anat + label overlay — both volumes must contribute ---
+    //
+    // Regression test: with T1w as vol0 and a binary mask (label) as vol1,
+    // renderOverlaySlice must blend both.  If only the label contributes, each
+    // masked pixel would be white (R=255); a correct blend must be dimmer.
+    //
+    // Uses the companion mask file: volumePath with ".mnc" → "_mask.mnc".
+    {
+        TEST("T1w + brain-mask label overlay: anatomical must be visible");
+
+        // Derive mask path from T1w path (insert "_mask" before ".mnc")
+        std::string maskPath = volumePath;
+        const std::string ext = ".mnc";
+        auto pos = maskPath.rfind(ext);
+        if (pos != std::string::npos)
+            maskPath = maskPath.substr(0, pos) + "_mask" + ext;
+
+        Volume mask;
+        bool maskLoaded = false;
+        try
+        {
+            mask.load(maskPath);
+            mask.setLabelVolume(true);
+            maskLoaded = true;
+        }
+        catch (const std::exception& e)
+        {
+            FAIL("could not load mask volume (" + maskPath + "): " + e.what());
+        }
+
+        if (maskLoaded)
+        {
+            int midZ = vol.dimensions.z / 2;
+
+            // Render T1w alone at mid-axial slice (ground truth gray values)
+            VolumeRenderParams pT1w;
+            pT1w.valueMin = vol.min_value;
+            pT1w.valueMax = vol.max_value;
+            pT1w.colourMap = ColourMapType::GrayScale;
+            pT1w.overlayAlpha = 0.5f;
+
+            VolumeRenderParams pMask;
+            pMask.valueMin = mask.min_value;
+            pMask.valueMax = mask.max_value;
+            pMask.colourMap = ColourMapType::GrayScale;
+            pMask.overlayAlpha = 0.5f;
+
+            RenderedSlice t1wOnly = renderSlice(vol, pT1w, 0, midZ);
+            RenderedSlice overlay  = renderOverlaySlice(
+                {&vol, &mask}, {pT1w, pMask}, 0, midZ);
+
+            if (overlay.width != vol.dimensions.x ||
+                overlay.height != vol.dimensions.y ||
+                overlay.pixels.empty())
+            {
+                FAIL("overlay dimensions wrong");
+            }
+            else
+            {
+                // Find a pixel where mask=1 AND T1w isn't near-white (< 230)
+                // so the label-only vs blend difference is measurable.
+                // mask label=1 → GrayScale[255]=white=255.
+                // Correct blend at alpha=0.5: R = (T1w_R + 255) / 2 < 255.
+                // Regression (only label visible): R = 255.
+                int dimX = vol.dimensions.x;
+                int dimY = vol.dimensions.y;
+
+                int foundPx = -1, foundPy = -1;
+                for (int py = dimY / 4; py < 3 * dimY / 4 && foundPx < 0; ++py)
+                {
+                    for (int px = dimX / 4; px < 3 * dimX / 4 && foundPx < 0; ++px)
+                    {
+                        // Check mask value at this voxel
+                        float mv = mask.data[midZ * dimY * dimX + py * dimX + px];
+                        int labelId = static_cast<int>(mv + 0.5f);
+                        if (labelId != 1)
+                            continue;
+
+                        // Check T1w isn't too dark or too bright for a clean test
+                        uint8_t t1R = t1wOnly.pixels[(dimY - 1 - py) * dimX + px] & 0xFF;
+                        if (t1R < 20 || t1R > 220)
+                            continue;
+
+                        foundPx = px;
+                        foundPy = py;
+                    }
+                }
+
+                if (foundPx < 0)
+                {
+                    FAIL("could not find a suitable brain pixel with mask=1 in central region");
+                }
+                else
+                {
+                    int dstIdx = (dimY - 1 - foundPy) * dimX + foundPx;
+                    uint8_t t1R  = t1wOnly.pixels[dstIdx] & 0xFF;
+                    uint8_t ovR  = overlay.pixels[dstIdx] & 0xFF;
+
+                    // Correct blend: ovR = (t1R + 255) / 2 (roughly)
+                    // Expected: ovR > t1R  (label white brightens the mix)
+                    //       AND ovR < 255  (anatomical pulled it below white)
+                    //
+                    // Bug (only label visible): ovR = 255 (fails second condition)
+                    if (ovR > t1R && ovR < 255)
+                    {
+                        PASS();
+                    }
+                    else
+                    {
+                        FAIL("at masked pixel(" + std::to_string(foundPx) + "," +
+                             std::to_string(foundPy) + "): T1w_R=" + std::to_string(t1R) +
+                             " overlay_R=" + std::to_string(ovR) +
+                             " — expected " + std::to_string(t1R) + " < overlay_R < 255"
+                             "; overlay_R=255 confirms regression (only label visible)");
+                    }
+                }
+            }
+        }
+    }
+
     // --- Summary ---
     std::cerr << "\n" << testsPassed << " passed, " << testsFailed << " failed\n";
     return testsFailed > 0 ? 1 : 0;

@@ -200,6 +200,15 @@ add_test(NAME MincpikTest COMMAND test_mincpik
 )
 
 # ------------------------------------------------------------------
+# Overlay alpha-blend regression test (no external data needed)
+# ------------------------------------------------------------------
+add_nr_test(test_overlay_blend
+    INCLUDES  ${INC_DIR} ${glm_SOURCE_DIR}
+    LINKS     nr_core
+)
+add_test(NAME OverlayBlendTest COMMAND test_overlay_blend)
+
+# ------------------------------------------------------------------
 # Overlay rendering correctness test
 # ------------------------------------------------------------------
 
