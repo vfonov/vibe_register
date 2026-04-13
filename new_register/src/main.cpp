@@ -363,10 +363,12 @@ static std::optional<ParsedArgs> parseArgs(int argc, char** argv)
 // main
 // ---------------------------------------------------------------------------
 
-int main(int argc, char** argv)
-{
-    try
+  int main(int argc, char** argv)
     {
+        bool glfwInitialized = false;
+
+        try
+        {
         auto parsed = parseArgs(argc, argv);
         if (!parsed)
             return 1;
@@ -555,6 +557,7 @@ int main(int argc, char** argv)
             std::cerr << "Failed to initialize GLFW\n";
             return 1;
         }
+        glfwInitialized = true;
 
         glfwSetErrorCallback(glfwErrorCallback);
 
@@ -1009,7 +1012,8 @@ int main(int argc, char** argv)
     catch (const std::exception& e)
     {
         std::cerr << "Fatal error: " << e.what() << "\n";
-        glfwTerminate();
+        if (glfwInitialized)
+            glfwTerminate();
         return 1;
     }
 }
