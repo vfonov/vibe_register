@@ -868,7 +868,8 @@ int Interface::renderVolumeColumn(int vi) {
     const Volume& vol = state_.volumes_[vi];
     int viewDirtyMask = 0;
 
-    ImGui::Begin(columnNames_[vi].c_str());
+    ImGui::Begin(columnNames_[vi].c_str(), nullptr,
+                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     {
         // Handle missing/failed volumes (placeholders have empty data)
         if (vol.data.empty()) {
@@ -898,12 +899,23 @@ int Interface::renderVolumeColumn(int vi) {
 
         ImVec2 avail = ImGui::GetContentRegionAvail();
 
+        // Count visible views so we can account for splitter pixels.
+        // With N visible views there are (N-1) splitters of splitterThick px each.
+        // Those pixels must be subtracted from viewAreaHeight so the total content
+        // (slice views + splitters [+ controls in non-clean mode]) equals avail.y
+        // exactly and the column window never shows a scroll bar.
+        constexpr float splitterThick = 4.0f;
+        int numVisibleViews = 0;
+        for (int v = 0; v < 3; ++v)
+            if (state_.viewVisible[v]) numVisibleViews++;
+        const float splittersTotalHeight = (numVisibleViews > 1 ? numVisibleViews - 1 : 0) * splitterThick;
+
         // Reserve a fixed height for the controls panel at the bottom.
         // The controls child uses height=0 (fill remaining), so the slice views
-        // above must consume exactly (avail.y - controlsHeight) pixels to leave
-        // the right amount of space.
+        // above must consume exactly (avail.y - controlsHeight - splittersTotalHeight)
+        // pixels to leave the right amount of space.
         const float controlsHeight = state_.cleanMode_ ? 0.0f : 196.0f * state_.dpiScale_;
-        float viewAreaHeight = avail.y - controlsHeight;
+        float viewAreaHeight = avail.y - controlsHeight - splittersTotalHeight;
 
         // Compute view heights, skipping hidden views and redistributing space
         float viewHeights[3];
@@ -987,7 +999,9 @@ int Interface::renderVolumeColumn(int vi) {
 
         if (!state_.cleanMode_) {
             // height=0: ImGui auto-sizes to content — controls are never clipped.
-            ImGui::BeginChild("##controls", ImVec2(viewWidth, 0), ImGuiChildFlags_Borders);
+            ImGui::BeginChild("##controls", ImVec2(viewWidth, 0), 
+                ImGuiChildFlags_Borders,
+                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
             {
                 if (!qcState_.active && !state_.volumePaths_[vi].empty())
                 {
@@ -997,48 +1011,51 @@ int Interface::renderVolumeColumn(int vi) {
                     ImGui::Separator();
                 }
 
+                // Lab and Log10 checkboxes — always available for all volumes
+                ImGui::PushID(vi + 3000);
+                {
+                    bool isLab = state_.volumes_[vi].isLabelVolume();
+                    if (ImGui::Checkbox("Lab", &isLab)) {
+                        state_.volumes_[vi].setLabelVolume(isLab);
+                        viewManager_.invalidateLabelCache(vi);
+                        viewManager_.updateSliceTexture(vi, 0);
+                        viewManager_.updateSliceTexture(vi, 1);
+                        viewManager_.updateSliceTexture(vi, 2);
+                        if (state_.hasOverlay())
+                            viewManager_.updateAllOverlayTextures();
+                    }
+                }
+                ImGui::SameLine();
+                {
+                    bool isLab2 = state_.volumes_[vi].isLabelVolume();
+                    bool logEn = state_.viewStates_[vi].useLogTransform;
+                    if (isLab2) ImGui::BeginDisabled(true);
+                    if (ImGui::Checkbox("Log10", &logEn)) {
+                        state_.viewStates_[vi].useLogTransform = logEn;
+                        viewManager_.updateSliceTexture(vi, 0);
+                        viewManager_.updateSliceTexture(vi, 1);
+                        viewManager_.updateSliceTexture(vi, 2);
+                        if (state_.hasOverlay())
+                            viewManager_.updateAllOverlayTextures();
+                    }
+                    if (isLab2) {
+                        ImGui::EndDisabled();
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Log10 unavailable for label volumes");
+                    }
+                }
+                ImGui::PopID();
+
+                // Overlay controls — only when overlay is available
                 if (state_.hasOverlay() && state_.showOverlay_)
                 {
-                    ImGui::PushID(vi + 3000);
-                    {
-                        bool isLab = state_.volumes_[vi].isLabelVolume();
-                        if (ImGui::Checkbox("Lab", &isLab)) {
-                            state_.volumes_[vi].setLabelVolume(isLab);
-                            viewManager_.invalidateLabelCache(vi);
-                            viewManager_.updateSliceTexture(vi, 0);
-                            viewManager_.updateSliceTexture(vi, 1);
-                            viewManager_.updateSliceTexture(vi, 2);
-                            if (state_.hasOverlay())
-                                viewManager_.updateAllOverlayTextures();
-                        }
-                    }
-                    ImGui::SameLine();
-                    {
-                        bool isLab2 = state_.volumes_[vi].isLabelVolume();
-                        bool logEn = state_.viewStates_[vi].useLogTransform;
-                        if (isLab2) ImGui::BeginDisabled(true);
-                        if (ImGui::Checkbox("Log10", &logEn)) {
-                            state_.viewStates_[vi].useLogTransform = logEn;
-                            viewManager_.updateSliceTexture(vi, 0);
-                            viewManager_.updateSliceTexture(vi, 1);
-                            viewManager_.updateSliceTexture(vi, 2);
-                            if (state_.hasOverlay())
-                                viewManager_.updateAllOverlayTextures();
-                        }
-                        if (isLab2) {
-                            ImGui::EndDisabled();
-                            if (ImGui::IsItemHovered())
-                                ImGui::SetTooltip("Log10 unavailable for label volumes");
-                        }
-                    }
-                    ImGui::SameLine();
+                    ImGui::Separator();
                     ImGui::Text("alpha:");
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
                     if (ImGui::DragFloat("##alpha", &state_.viewStates_[vi].overlayAlpha,
                                         0.01f, 0.0f, 1.0f, "%.2f"))
                         viewManager_.updateAllOverlayTextures();
-                    ImGui::PopID();
                     ImGui::Separator();
                 }
 
@@ -1397,7 +1414,8 @@ int Interface::renderVolumeColumn(int vi) {
 }
 
 void Interface::renderOverlayPanel() {
-    ImGui::Begin("Overlay");
+    ImGui::Begin("Overlay", nullptr,
+                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     {
         // In QC mode, add a placeholder to align with verdict panels in volume columns
         if (qcState_.active && !qcState_.singleVerdictMode)
@@ -1411,8 +1429,14 @@ void Interface::renderOverlayPanel() {
 
         ImVec2 avail = ImGui::GetContentRegionAvail();
 
+        constexpr float splitterThick = 4.0f;
+        int numVisibleViews = 0;
+        for (int v = 0; v < 3; ++v)
+            if (state_.viewVisible[v]) numVisibleViews++;
+        const float splittersTotalHeight = (numVisibleViews > 1 ? numVisibleViews - 1 : 0) * splitterThick;
+
         const float controlsHeight = state_.cleanMode_ ? 0.0f : 196.0f * state_.dpiScale_;
-        float viewAreaHeight = avail.y - controlsHeight;
+        float viewAreaHeight = avail.y - controlsHeight - splittersTotalHeight;
 
         // Compute view heights, skipping hidden views and redistributing space
         float viewHeights[3];
@@ -1499,7 +1523,9 @@ void Interface::renderOverlayPanel() {
         }
 
         if (!state_.cleanMode_) {
-            ImGui::BeginChild("##overlay_controls", ImVec2(avail.x, 0), ImGuiChildFlags_Borders);
+            ImGui::BeginChild("##overlay_controls", ImVec2(avail.x, 0),
+                ImGuiChildFlags_Borders,
+                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
             {
                 // Balance slider (2-volume mode only): controls relative alpha between
                 // volume 0 and volume 1, synced bidirectionally with the per-volume
@@ -1765,7 +1791,8 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
     const Volume& vol = state_.volumes_[vi];
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::BeginChild(childId, childSize, ImGuiChildFlags_None);
+    ImGui::BeginChild(childId, childSize, ImGuiChildFlags_None,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();
     {
         if (state.sliceTextures[viewIndex]) {
@@ -2106,7 +2133,8 @@ int Interface::renderOverlayView(int viewIndex, const ImVec2& childSize) {
     std::snprintf(childId, sizeof(childId), "##overlay_%d", viewIndex);
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::BeginChild(childId, childSize, ImGuiChildFlags_None);
+    ImGui::BeginChild(childId, childSize, ImGuiChildFlags_None,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();
     {
         if (state_.overlay_.textures[viewIndex]) {
