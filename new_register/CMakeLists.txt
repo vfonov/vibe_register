@@ -246,6 +246,7 @@ add_library(imgui STATIC
 )
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
 
+
 if(NOT BUILD_QC_ONLY)
 
 
@@ -650,3 +651,137 @@ endif() # BUILD_NEW_QC OR BUILD_QC_ONLY
 # --- Testing ---
 enable_testing()
 add_subdirectory(tests)
+
+# ============================================================
+# headless_tests — OSMesa + ImGui offscreen UI tests
+# ============================================================
+
+# Find OSMesa (libosmesa6-dev provides libOSMesa)
+find_library(OSMESA_LIBRARY NAMES OSMesa osmesa)
+if(NOT OSMESA_LIBRARY)
+    set(OSMESA_LIBRARY -lOSMesa)
+endif()
+message(STATUS "OSMesa library: ${OSMESA_LIBRARY}")
+
+# Ensure OpenGL is available (may already be found via ENABLE_OPENGL2)
+if(NOT TARGET OpenGL::GL)
+    find_package(OpenGL REQUIRED)
+endif()
+
+# Ensure Threads is available (may already be found in NOT BUILD_QC_ONLY block)
+if(NOT TARGET Threads::Threads)
+    find_package(Threads REQUIRED)
+endif()
+
+# stb — used for stb_image_write.h (PNG saving in imgui_impl_osmesa.cpp).
+# stb may already be fetched for new_qc; guard to avoid duplicate declarations.
+if(NOT stb_POPULATED)
+    FetchContent_Declare(
+        stb
+        GIT_REPOSITORY https://github.com/nothings/stb.git
+        GIT_TAG        master
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(stb)
+endif()
+
+# imgui_test_engine — advanced UI test framework
+# The repo has no CMakeLists.txt in the imgui_test_engine/ sub-directory,
+# so we compile the sources directly into a static library.
+FetchContent_Declare(
+    imgui_test_engine_repo
+    GIT_REPOSITORY https://github.com/ocornut/imgui_test_engine.git
+    GIT_TAG        main
+    GIT_SHALLOW    TRUE
+)
+FetchContent_GetProperties(imgui_test_engine_repo)
+if(NOT imgui_test_engine_repo_POPULATED)
+    FetchContent_Populate(imgui_test_engine_repo)
+endif()
+
+set(IMGUI_TE_DIR ${imgui_test_engine_repo_SOURCE_DIR}/imgui_test_engine)
+
+# imgui_test_engine: compiled together with the imgui core sources (recompiled
+# with IMGUI_ENABLE_TEST_ENGINE) in a single static library.  This avoids the
+# circular link dependency that arises when they are separate static libraries
+# (imgui_te.a calls ImGuiTestEngineHook_* from imgui_test_engine.a and vice-versa).
+add_library(imgui_test_engine STATIC
+    # imgui core re-compiled with test-engine hooks enabled
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_demo.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    # imgui_test_engine sources
+    ${IMGUI_TE_DIR}/imgui_capture_tool.cpp
+    ${IMGUI_TE_DIR}/imgui_te_context.cpp
+    ${IMGUI_TE_DIR}/imgui_te_coroutine.cpp
+    ${IMGUI_TE_DIR}/imgui_te_engine.cpp
+    ${IMGUI_TE_DIR}/imgui_te_exporters.cpp
+    ${IMGUI_TE_DIR}/imgui_te_perftool.cpp
+    ${IMGUI_TE_DIR}/imgui_te_ui.cpp
+    ${IMGUI_TE_DIR}/imgui_te_utils.cpp
+)
+target_compile_definitions(imgui_test_engine PUBLIC IMGUI_ENABLE_TEST_ENGINE)
+target_include_directories(imgui_test_engine PUBLIC
+    ${imgui_SOURCE_DIR}
+    ${IMGUI_TE_DIR}
+)
+
+# headless_tests executable
+# Compiles ImGui + OSMesa backend; no GLFW, no Vulkan, no OpenGL2 backend.
+add_executable(headless_tests
+    src/headless_test_main.cpp
+    src/backends/imgui_impl_osmesa.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+)
+
+target_compile_definitions(headless_tests PRIVATE
+    HEADLESS_TEST_BUILD=1
+)
+
+target_include_directories(headless_tests PRIVATE
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+    ${stb_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/backends
+)
+
+target_link_libraries(headless_tests PRIVATE
+    imgui_test_engine    # includes imgui recompiled with IMGUI_ENABLE_TEST_ENGINE
+    ${OSMESA_LIBRARY}
+    OpenGL::GL
+    Threads::Threads
+    ${CMAKE_DL_LIBS}
+)
+
+add_test(NAME headless_ui_tests COMMAND headless_tests ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+set_tests_properties(headless_ui_tests PROPERTIES
+    TIMEOUT 60
+    ENVIRONMENT "LIBGL_ALWAYS_SOFTWARE=1")
+
+# generate_headless_baselines — generates baseline PNGs for headless_ui_tests
+add_executable(generate_headless_baselines
+    tests/generate_headless_baselines.cpp
+    src/backends/imgui_impl_osmesa.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+)
+
+target_compile_definitions(generate_headless_baselines PRIVATE
+    HEADLESS_TEST_BUILD=1
+)
+
+target_include_directories(generate_headless_baselines PRIVATE
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+    ${stb_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/backends
+)
+
+target_link_libraries(generate_headless_baselines PRIVATE
+    imgui_test_engine
+    ${OSMESA_LIBRARY}
+    OpenGL::GL
+    Threads::Threads
+    ${CMAKE_DL_LIBS}
+)

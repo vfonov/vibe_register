@@ -177,6 +177,7 @@ Include order (both projects): system headers → library headers → local head
 6. **No reformatting** — follow the existing style of the file you are editing; do not reformat unrelated lines.
 7. **Lint only what you touch** — `cppcheck` or `clang-tidy` on changed files only.
 8. **Use LSP for code search** — prefer the LSP tool (go-to-definition, find-references, hover) over `grep`/`rg` when searching for symbols, definitions, or usages in `new_register/`.
+9. **No absolute paths in source code** — all paths must be relative to the test directory or passed as command-line arguments. Use `CMAKE_CURRENT_SOURCE_DIR` in CMakeLists.txt for test data paths.
 
 ---
 

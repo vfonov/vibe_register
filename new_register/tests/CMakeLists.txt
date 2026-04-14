@@ -268,6 +268,28 @@ target_include_directories(generate_overlap_refs PRIVATE
     ${COMMON_INCLUDES} ${stb_SOURCE_DIR})
 target_link_libraries(generate_overlap_refs PRIVATE nr_core)
 
+# ------------------------------------------------------------------
+# Visual regression test for new_register --test mode
+# ------------------------------------------------------------------
+
+add_nr_test(test_test_mode
+    INCLUDES  ${INC_DIR} ${glm_SOURCE_DIR} ${stb_SOURCE_DIR}
+    LINKS     nr_core
+)
+add_test(NAME TestModeRenderTest COMMAND test_test_mode
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+# ------------------------------------------------------------------
+# Reference PNG generator for test_test_mode (run manually, not a ctest)
+# ------------------------------------------------------------------
+
+add_executable(generate_test_mode_refs
+    ${CMAKE_CURRENT_SOURCE_DIR}/generate_test_mode_refs.cpp)
+target_include_directories(generate_test_mode_refs PRIVATE
+    ${INC_DIR} ${glm_SOURCE_DIR} ${stb_SOURCE_DIR})
+target_link_libraries(generate_test_mode_refs PRIVATE nr_core)
+
 # --- GCC < 10 needs -lstdc++fs for std::filesystem ---
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 10)
     foreach(_tgt test_qc_csv test_app_config test_matrix_debug test_world_to_voxel test_coordinate_sync)

@@ -1,7 +1,7 @@
 # research.md — Comprehensive Codebase Review
 
-> **Last updated:** 2026-04-09 (NIfTI native support added + bugs fixed, x2go/SSH Vulkan auto-skip, WindowManager extracted, 21 test suites)
-> **Scope:** Full source review of `new_register` (merged codebase: 27 `.cpp`, 21 headers in src/, 21 test suites).
+> **Last updated:** 2026-04-13 (OSMesa headless tests added, 24 test suites total)
+> **Scope:** Full source review of `new_register` (merged codebase: 30 `.cpp`, 22 headers in src/, 24 test suites).
 
 ---
 
@@ -18,8 +18,8 @@ viewer/registration tool. It provides multi-volume MINC2 viewing with 3-plane sl
 views, alpha-blended overlay compositing, tag-point registration (6 transform types),
 QC batch review mode, and dual GPU backends (Vulkan + OpenGL 2).
 
-**Codebase size:** ~14,250 lines across 27 `.cpp` + 21 `.h` files in `src/`, plus ~4,500 lines
-of tests across 21 test suites.
+**Codebase size:** ~14,250 lines across 30 `.cpp` + 22 `.h` files in `src/`, plus ~5,000 lines
+of tests across 24 test suites.
 
 **Note:** `new_qc` was merged into `new_register/src/qc/` on 2026-03-16 (commit a75fb1a).
 
@@ -294,6 +294,29 @@ The `new_qc` tool was merged into `new_register/src/qc/` on 2026-03-16. See **Pa
 - HiDPI support with `--scale` override option
 - No MINC/HDF5 dependencies (BUILD_QC_ONLY mode)
 
+### 3.19 imgui_impl_osmesa.cpp (63 lines) — NEW (2026-04-13)
+
+OSMesa software rendering backend for headless ImGui testing.
+
+- `osmesa_init()` creates OSMesa context with RGBA format, 24-bit depth, 8-bit alpha
+- `osmesa_save_png()` writes PNG screenshots via stb_image_write
+- `osmesa_shutdown()` cleans up context and pixel buffer
+
+**Strengths:** Enables CI testing without X11 display; deterministic rendering.
+**Concerns:** OSMesa context is file-scope static (same pattern as VulkanHelpers).
+
+### 3.20 headless_test_main.cpp (224 lines) — NEW (2026-04-13)
+
+Headless test runner using OSMesa + ImGui test engine.
+
+- `test_window_appears`: Verifies ImGui window creation and detection via `ImGui::FindWindowByName`
+- `test_button_click`: Four-frame button click sequence (move → press → release → detect)
+- Uses `imgl3wInit2` with OSMesa proc resolver to avoid libglvnd/X11 dependencies
+- Saves reference PNGs to `/tmp/test_window_appears.png` and `/tmp/test_button_click.png`
+
+**Strengths:** Validates ImGui input event queue semantics; no display required.
+**Concerns:** Hard-coded test paths; no automated pixel comparison yet.
+
 ---
 
 ## 4. Dependencies
@@ -342,6 +365,9 @@ The `new_qc` tool was merged into `new_register/src/qc/` on 2026-03-16. See **Pa
 | `OverlapTest` | test_overlap.cpp | Overlay rendering with non-identity direction cosines |
 | `Overlap2Test` | test_overlap2.cpp | Overlay rendering with identity direction cosines (baseline) |
 | `CoordSq2TrTest` | (implicit) | Coordinate transform for sq2_tr volume |
+| `headless_ui_tests` | headless_test_main.cpp | OSMesa context creation, ImGui window/button interaction |
+| `test_window_appears` | (implicit) | ImGui window detection via FindWindowByName |
+| `test_button_click` | (implicit) | ImGui button click across four frames (move, press, release, detect) |
 
 ### Coverage by Module
 
@@ -380,6 +406,7 @@ The `new_qc` tool was merged into `new_register/src/qc/` on 2026-03-16. See **Pa
 - BackendFactory name parsing / x2go detection logic
 - SliceRenderer unit tests
 - NiftiVolume edge cases (non-square voxels, qform-only, all datatype paths)
+- ImGui backend (imgui_impl_osmesa, imgui_impl_opengl3) — partial coverage via headless tests
 
 ---
 
@@ -443,11 +470,12 @@ A feature-rich, functional application that covers the core functionality of the
 - Label volume support with FreeSurfer LUT parsing
 - JSON config persistence with file dialogs
 - Screenshot (PNG) for both backends
-- 21 passing test suites (including OverlapTest, NiftiMncMatchTest)
+- 24 passing test suites (including OverlapTest, NiftiMncMatchTest, headless_ui_tests)
 - WARN verdict system with configurable verdict options and 1..N hotkeys
 - clangd LSP configuration with auto-generated compile commands
 - **NIfTI-1 support** (`.nii`, `.nii.gz`) via native loader replicating the `nii2mnc` algorithm — coordinate-identical to MINC for the same volume (2026-04-03/05)
 - **Automatic Vulkan skip on x2go / SSH X11 forwarding** — `detectBest()` detects remote X11 via env vars and falls through to OpenGL2-EGL; applies to both `new_register` and `new_qc` (2026-04-09)
+- **Headless UI testing** via OSMesa backend with ImGui test engine (2 smoke tests, PNG screenshot output) — 2026-04-13
 
 ---
 
