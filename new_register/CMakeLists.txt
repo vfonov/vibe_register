@@ -31,6 +31,10 @@ option(ENABLE_VULKAN  "Build Vulkan backend"  ON)
 option(ENABLE_OPENGL2 "Build OpenGL2 backend" ON)
 option(ENABLE_METAL   "Build Metal backend"   OFF)
 
+# --- Testing options ---
+# ENABLE_TESTS: build headless UI tests (requires OSMesa library)
+option(ENABLE_TESTS "Enable headless UI tests (requires OSMesa library)" ON)
+
 # --- Dependencies always required ---
 include(FetchContent)
 
@@ -650,11 +654,12 @@ endif() # BUILD_NEW_QC OR BUILD_QC_ONLY
 
 # --- Testing ---
 enable_testing()
-add_subdirectory(tests)
+if(ENABLE_TESTS)
+    add_subdirectory(tests)
 
-# ============================================================
-# headless_tests — OSMesa + ImGui offscreen UI tests
-# ============================================================
+    # ============================================================
+    # headless_tests — OSMesa + ImGui offscreen UI tests
+    # ============================================================
 
 # Find OSMesa (libosmesa6-dev provides libOSMesa)
 find_library(OSMESA_LIBRARY NAMES OSMesa osmesa)
@@ -785,3 +790,5 @@ target_link_libraries(generate_headless_baselines PRIVATE
     Threads::Threads
     ${CMAKE_DL_LIBS}
 )
+
+endif() # ENABLE_TESTS
