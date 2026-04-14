@@ -196,13 +196,13 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
 
         float toolsFraction;
         if (totalColumns <= 1)
-            toolsFraction = 0.28f;
+            toolsFraction = 0.35f;
         else if (totalColumns == 2)
-            toolsFraction = 0.18f;
+            toolsFraction = 0.23f;
         else if (totalColumns == 3)
-            toolsFraction = 0.14f;
+            toolsFraction = 0.17f;
         else
-            toolsFraction = 0.11f;
+            toolsFraction = 0.13f;
 
         if (qcState_.active) {
             // QC mode: slightly wider for the embedded QC list

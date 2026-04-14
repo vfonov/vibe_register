@@ -611,7 +611,7 @@ static std::optional<ParsedArgs> parseArgs(int argc, char** argv)
         int numVols = qcState.active ? qcState.columnCount() : state.volumeCount();
         if (numVols < 1) numVols = 1;
 
-        constexpr int colWidth  = 200;
+        constexpr int colWidth  = 300;
         constexpr int baseHeight = 480;
 
         int totalCols = numVols + (numVols > 1 ? 1 : 0);
