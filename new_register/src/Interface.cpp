@@ -1059,12 +1059,80 @@ int Interface::renderVolumeColumn(int vi) {
                     ImGui::Separator();
                 }
 
-                glm::dvec3 worldPos;
-                vol.transformVoxelToWorld(state.sliceIndices, worldPos);
+                glm::ivec3 vOrig = state.sliceIndices;
+                glm::dvec3 wOrig;
+                vol.transformVoxelToWorld(vOrig, wOrig);
+
+                glm::ivec3 vCurr = vOrig;
+                glm::dvec3 wCurr = wOrig;
+
+                bool vDeactivated = false;
+                bool wDeactivated = false;
+                
+                ImGui::Text("V:");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(60.0f);
+                ImGui::InputInt("##Vx", &vCurr.x, 0);
+                if (ImGui::IsItemDeactivatedAfterEdit()) vDeactivated = true;
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(60.0f);
+                ImGui::InputInt("##Vy", &vCurr.y, 0);
+                if (ImGui::IsItemDeactivatedAfterEdit()) vDeactivated = true;
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(60.0f);
+                ImGui::InputInt("##Vz", &vCurr.z, 0);
+                if (ImGui::IsItemDeactivatedAfterEdit()) vDeactivated = true;
+                ImGui::SameLine();
+                ImGui::Text("W:");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(80.0f);
+                ImGui::InputDouble("##Wx", &wCurr.x, 0.0, 0.0, "%.1f");
+                if (ImGui::IsItemDeactivatedAfterEdit()) wDeactivated = true;
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(80.0f);
+                ImGui::InputDouble("##Wy", &wCurr.y, 0.0, 0.0, "%.1f");
+                if (ImGui::IsItemDeactivatedAfterEdit()) wDeactivated = true;
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(80.0f);
+                ImGui::InputDouble("##Wz", &wCurr.z, 0.0, 0.0, "%.1f");
+                if (ImGui::IsItemDeactivatedAfterEdit()) wDeactivated = true;
+                ImGui::SameLine();
                 float intensity = vol.get(state.sliceIndices.x, state.sliceIndices.y, state.sliceIndices.z);
-                ImGui::Text("V: %d,%d,%d  W: %.1f,%.1f,%.1f  I: %.2f",
-                            state.sliceIndices.x, state.sliceIndices.y, state.sliceIndices.z,
-                            worldPos.x, worldPos.y, worldPos.z, intensity);
+                ImGui::Text("I: %.2f", intensity);
+
+                std::cerr << "[COORD_DEBUG] vOrig={" << vOrig.x << "," << vOrig.y << "," << vOrig.z 
+                          << "} vCurr={" << vCurr.x << "," << vCurr.y << "," << vCurr.z << "}\n";
+                std::cerr << "[COORD_DEBUG] vDeactivated=" << vDeactivated << " wDeactivated=" << wDeactivated << "\n";
+                
+                if (vDeactivated || wDeactivated) {
+                    bool vChanged = (vCurr.x != vOrig.x || vCurr.y != vOrig.y || vCurr.z != vOrig.z);
+                    std::cerr << "[COORD_DEBUG] vChanged=" << vChanged << " state.sliceIndices={" 
+                              << state.sliceIndices.x << "," << state.sliceIndices.y << "," << state.sliceIndices.z << "}\n";
+                    if (vChanged) {
+                        state.sliceIndices.x = std::clamp(vCurr.x, 0, vol.dimensions.x - 1);
+                        state.sliceIndices.y = std::clamp(vCurr.y, 0, vol.dimensions.y - 1);
+                        state.sliceIndices.z = std::clamp(vCurr.z, 0, vol.dimensions.z - 1);
+                        std::cerr << "[COORD_DEBUG] After clamp: state.sliceIndices={" 
+                                  << state.sliceIndices.x << "," << state.sliceIndices.y << "," << state.sliceIndices.z << "}\n";
+                    }
+                    bool wChanged = (std::abs(wCurr.x - wOrig.x) > 1e-9 || std::abs(wCurr.y - wOrig.y) > 1e-9 || std::abs(wCurr.z - wOrig.z) > 1e-9);
+                    if (wChanged) {
+                        glm::ivec3 vTmp;
+                        if (vol.transformWorldToVoxel(wCurr, vTmp)) {
+                            state.sliceIndices = vTmp;
+                        }
+                    }
+                    if (vChanged || wChanged) {
+                        viewDirtyMask |= (1 << 0) | (1 << 1) | (1 << 2);
+                        std::cerr << "[COORD_DEBUG] viewDirtyMask=" << viewDirtyMask << "\n";
+                    }
+                }
+
+                for (int v = 0; v < 3; ++v) {
+                    if (viewDirtyMask & (1 << v)) {
+                        viewManager_.updateSliceTexture(vi, v);
+                    }
+                }
 
                 ImGui::Separator();
 

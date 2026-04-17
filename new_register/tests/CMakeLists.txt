@@ -281,6 +281,20 @@ add_test(NAME TestModeRenderTest COMMAND test_test_mode
 )
 
 # ------------------------------------------------------------------
+# Headless test for coordinate input fields
+# ------------------------------------------------------------------
+
+add_executable(test_coordinate_input
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_coordinate_input.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/backends/imgui_impl_osmesa.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp)
+target_include_directories(test_coordinate_input PRIVATE
+    ${COMMON_INCLUDES} ${stb_SOURCE_DIR} ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/backends)
+target_link_libraries(test_coordinate_input PRIVATE nr_core imgui ${OSMESA_LIBRARY} OpenGL::GL Threads::Threads ${CMAKE_DL_LIBS})
+add_test(NAME CoordinateInputTest COMMAND test_coordinate_input)
+
+# ------------------------------------------------------------------
 # Reference PNG generator for test_test_mode (run manually, not a ctest)
 # ------------------------------------------------------------------
 
