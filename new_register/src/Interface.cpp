@@ -1052,10 +1052,17 @@ int Interface::renderVolumeColumn(int vi) {
                     ImGui::Separator();
                     ImGui::Text("alpha:");
                     ImGui::SameLine();
-                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                    if (ImGui::DragFloat("##alpha", &state_.viewStates_[vi].overlayAlpha,
-                                        0.01f, 0.0f, 1.0f, "%.2f"))
+                    const float minInputW = ImGui::CalcTextSize("-0.000").x
+                                          + ImGui::GetStyle().FramePadding.x * 2.0f;
+                    float alphaW = std::max(minInputW, ImGui::GetContentRegionAvail().x);
+                    ImGui::SetNextItemWidth(alphaW);
+                    double alphaD = state_.viewStates_[vi].overlayAlpha;
+                    if (ImGui::InputDouble("##alpha", &alphaD, 0.0, 0.0, "%.2f"))
+                    {
+                        state_.viewStates_[vi].overlayAlpha =
+                            std::clamp(static_cast<float>(alphaD), 0.0f, 1.0f);
                         viewManager_.updateAllOverlayTextures();
+                    }
                     ImGui::Separator();
                 }
 
@@ -1100,20 +1107,12 @@ int Interface::renderVolumeColumn(int vi) {
                 float intensity = vol.get(state.sliceIndices.x, state.sliceIndices.y, state.sliceIndices.z);
                 ImGui::Text("I: %.2f", intensity);
 
-                std::cerr << "[COORD_DEBUG] vOrig={" << vOrig.x << "," << vOrig.y << "," << vOrig.z 
-                          << "} vCurr={" << vCurr.x << "," << vCurr.y << "," << vCurr.z << "}\n";
-                std::cerr << "[COORD_DEBUG] vDeactivated=" << vDeactivated << " wDeactivated=" << wDeactivated << "\n";
-                
                 if (vDeactivated || wDeactivated) {
                     bool vChanged = (vCurr.x != vOrig.x || vCurr.y != vOrig.y || vCurr.z != vOrig.z);
-                    std::cerr << "[COORD_DEBUG] vChanged=" << vChanged << " state.sliceIndices={" 
-                              << state.sliceIndices.x << "," << state.sliceIndices.y << "," << state.sliceIndices.z << "}\n";
                     if (vChanged) {
                         state.sliceIndices.x = std::clamp(vCurr.x, 0, vol.dimensions.x - 1);
                         state.sliceIndices.y = std::clamp(vCurr.y, 0, vol.dimensions.y - 1);
                         state.sliceIndices.z = std::clamp(vCurr.z, 0, vol.dimensions.z - 1);
-                        std::cerr << "[COORD_DEBUG] After clamp: state.sliceIndices={" 
-                                  << state.sliceIndices.x << "," << state.sliceIndices.y << "," << state.sliceIndices.z << "}\n";
                     }
                     bool wChanged = (std::abs(wCurr.x - wOrig.x) > 1e-9 || std::abs(wCurr.y - wOrig.y) > 1e-9 || std::abs(wCurr.z - wOrig.z) > 1e-9);
                     if (wChanged) {
@@ -1124,7 +1123,6 @@ int Interface::renderVolumeColumn(int vi) {
                     }
                     if (vChanged || wChanged) {
                         viewDirtyMask |= (1 << 0) | (1 << 1) | (1 << 2);
-                        std::cerr << "[COORD_DEBUG] viewDirtyMask=" << viewDirtyMask << "\n";
                     }
                 }
 
@@ -1407,20 +1405,19 @@ int Interface::renderVolumeColumn(int vi) {
                     float arrowW = ImGui::GetFrameHeight();
                     float clampW = arrowW; // SetNextItemWidth for the combo
                     float clampTotal = swatchSz + spacing + clampW; // total visual width per clamp
+                    const float minInputW = ImGui::CalcTextSize("-0.000").x
+                                          + ImGui::GetStyle().FramePadding.x * 2.0f;
                     float inputTotal = avail - autoW - clampTotal * 2.0f - spacing * 4.0f;
                     float inputW = inputTotal * 0.5f;
-                    if (inputW < 30.0f)
-                        inputW = 30.0f;
+                    if (inputW < minInputW)
+                        inputW = minInputW;
 
                     ImGui::SetNextItemWidth(clampW);
                     if (clampCombo("Under colour", "##under", state.underColourMode, true))
                         changed = true;
                     ImGui::SameLine();
-                    float dragSpeed = static_cast<float>((vol.max_value - vol.min_value) * 0.001);
-                    if (dragSpeed <= 0.0f) dragSpeed = 0.01f;
                     ImGui::SetNextItemWidth(inputW);
-                    if (ImGui::DragScalar("##min", ImGuiDataType_Double,
-                                         &state.valueRange[0], dragSpeed, nullptr, nullptr, "%.4g"))
+                    if (ImGui::InputDouble("##min", &state.valueRange[0], 0.0, 0.0, "%.4g"))
                         changed = true;
                     ImGui::SameLine();
                     if (ImGui::Button("Auto")) {
@@ -1430,8 +1427,7 @@ int Interface::renderVolumeColumn(int vi) {
                     }
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(inputW);
-                    if (ImGui::DragScalar("##max", ImGuiDataType_Double,
-                                         &state.valueRange[1], dragSpeed, nullptr, nullptr, "%.4g"))
+                    if (ImGui::InputDouble("##max", &state.valueRange[1], 0.0, 0.0, "%.4g"))
                         changed = true;
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(clampW);
