@@ -211,6 +211,10 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
                 &toolsId, &contentId);
             // Tools takes entire column — QC list is embedded as a fill-remaining child.
             ImGui::DockBuilderDockWindow("Tools", toolsId);
+        } else if (state_.cleanMode_) {
+            // Clean mode: no tools/tags panel — columns fill the full viewport.
+            contentId = dockspaceId;
+            toolsFraction = 0.0f;
         } else {
             ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, toolsFraction, &toolsId, &contentId);
 
@@ -277,6 +281,14 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
             columnIds[totalColumns - 1] = remaining;
         }
 
+        // Explicitly anchor each column's pixel width to prevent ImGui's
+        // ini-restored sizes from overriding the equal-split layout — the
+        // same fix applied to the tools node at line 246.
+        float colW = vpSize.x * (1.0f - toolsFraction)
+                     / static_cast<float>(totalColumns);
+        for (int ci = 0; ci < totalColumns; ++ci)
+            ImGui::DockBuilderSetNodeSize(columnIds[ci], ImVec2(colW, vpSize.y));
+
         for (int vi = 0; vi < numVolumes; ++vi) {
             ImGui::DockBuilderDockWindow(columnNames_[vi].c_str(), columnIds[vi]);
         }
@@ -312,6 +324,7 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
         }
         if (ImGui::IsKeyPressed(ImGuiKey_C)) {
             state_.cleanMode_ = !state_.cleanMode_;
+            state_.layoutInitialized_ = false;
         }
         if (ImGui::IsKeyPressed(ImGuiKey_P)) {
             saveScreenshot(backend);
@@ -599,6 +612,7 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
 
         if (ImGui::Button("[C] Clean Mode", ImVec2(btnWidth, 0))) {
             state_.cleanMode_ = true;
+            state_.layoutInitialized_ = false;
         }
 
         if (ImGui::Button("[?] Hotkeys", ImVec2(btnWidth, 0))) {

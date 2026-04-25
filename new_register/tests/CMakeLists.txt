@@ -295,6 +295,22 @@ target_link_libraries(test_coordinate_input PRIVATE nr_core imgui ${OSMESA_LIBRA
 add_test(NAME CoordinateInputTest COMMAND test_coordinate_input)
 
 # ------------------------------------------------------------------
+# Headless test for dock column equal-width layout (overlay toggle)
+# ------------------------------------------------------------------
+
+add_executable(test_column_layout
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_column_layout.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/backends/imgui_impl_osmesa.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp)
+target_include_directories(test_column_layout PRIVATE
+    ${COMMON_INCLUDES} ${stb_SOURCE_DIR} ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/backends)
+target_link_libraries(test_column_layout PRIVATE
+    nr_core imgui ${OSMESA_LIBRARY} OpenGL::GL Threads::Threads ${CMAKE_DL_LIBS})
+add_test(NAME ColumnLayoutTest COMMAND test_column_layout)
+
+# ------------------------------------------------------------------
 # Reference PNG generator for test_test_mode (run manually, not a ctest)
 # ------------------------------------------------------------------
 
