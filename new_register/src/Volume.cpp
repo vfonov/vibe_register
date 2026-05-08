@@ -1,4 +1,5 @@
 #include "Volume.h"
+#include "DebugFlag.h"
 #include "NiftiVolume.h"
 #include <cmath>
 #include <vector>
@@ -286,19 +287,33 @@ void Volume::load(const std::string& filename)
     if (minc2_load_complete_volume(h.get(), data.data(), MINC2_FLOAT) != MINC2_SUCCESS)
         throw std::runtime_error("Failed to load volume data: " + filename);
 
-    // Calculate min/max for visualization
-    min_value = std::numeric_limits<float>::max();
-    max_value = std::numeric_limits<float>::lowest();
-
+    // Calculate min/max for visualization, ignoring non-finite voxels
+    // (NaN, +inf, -inf) so they don't distort the displayed range.
+    // The renderer maps non-finite values to under/over colours instead.
+    min_value =  std::numeric_limits<float>::infinity();
+    max_value = -std::numeric_limits<float>::infinity();
+    size_t nonFiniteCount = 0;
     for (float v : data)
     {
+        if (!std::isfinite(v))
+        {
+            ++nonFiniteCount;
+            continue;
+        }
         if (v < min_value) min_value = v;
         if (v > max_value) max_value = v;
     }
 
-    if (min_value >= max_value)
+    if (nonFiniteCount > 0 && debugLoggingEnabled())
+        std::cerr << "Volume " << filename << ": " << nonFiniteCount
+                  << " non-finite voxel(s) ignored when computing range; "
+                  << "they will render as under/over colour\n";
+
+    if (!std::isfinite(min_value) || !std::isfinite(max_value) ||
+        min_value >= max_value)
     {
-        max_value = min_value + 1.0f;
+        min_value = 0.0f;
+        max_value = 1.0f;
     }
 }
 

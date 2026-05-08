@@ -200,6 +200,18 @@ add_test(NAME MincpikTest COMMAND test_mincpik
 )
 
 # ------------------------------------------------------------------
+# Robustness against non-finite (inf/NaN) voxel values
+# ------------------------------------------------------------------
+
+add_nr_test(test_robust_nonfinite
+    INCLUDES  ${INC_DIR}
+    LINKS     nr_core
+)
+add_test(NAME RobustNonfiniteTest COMMAND test_robust_nonfinite
+    ${TEST_DATA_DIR}/model_mlog_q_sex__Male.mnc
+)
+
+# ------------------------------------------------------------------
 # Overlay alpha-blend regression test (no external data needed)
 # ------------------------------------------------------------------
 add_nr_test(test_overlay_blend

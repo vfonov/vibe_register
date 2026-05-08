@@ -45,10 +45,20 @@ RenderedSlice renderSlice(
     float rangeMin = static_cast<float>(params.valueMin);
     float rangeMax = static_cast<float>(params.valueMax);
 
+    // Defense in depth: caller may pass non-finite range (e.g., from a stale
+    // config or a volume that wasn't sanitized). Fall back to a safe [0,1].
+    if (!std::isfinite(rangeMin)) rangeMin = 0.0f;
+    if (!std::isfinite(rangeMax)) rangeMax = 1.0f;
+    if (rangeMin >= rangeMax)
+    {
+        rangeMin = 0.0f;
+        rangeMax = 1.0f;
+    }
+
     // Log-transform the range if log transform is enabled
     float logRangeMin = rangeMin;
     float logRangeMax = rangeMax;
-    
+
     if (params.useLogTransform)
     {
         // Prevent crash when rangeMin <= 0.0 (log10 undefined for non-positive values)
@@ -58,7 +68,7 @@ RenderedSlice renderSlice(
             logRangeMin = logLowerThreshold;
         else
             logRangeMin = std::log10(rangeMin);
-        
+
         if (rangeMax <= 0.0f)
             logRangeMax = logLowerThreshold;
         else
@@ -66,7 +76,7 @@ RenderedSlice renderSlice(
     }
 
     float rangeSpan = logRangeMax - logRangeMin;
-    if (rangeSpan < 1e-12f)
+    if (!std::isfinite(rangeSpan) || rangeSpan < 1e-12f)
         rangeSpan = 1e-12f;
     float invSpan = 1.0f / rangeSpan;
 
@@ -141,6 +151,16 @@ RenderedSlice renderSlice(
 
     // Lambda: map a raw voxel value to a packed 0xAABBGGRR colour.
     auto voxelToColour = [&](float val) -> uint32_t {
+        // Non-finite voxels: +Inf -> over colour, -Inf and NaN -> under
+        // colour. Handled before any arithmetic / int cast (label volumes
+        // would otherwise hit `static_cast<int>(NaN)` UB).
+        if (!std::isfinite(val))
+        {
+            if (val > 0.0f)  // +Inf (NaN > 0 is false, so NaN falls to under)
+                return overTransparent ? 0x00000000 : overColour;
+            return underTransparent ? 0x00000000 : underColour;
+        }
+
         float displayVal = val;
 
         // Log transform (applied before colour mapping)
@@ -198,12 +218,14 @@ RenderedSlice renderSlice(
                    0xFF000000;
         }
 
-        // Regular volume: colour map with under/over clamping
+        // Regular volume: colour map with under/over clamping.
         if (displayVal < logRangeMin)
             return underTransparent ? 0x00000000 : underColour;
         if (displayVal > logRangeMax)
             return overTransparent ? 0x00000000 : overColour;
         int idx = static_cast<int>((displayVal - logRangeMin) * invSpan * 255.0f + 0.5f);
+        if (idx < 0)
+            idx = 0;
         if (idx > 255)
             idx = 255;
         return mainLut[idx];
@@ -366,6 +388,15 @@ RenderedSlice renderOverlaySlice(
         info.rangeMin = static_cast<float>(p.valueMin);
         info.rangeMax = static_cast<float>(p.valueMax);
 
+        // Defense in depth against non-finite range values from caller.
+        if (!std::isfinite(info.rangeMin)) info.rangeMin = 0.0f;
+        if (!std::isfinite(info.rangeMax)) info.rangeMax = 1.0f;
+        if (info.rangeMin >= info.rangeMax)
+        {
+            info.rangeMin = 0.0f;
+            info.rangeMax = 1.0f;
+        }
+
         // Log-transform the range if log transform is enabled
         float logRangeMin = info.rangeMin;
         float logRangeMax = info.rangeMax;
@@ -377,7 +408,7 @@ RenderedSlice renderOverlaySlice(
         }
 
         float span = logRangeMax - logRangeMin;
-        if (span < 1e-12f)
+        if (!std::isfinite(span) || span < 1e-12f)
             span = 1e-12f;
         info.invSpan = 1.0f / span;
         info.logRangeMin = logRangeMin;
@@ -544,7 +575,26 @@ RenderedSlice renderOverlaySlice(
                 bool logSkipPixel = false;
                 uint32_t logSkipColour = 0;
 
-                if (info.useLogTransform)
+                // Non-finite voxels: +Inf -> over, -Inf/NaN -> under.
+                // Handled before log transform / int casts (label-volume
+                // branch would otherwise hit `static_cast<int>(NaN)` UB).
+                if (!std::isfinite(displayVal))
+                {
+                    if (displayVal > 0.0f)  // +Inf
+                    {
+                        if (info.overTransparent)
+                            continue;
+                        logSkipColour = info.overColour;
+                    }
+                    else  // -Inf or NaN (NaN > 0 is false)
+                    {
+                        if (info.underTransparent)
+                            continue;
+                        logSkipColour = info.underColour;
+                    }
+                    logSkipPixel = true;
+                }
+                else if (info.useLogTransform)
                 {
                     if (displayVal <= 0.0f)
                     {
@@ -634,6 +684,8 @@ RenderedSlice renderOverlaySlice(
                 {
                     int lutIdx = static_cast<int>(
                         (displayVal - info.logRangeMin) * info.invSpan * 255.0f + 0.5f);
+                    if (lutIdx < 0)
+                        lutIdx = 0;
                     if (lutIdx > 255)
                         lutIdx = 255;
                     packed = info.mainLut[lutIdx];

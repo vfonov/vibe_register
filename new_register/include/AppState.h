@@ -6,7 +6,6 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <atomic>
 
 #include <glm/glm.hpp>
 
@@ -14,14 +13,9 @@
 #include "Volume.h"
 #include "Transform.h"
 #include "GraphicsBackend.h"  // for Texture
+#include "DebugFlag.h"
 
 class AppConfig;
-
-inline std::atomic<bool>& debugLoggingEnabled()
-{
-    static std::atomic<bool> flag{false};
-    return flag;
-}
 
 constexpr int kClampCurrent = -2;
 constexpr int kClampTransparent = -1;

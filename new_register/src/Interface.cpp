@@ -1119,7 +1119,12 @@ int Interface::renderVolumeColumn(int vi) {
                 if (ImGui::IsItemDeactivatedAfterEdit()) wDeactivated = true;
                 ImGui::SameLine();
                 float intensity = vol.get(state.sliceIndices.x, state.sliceIndices.y, state.sliceIndices.z);
-                ImGui::Text("I: %.2f", intensity);
+                if (std::isnan(intensity))
+                    ImGui::Text("I: NaN");
+                else if (std::isinf(intensity))
+                    ImGui::Text("I: %cInf", intensity > 0.0f ? '+' : '-');
+                else
+                    ImGui::Text("I: %.2f", intensity);
 
                 if (vDeactivated || wDeactivated) {
                     bool vChanged = (vCurr.x != vOrig.x || vCurr.y != vOrig.y || vCurr.z != vOrig.z);

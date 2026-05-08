@@ -52,10 +52,19 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
     float rangeMin = static_cast<float>(state.valueRange[0]);
     float rangeMax = static_cast<float>(state.valueRange[1]);
 
+    // Defense in depth against non-finite range values from caller.
+    if (!std::isfinite(rangeMin)) rangeMin = 0.0f;
+    if (!std::isfinite(rangeMax)) rangeMax = 1.0f;
+    if (rangeMin >= rangeMax)
+    {
+        rangeMin = 0.0f;
+        rangeMax = 1.0f;
+    }
+
     // Log-transform the range if log transform is enabled
     float logRangeMin = rangeMin;
     float logRangeMax = rangeMax;
-    
+
     if (state.useLogTransform)
     {
         // Prevent crash when rangeMin <= 0.0 (log10 undefined for non-positive values)
@@ -65,7 +74,7 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
             logRangeMin = logLowerThreshold;
         else
             logRangeMin = std::log10(rangeMin);
-        
+
         if (rangeMax <= 0.0f)
             logRangeMax = logLowerThreshold;
         else
@@ -73,7 +82,7 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
     }
 
     float rangeSpan = logRangeMax - logRangeMin;
-    if (rangeSpan < 1e-12f)
+    if (!std::isfinite(rangeSpan) || rangeSpan < 1e-12f)
         rangeSpan = 1e-12f;
     float invSpan = 1.0f / rangeSpan;
 
@@ -111,6 +120,16 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
     }
 
     auto voxelToColour = [&](float val) -> uint32_t {
+        // Non-finite voxels: +Inf -> over colour, -Inf and NaN -> under
+        // colour. Handled before any arithmetic / int cast (label volumes
+        // would otherwise hit `static_cast<int>(NaN)` UB).
+        if (!std::isfinite(val))
+        {
+            if (val > 0.0f)  // +Inf (NaN > 0 is false, so NaN falls to under)
+                return overTransparent ? 0x00000000 : overColour;
+            return underTransparent ? 0x00000000 : underColour;
+        }
+
         float displayVal = val;
 
         // Apply log transform if enabled
@@ -171,6 +190,8 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
         if (displayVal > logRangeMax)
             return overTransparent ? 0x00000000 : overColour;
         int idx = static_cast<int>((displayVal - logRangeMin) * invSpan * 255.0f + 0.5f);
+        if (idx < 0)
+            idx = 0;
         if (idx > 255)
             idx = 255;
         return mainLut[idx];
@@ -343,10 +364,19 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         info.rangeMin = static_cast<float>(st.valueRange[0]);
         info.rangeMax = static_cast<float>(st.valueRange[1]);
 
+        // Defense in depth against non-finite range values from caller.
+        if (!std::isfinite(info.rangeMin)) info.rangeMin = 0.0f;
+        if (!std::isfinite(info.rangeMax)) info.rangeMax = 1.0f;
+        if (info.rangeMin >= info.rangeMax)
+        {
+            info.rangeMin = 0.0f;
+            info.rangeMax = 1.0f;
+        }
+
         // Log-transform the range if log transform is enabled
         float logRangeMin = info.rangeMin;
         float logRangeMax = info.rangeMax;
-        
+
         if (st.useLogTransform)
         {
             float logLowerThreshold = -10.0f;
@@ -355,7 +385,7 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         }
 
         float span = logRangeMax - logRangeMin;
-        if (span < 1e-12f) span = 1e-12f;
+        if (!std::isfinite(span) || span < 1e-12f) span = 1e-12f;
         info.invSpan = 1.0f / span;
         info.logRangeMin = logRangeMin;
         info.logRangeMax = logRangeMax;
@@ -515,7 +545,18 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
                 float raw = info.vdata[tz * info.dimXY + ty * info.dims.x + tx];
 
                 uint32_t packed;
-                if (info.isLabelVolume) {
+                // Non-finite voxels: +Inf -> over, -Inf/NaN -> under.
+                // Handled before label-volume / log paths to avoid
+                // `static_cast<int>(NaN)` UB and NaN-cast LUT indexing.
+                if (!std::isfinite(raw)) {
+                    if (raw > 0.0f) {  // +Inf
+                        if (info.overTransparent) continue;
+                        packed = info.overColour;
+                    } else {  // -Inf or NaN
+                        if (info.underTransparent) continue;
+                        packed = info.underColour;
+                    }
+                } else if (info.isLabelVolume) {
                     int labelId = static_cast<int>(raw + 0.5f);
                     if (labelId == 0) {
                         continue;  // transparent background
@@ -584,6 +625,7 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
                     } else {
                         int lutIdx = static_cast<int>(
                             (displayVal - info.logRangeMin) * info.invSpan * 255.0f + 0.5f);
+                        if (lutIdx < 0) lutIdx = 0;
                         if (lutIdx > 255) lutIdx = 255;
                         packed = info.mainLut[lutIdx];
                     }
