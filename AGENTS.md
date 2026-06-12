@@ -164,10 +164,12 @@ ctest -R OverlapTest
 
 ### Graphics Backend
 
-- `GraphicsBackend` (abstract base) defines the interface: `createTexture`, `updateTexture`, `beginFrame`, `endFrame`, `captureScreenshot`, etc.
+- `GraphicsBackend` (abstract base) defines the interface: `createTexture`, `updateTexture`, `beginFrame`, `endFrame`, `captureScreenshot`, `requestClose`, `windowSize`, etc. Shared UI code (`Interface`) talks only to this interface — it does not touch GLFW directly.
 - `VulkanBackend.cpp` — primary; uses ImGui's Vulkan backend + custom helpers. Texture uploads use a `VkFence` (not `vkQueueWaitIdle`).
 - `OpenGL2Backend.cpp` — fallback for SSH / software renderers.
 - `VulkanHelpers.cpp` — persistent staging buffer + dedicated upload command pool.
+- `MetalBackend.mm` — **macOS only.** Native Metal renderer (`imgui_impl_metal`) driven by the native Cocoa entry point `main_macos.mm` (`imgui_impl_osx` for input). On macOS, CMake (`APPLE` branch) builds `main_macos.mm` + `MetalBackend.mm` instead of `main.cpp`/`WindowManager.cpp`, links only Metal/MetalKit/AppKit (no GLFW/Vulkan/OpenGL), and disables OSMesa tests + `new_qc`. Both `.mm` files compile with ARC. CLI parsing is shared via `CliArgs.{h,cpp}` (in `nr_core`).
+- **macOS dependencies:** Xcode Command Line Tools (Metal frameworks) + `brew install hdf5 netcdf`. GLFW/Vulkan are not required on macOS.
 
 ### Window & Dock Layout
 

@@ -1,10 +1,11 @@
 # new_register
 
-A multi-volume MINC2 viewer built with ImGui (Docking) and GLFW.
-Supports multiple graphics backends (Vulkan, OpenGL 2), side-by-side volume
-comparison, tag point management, and a batch QC (Quality Control) review mode.
+A multi-volume MINC2 viewer built with ImGui (Docking).
+Supports multiple graphics backends (Vulkan, OpenGL 2 on Linux/Windows;
+Metal on macOS), side-by-side volume comparison, tag point management, and a
+batch QC (Quality Control) review mode.
 
-## Building
+## Building (Linux)
 
 ```bash
 cd new_register
@@ -14,6 +15,29 @@ make -j$(nproc)
 ```
 
 Requires system packages: GLFW3 and a C++17 compiler (GCC 9+).
+
+## Building (macOS)
+
+On macOS the app uses a native Cocoa window with a Metal renderer
+(`imgui_impl_osx` + `imgui_impl_metal`); GLFW, Vulkan, and OpenGL are not used.
+CMake auto-detects macOS (`APPLE`) and selects the Metal backend, disables the
+GLFW/Vulkan/OpenGL paths, the OSMesa headless tests, and `new_qc` (which does
+not yet have a Metal path).
+
+```bash
+# Xcode Command Line Tools provide the Metal/MetalKit/AppKit frameworks.
+xcode-select --install        # if not already installed
+brew install hdf5 netcdf      # MINC stack (minc2-simple/libminc build from source)
+
+cd new_register
+mkdir build && cd build
+cmake ..
+make -j$(sysctl -n hw.ncpu)
+./new_register ../test_data/<volume>.mnc
+```
+
+The Metal backend is selected automatically; `--backend metal` is the only
+accepted backend value on macOS.
 
 ### Backend Options
 

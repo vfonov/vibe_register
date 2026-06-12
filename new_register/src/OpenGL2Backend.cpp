@@ -11,6 +11,8 @@
 // We need GL headers for texture management and glReadPixels.
 #ifdef _WIN32
 #include <GL/gl.h>
+#elif defined(__APPLE__)
+#include <OpenGL/gl.h>
 #else
 #define GL_GLEXT_PROTOTYPES
 #include <GL/gl.h>
@@ -247,6 +249,24 @@ void OpenGL2Backend::setFontConfig(const std::string& fontPath, float fontSize)
 {
     fontPath_ = fontPath;
     fontSize_ = fontSize;
+}
+
+// ---------------------------------------------------------------------------
+// Window control
+// ---------------------------------------------------------------------------
+
+void OpenGL2Backend::requestClose()
+{
+    if (window_)
+        glfwSetWindowShouldClose(window_, GLFW_TRUE);
+}
+
+void OpenGL2Backend::windowSize(int& w, int& h) const
+{
+    w = 0;
+    h = 0;
+    if (window_)
+        glfwGetWindowSize(window_, &w, &h);
 }
 
 // ---------------------------------------------------------------------------

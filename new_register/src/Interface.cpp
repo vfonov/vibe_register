@@ -15,8 +15,6 @@
 #include <iostream>
 #include <vector>
 
-#include <GLFW/glfw3.h>
-
 #include "AppConfig.h"
 #include "ColourMap.h"
 #include "GraphicsBackend.h"
@@ -136,9 +134,9 @@ Interface::Interface(AppState& state, ViewManager& viewManager, QCState& qcState
 
 Interface::~Interface() = default;
 
-void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
-    interfaceWindow_ = window;
-    
+void Interface::render(GraphicsBackend& backend) {
+    backend_ = &backend;
+
     // Initialize icon textures if not already done
     if (!transparentIcon_ || transparentIcon_->id == 0)
     {
@@ -300,7 +298,7 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
     }
 
     if (!state_.cleanMode_) {
-        renderToolsPanel(backend, window);
+        renderToolsPanel(backend);
     }
 
     // Recompute the tag-based transform before any overlay textures are built.
@@ -320,7 +318,7 @@ void Interface::render(GraphicsBackend& backend, GLFWwindow* window) {
                 viewManager_.updateAllOverlayTextures();
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Q)) {
-            glfwSetWindowShouldClose(window, true);
+            backend.requestClose();
         }
         if (ImGui::IsKeyPressed(ImGuiKey_C)) {
             state_.cleanMode_ = !state_.cleanMode_;
@@ -490,7 +488,7 @@ const char* Interface::clampColourLabel(int mode) {
     return "Unknown";
 }
 
-void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
+void Interface::renderToolsPanel(GraphicsBackend& backend) {
     ImGui::Begin("Tools");
     {
         float btnWidth = ImGui::GetContentRegionAvail().x;
@@ -622,7 +620,7 @@ void Interface::renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window) {
         ImGui::Separator();
 
         if (ImGui::Button("[Q] Quit", ImVec2(btnWidth, 0))) {
-            glfwSetWindowShouldClose(window, true);
+            backend.requestClose();
         }
 
         // Embed QC list directly in the Tools panel
@@ -2926,7 +2924,7 @@ void Interface::renderConfigFileDialog() {
                     try {
                         AppConfig cfg = loadConfig(fullPath);
                         int winW, winH;
-                        glfwGetWindowSize(interfaceWindow_, &winW, &winH);
+                        backend_->windowSize(winW, winH);
                         if (qcState_.active) {
                             qcState_.columnConfigs = cfg.qcColumns.value_or(std::map<std::string, QCColumnConfig>{});
                             state_.localConfigPath_ = fullPath;
@@ -2971,7 +2969,7 @@ void Interface::renderConfigFileDialog() {
                         AppConfig cfg;
                         cfg.global.defaultColourMap = "GrayScale";
                         int winW, winH;
-                        glfwGetWindowSize(interfaceWindow_, &winW, &winH);
+                        backend_->windowSize(winW, winH);
                         cfg.global.windowWidth = winW;
                         cfg.global.windowHeight = winH;
                         cfg.global.syncCursors = state_.syncCursors_;

@@ -17,7 +17,7 @@ public:
     Interface(AppState& state, ViewManager& viewManager, QCState& qcState);
     ~Interface();
 
-    void render(GraphicsBackend& backend, GLFWwindow* window);
+    void render(GraphicsBackend& backend);
     void saveScreenshot(GraphicsBackend& backend);
 
     /// Set the prefetcher instance (optional, only used in QC mode).
@@ -36,7 +36,7 @@ private:
     bool scrollToCurrentRow_ = true;
     bool autosave_ = true;
     ImVec2 lastViewportSize_{0.0f, 0.0f};
-    GLFWwindow* interfaceWindow_ = nullptr;
+    GraphicsBackend* backend_ = nullptr;
 
     bool tagFileDialogOpen_ = false;
     bool tagFileDialogIsSave_ = false;
@@ -61,7 +61,7 @@ private:
     void updateConfigFileDialogEntries();
 
     void setupLayout(int numVolumes);
-    void renderToolsPanel(GraphicsBackend& backend, GLFWwindow* window);
+    void renderToolsPanel(GraphicsBackend& backend);
     void renderHotkeyPanel();
     void renderHotkeyPopup();
     int renderVolumeColumn(int vi);

@@ -7,6 +7,24 @@ set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake-modules" "${CMAKE_MODUL
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# --- Platform language + per-platform backend defaults ---
+# On macOS the app uses a native Cocoa/Metal path (imgui_impl_osx + imgui_impl_metal)
+# instead of GLFW + Vulkan/OpenGL.  Objective-C++ (.mm) sources require OBJCXX.
+if(APPLE)
+    enable_language(OBJCXX)
+    set(_DEFAULT_ENABLE_VULKAN  OFF)
+    set(_DEFAULT_ENABLE_OPENGL2 OFF)
+    set(_DEFAULT_ENABLE_METAL   ON)
+    set(_DEFAULT_ENABLE_TESTS   OFF)   # headless tests need OSMesa, unavailable on macOS
+    set(_DEFAULT_BUILD_NEW_QC   OFF)   # new_qc has no Metal path yet (see plan Phase 5)
+else()
+    set(_DEFAULT_ENABLE_VULKAN  ON)
+    set(_DEFAULT_ENABLE_OPENGL2 ON)
+    set(_DEFAULT_ENABLE_METAL   OFF)
+    set(_DEFAULT_ENABLE_TESTS   ON)
+    set(_DEFAULT_BUILD_NEW_QC   ON)
+endif()
+
 # Export compile commands for clangd LSP support
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -24,16 +42,16 @@ set(BUILD_SHARED_LIBS_DEFAULT ${BUILD_SHARED_LIBS})
 option(BUILD_QC_ONLY "Build only new_qc viewer (skip MINC/HDF5/Eigen dependencies)" OFF)
 
 # BUILD_NEW_QC: also build new_qc alongside new_register (default ON)
-option(BUILD_NEW_QC  "Build new_qc viewer alongside new_register" ON)
+option(BUILD_NEW_QC  "Build new_qc viewer alongside new_register" ${_DEFAULT_BUILD_NEW_QC})
 
 # --- Backend options ---
-option(ENABLE_VULKAN  "Build Vulkan backend"  ON)
-option(ENABLE_OPENGL2 "Build OpenGL2 backend" ON)
-option(ENABLE_METAL   "Build Metal backend"   OFF)
+option(ENABLE_VULKAN  "Build Vulkan backend"  ${_DEFAULT_ENABLE_VULKAN})
+option(ENABLE_OPENGL2 "Build OpenGL2 backend" ${_DEFAULT_ENABLE_OPENGL2})
+option(ENABLE_METAL   "Build Metal backend"   ${_DEFAULT_ENABLE_METAL})
 
 # --- Testing options ---
 # ENABLE_TESTS: build headless UI tests (requires OSMesa library)
-option(ENABLE_TESTS "Enable headless UI tests (requires OSMesa library)" ON)
+option(ENABLE_TESTS "Enable headless UI tests (requires OSMesa library)" ${_DEFAULT_ENABLE_TESTS})
 
 # --- Dependencies always required ---
 include(FetchContent)
@@ -252,7 +270,12 @@ endif() # NOT BUILD_QC_ONLY
 
 # --- Force static linking for fetched dependencies ---
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".lib" ".so"  CACHE STRING "" FORCE)
+if(APPLE)
+    # Prefer static (.a); fall back to macOS dynamic libs (.tbd stubs, .dylib).
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".tbd" ".dylib"  CACHE STRING "" FORCE)
+else()
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".lib" ".so"  CACHE STRING "" FORCE)
+endif()
 
 SET(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
 SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
@@ -596,6 +619,7 @@ if(NOT BUILD_QC_ONLY)
         src/TagWrapper.cpp
         src/AppConfig.cpp
         src/SliceRenderer.cpp
+        src/CliArgs.cpp      # shared CLI parsing (main.cpp + main_macos.mm)
         src/NiftiVolume.cpp  # NIfTI file support
     )
     
@@ -632,15 +656,20 @@ if(NOT BUILD_QC_ONLY)
 
     # --- Sources for new_register (explicit list instead of GLOB_RECURSE) ---
     set(SOURCES
-        src/main.cpp
         src/AppState.cpp
         src/Interface.cpp
         src/Prefetcher.cpp
         src/QCState.cpp
         src/ViewManager.cpp
         src/BackendFactory.cpp
-        src/WindowManager.cpp
     )
+
+    # Entry point + windowing: native Cocoa on macOS, GLFW elsewhere
+    if(APPLE)
+        list(APPEND SOURCES src/main_macos.mm)
+    else()
+        list(APPEND SOURCES src/main.cpp src/WindowManager.cpp)
+    endif()
 
     # Wayland direct touch input (optional)
     if(WAYLAND_CLIENT_FOUND)
@@ -654,12 +683,17 @@ if(NOT BUILD_QC_ONLY)
     if(ENABLE_OPENGL2)
         list(APPEND SOURCES src/OpenGL2Backend.cpp)
     endif()
+    if(ENABLE_METAL)
+        list(APPEND SOURCES src/MetalBackend.mm)
+    endif()
 
-    # ImGui platform backend
+    # ImGui platform backend: native Cocoa (imgui_impl_osx) on macOS, GLFW elsewhere
     set(IMGUI_DIR ${imgui_SOURCE_DIR})
-    list(APPEND SOURCES
-        ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
-    )
+    if(APPLE)
+        list(APPEND SOURCES ${IMGUI_DIR}/backends/imgui_impl_osx.mm)
+    else()
+        list(APPEND SOURCES ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp)
+    endif()
 
     # Backend-specific ImGui renderer sources
     if(ENABLE_VULKAN AND Vulkan_FOUND)
@@ -668,9 +702,22 @@ if(NOT BUILD_QC_ONLY)
     if(ENABLE_OPENGL2)
         list(APPEND SOURCES ${IMGUI_DIR}/backends/imgui_impl_opengl2.cpp)
     endif()
+    if(ENABLE_METAL)
+        list(APPEND SOURCES ${IMGUI_DIR}/backends/imgui_impl_metal.mm)
+    endif()
 
     # --- new_register executable ---
     add_executable(new_register ${SOURCES})
+
+    # Our Objective-C++ sources use ARC (__bridge casts, automatic lifetime).
+    # The ImGui apple backends auto-detect ARC, so they are left at the default.
+    if(APPLE)
+        set_source_files_properties(
+            src/MetalBackend.mm
+            src/main_macos.mm
+            PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
+        )
+    endif()
 
     target_include_directories(new_register PRIVATE
         ${IMGUI_DIR}
@@ -697,15 +744,27 @@ if(NOT BUILD_QC_ONLY)
     target_link_libraries(new_register PRIVATE
         nr_core
         imgui
-        glfw
         Threads::Threads
         ${CMAKE_DL_LIBS}
     )
+    if(NOT APPLE)
+        target_link_libraries(new_register PRIVATE glfw)
+    endif()
     if(ENABLE_VULKAN AND Vulkan_FOUND)
         target_link_libraries(new_register PRIVATE Vulkan::Vulkan)
     endif()
     if(ENABLE_OPENGL2)
         target_link_libraries(new_register PRIVATE OpenGL::GL)
+    endif()
+    if(APPLE)
+        target_link_libraries(new_register PRIVATE
+            "-framework Metal"
+            "-framework MetalKit"
+            "-framework QuartzCore"
+            "-framework AppKit"
+            "-framework Foundation"
+            "-framework GameController"
+        )
     endif()
     if(WAYLAND_CLIENT_FOUND)
         target_link_libraries(new_register PRIVATE ${WAYLAND_CLIENT_LIBRARIES})

@@ -42,6 +42,9 @@ public:
     float imguiScale() const override;
     void setFontConfig(const std::string& fontPath, float fontSize) override;
 
+    void requestClose() override;
+    void windowSize(int& w, int& h) const override;
+
     std::vector<uint8_t> captureScreenshot(int& width, int& height) override;
 
     // --- Texture management ---

@@ -121,6 +121,18 @@ public:
     /// @param fontSize  Base font size in pixels at 1.0x scale (default: 13.0).
     virtual void setFontConfig(const std::string& fontPath, float fontSize) = 0;
 
+    // --- Window control ---
+
+    /// Request that the application window close (e.g. from a UI "Quit"
+    /// action).  On GLFW backends this sets the window-should-close flag;
+    /// on native backends it asks the native window to close.
+    virtual void requestClose() = 0;
+
+    /// Query the current window size in screen coordinates (not pixels).
+    /// @param[out] w  Window width in screen coordinates.
+    /// @param[out] h  Window height in screen coordinates.
+    virtual void windowSize(int& w, int& h) const = 0;
+
     // --- Screenshot ---
 
     /// Capture the current swapchain image as RGBA pixel data.

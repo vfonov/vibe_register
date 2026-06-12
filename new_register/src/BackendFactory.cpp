@@ -10,6 +10,9 @@
 #ifdef HAS_OPENGL2
 #include "OpenGL2Backend.h"
 #endif
+#ifdef HAS_METAL
+#include "MetalBackend.h"
+#endif
 
 std::unique_ptr<GraphicsBackend> GraphicsBackend::create(BackendType type)
 {
@@ -22,6 +25,10 @@ std::unique_ptr<GraphicsBackend> GraphicsBackend::create(BackendType type)
 #ifdef HAS_OPENGL2
     case BackendType::OpenGL2:
         return std::make_unique<OpenGL2Backend>();
+#endif
+#ifdef HAS_METAL
+    case BackendType::Metal:
+        return std::make_unique<MetalBackend>();
 #endif
     default:
         throw std::runtime_error(

@@ -856,6 +856,24 @@ void VulkanBackend::setFontConfig(const std::string& fontPath, float fontSize)
 }
 
 // ---------------------------------------------------------------------------
+// Window control
+// ---------------------------------------------------------------------------
+
+void VulkanBackend::requestClose()
+{
+    if (window_)
+        glfwSetWindowShouldClose(window_, GLFW_TRUE);
+}
+
+void VulkanBackend::windowSize(int& w, int& h) const
+{
+    w = 0;
+    h = 0;
+    if (window_)
+        glfwGetWindowSize(window_, &w, &h);
+}
+
+// ---------------------------------------------------------------------------
 // Screenshot capture
 // ---------------------------------------------------------------------------
 

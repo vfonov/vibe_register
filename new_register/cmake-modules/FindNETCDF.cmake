@@ -12,12 +12,16 @@ find_path(NETCDF_INCLUDE_DIR netcdf.h
     HINTS ${CMAKE_PREFIX_PATH}
     PATH_SUFFIXES include
     PATHS /usr/include /usr/local/include /usr/local/bic/include
+          # Homebrew (macOS): Apple Silicon and Intel prefixes
+          /opt/homebrew/include /opt/homebrew/opt/netcdf/include
 )
 
 find_library(NETCDF_LIBRARY NAMES netcdf
     HINTS ${CMAKE_PREFIX_PATH}
     PATH_SUFFIXES lib lib64 lib/x86_64-linux-gnu
     PATHS /usr/lib /usr/lib/x86_64-linux-gnu /usr/local/lib /usr/local/bic/lib
+          # Homebrew (macOS): Apple Silicon and Intel prefixes
+          /opt/homebrew/lib /opt/homebrew/opt/netcdf/lib
 )
 
 if(NETCDF_INCLUDE_DIR AND NETCDF_LIBRARY)
