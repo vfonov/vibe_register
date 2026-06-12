@@ -17,6 +17,11 @@
 /// Returns 0xFFFFFFFF (white) on parse failure.
 uint32_t parseFgColour(const std::string& str);
 
+/// Parse a background colour from a string.
+/// Accepts everything parseFgColour() accepts (returned fully opaque), plus
+/// "transparent" / "none" which return 0x00000000 (fully transparent).
+uint32_t parseBgColour(const std::string& str);
+
 /// Render a line of text into a RenderedSlice using stb_easy_font.
 ///
 /// @param text       The ASCII text to render.

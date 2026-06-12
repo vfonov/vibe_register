@@ -154,7 +154,8 @@ RenderedSlice applyCrop(const RenderedSlice& slice,
     RenderedSlice result;
     result.width  = outW;
     result.height = outH;
-    result.pixels.assign(outW * outH, 0xFF000000);   // opaque black
+    // Transparent blank tile: composites to the mosaic background colour when blitted.
+    result.pixels.assign(outW * outH, 0x00000000);
 
     // If slice position outside crop range → return blank tile
     if (sliceIndex < cutLo || sliceIndex >= cutHi)
@@ -240,11 +241,52 @@ void blitSlice(
     int destX,
     int destY)
 {
+    // Straight-alpha "source over destination" compositing so that transparent
+    // (below-range) voxels let the destination background colour show through,
+    // while opaque voxels are written verbatim.  Pixels are packed 0xAABBGGRR.
     for (int y = 0; y < slice.height; ++y)
     {
         int srcOff = y * slice.width;
         int dstOff = (destY + y) * destWidth + destX;
-        std::memcpy(&dest[dstOff], &slice.pixels[srcOff],
-                     slice.width * sizeof(uint32_t));
+        for (int x = 0; x < slice.width; ++x)
+        {
+            uint32_t src = slice.pixels[srcOff + x];
+            uint32_t srcA = (src >> 24) & 0xFF;
+
+            if (srcA == 0xFF)               // fully opaque: overwrite
+            {
+                dest[dstOff + x] = src;
+                continue;
+            }
+            if (srcA == 0)                  // fully transparent: keep background
+                continue;
+
+            // Partial alpha: blend over the existing destination pixel.
+            uint32_t dst  = dest[dstOff + x];
+            uint32_t dstA = (dst >> 24) & 0xFF;
+
+            float as = srcA / 255.0f;
+            float ad = dstA / 255.0f;
+            float outA = as + ad * (1.0f - as);
+
+            auto blend = [&](int shift) -> uint32_t
+            {
+                float sc = ((src >> shift) & 0xFF) / 255.0f;
+                float dc = ((dst >> shift) & 0xFF) / 255.0f;
+                float oc = (outA > 0.0f)
+                         ? (sc * as + dc * ad * (1.0f - as)) / outA
+                         : 0.0f;
+                int v = static_cast<int>(oc * 255.0f + 0.5f);
+                return static_cast<uint32_t>(v < 0 ? 0 : (v > 255 ? 255 : v));
+            };
+
+            uint32_t outAByte = static_cast<uint32_t>(outA * 255.0f + 0.5f);
+            if (outAByte > 255) outAByte = 255;
+
+            dest[dstOff + x] = blend(0)                // R
+                             | (blend(8)  << 8)        // G
+                             | (blend(16) << 16)       // B
+                             | (outAByte  << 24);      // A
+        }
     }
 }

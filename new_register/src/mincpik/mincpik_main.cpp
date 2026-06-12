@@ -376,7 +376,10 @@ int main(int argc, char** argv)
         }
 
         // --- Assemble mosaic ---
-        std::vector<uint32_t> mosaic(totalWidth * totalHeight, 0xFF000000);  // opaque black
+        // Background colour fills the whole canvas (gaps, padding) and shows
+        // through transparent below-range voxels via the compositing blit.
+        uint32_t bgColour = parseBgColour(args.bgColourStr);
+        std::vector<uint32_t> mosaic(totalWidth * totalHeight, bgColour);
 
         int curY = 0;
         for (size_t r = 0; r < rows.size(); ++r)
@@ -422,7 +425,7 @@ int main(int argc, char** argv)
                 int titleRowHeight = titleSlice.height + gap;
                 int newHeight = totalHeight + titleRowHeight;
 
-                std::vector<uint32_t> newMosaic(totalWidth * newHeight, 0xFF000000);
+                std::vector<uint32_t> newMosaic(totalWidth * newHeight, bgColour);
 
                 // Blit title, centered horizontally
                 int titleX = std::max(0, (totalWidth - titleSlice.width) / 2);
@@ -490,7 +493,7 @@ int main(int argc, char** argv)
                     int newHeight = totalHeight + gap + barSlice.height;
                     int newWidth = std::max(totalWidth, barSlice.width);
 
-                    std::vector<uint32_t> newMosaic(newWidth * newHeight, 0xFF000000);
+                    std::vector<uint32_t> newMosaic(newWidth * newHeight, bgColour);
 
                     // Copy existing mosaic
                     for (int y = 0; y < totalHeight; ++y)
@@ -524,7 +527,7 @@ int main(int argc, char** argv)
                     int newWidth = totalWidth + gap + barSlice.width;
                     int newHeight = std::max(totalHeight, barSlice.height);
 
-                    std::vector<uint32_t> newMosaic(newWidth * newHeight, 0xFF000000);
+                    std::vector<uint32_t> newMosaic(newWidth * newHeight, bgColour);
 
                     // Copy existing mosaic
                     for (int y = 0; y < totalHeight; ++y)

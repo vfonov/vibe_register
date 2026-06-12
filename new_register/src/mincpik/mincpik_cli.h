@@ -62,6 +62,7 @@ struct ParsedArgs
     // Title annotation
     std::string title;
     std::string fgColourStr = "white";
+    std::string bgColourStr = "transparent";
     std::optional<int> fontScale;
 
     // Colour bar

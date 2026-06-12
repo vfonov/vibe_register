@@ -57,6 +57,10 @@ void printUsage()
         "      --width <px>     Scale output to this width in pixels\n"
         "      --scale <f>      Scale output image by factor f (e.g. 0.5, 2.0); overridden by --width\n"
         "      --gap <px>       Cell gap in pixels (default: 2)\n"
+        "      --bg <colour>    Background colour for the whole canvas (default: transparent)\n"
+        "                       'transparent'/'none', a named colour, or hex\n"
+        "                       (#RRGGBB, #RGB, RRGGBB, RGB). Fills gaps/padding\n"
+        "                       and shows through below-range (under) voxels\n"
         "      --crop x1,x2,y1,y2,z1,z2\n"
         "                       Crop: remove x1/x2 voxels from low/high X,\n"
         "                       y1/y2 from Y, z1/z2 from Z before slicing\n"
@@ -395,6 +399,15 @@ std::optional<ParsedArgs> parseArgs(int argc, char** argv)
             if (!requireValue(i, argc, "--fg"))
                 return std::nullopt;
             args.fgColourStr = argv[i];
+            continue;
+        }
+
+        if (arg == "--bg")
+        {
+            ++i;
+            if (!requireValue(i, argc, "--bg"))
+                return std::nullopt;
+            args.bgColourStr = argv[i];
             continue;
         }
 

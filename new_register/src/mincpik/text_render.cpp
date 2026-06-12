@@ -82,6 +82,17 @@ uint32_t parseFgColour(const std::string& str)
     return pack(255, 255, 255);
 }
 
+uint32_t parseBgColour(const std::string& str)
+{
+    std::string lower = str;
+    for (auto& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+    if (lower == "transparent" || lower == "none")
+        return 0x00000000;
+
+    return parseFgColour(str);
+}
+
 RenderedSlice renderTextRow(
     const std::string& text,
     uint32_t fgColour,
