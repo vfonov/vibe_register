@@ -24,6 +24,7 @@ add_library(mriv_lib STATIC
     src/cli/SliceSelection.cpp
     src/cli/ColourMapArg.cpp
     src/cli/WindowLevel.cpp
+    src/cli/VolumeInfo.cpp
     src/render/SliceGeometry.cpp
     src/render/Resample.cpp
     src/render/Terminal.cpp

@@ -29,6 +29,12 @@ add_nr_test(test_window_level
 )
 add_test(NAME mriv_window_level COMMAND test_window_level)
 
+add_nr_test(test_mriv_volume_info
+    INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../src
+    LINKS    mriv_lib
+)
+add_test(NAME mriv_volume_info COMMAND test_mriv_volume_info)
+
 add_nr_test(test_slice_geometry
     INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../src
     LINKS    mriv_lib
