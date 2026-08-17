@@ -4,53 +4,55 @@ if(NOT COMMAND add_nr_test)
 endif()
 
 set(MRIV_TEST_DATA_DIR ${PROJECT_SOURCE_DIR}/../test_data)
+set(MRIV_STB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/stb)
 
-add_nr_test(test_options
-    INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../src
-    LINKS    mriv_lib
+# Test-only helper library: escape-sequence parser and PNG decode helpers.
+add_library(mriv_test_support STATIC
+    escapes.cpp
+    decode.cpp
 )
-add_test(NAME mriv_options COMMAND test_options)
+target_include_directories(mriv_test_support PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+    ${MRIV_STB_DIR}
+)
+target_link_libraries(mriv_test_support PUBLIC mriv_lib)
 
-add_nr_test(test_slice_selection
-    INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../src
-    LINKS    mriv_lib
-)
-add_test(NAME mriv_slice_selection COMMAND test_slice_selection)
+# Convenience wrapper so every mriv test gets the production include dir and
+# the stb headers used by decode helpers.
+macro(add_mriv_test NAME)
+    add_nr_test(${NAME}
+        INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../src ${MRIV_STB_DIR}
+        LINKS    mriv_lib mriv_test_support
+        ${ARGN}
+    )
+    add_test(NAME mriv_${NAME} COMMAND ${NAME})
+endmacro()
 
-add_nr_test(test_colourmap_arg
-    INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../src
-    LINKS    mriv_lib
+add_mriv_test(test_options)
+add_mriv_test(test_slice_selection)
+add_mriv_test(test_colourmap_arg)
+add_mriv_test(test_window_level)
+add_mriv_test(test_mriv_volume_info)
+# DO NOT pass test data as positional ARGS to add_mriv_test here: add_nr_test()
+# ignores ARGS (it does not declare the keyword). Instead set an environment
+# variable via CTest's PROPERTIES.
+add_mriv_test(test_slice_geometry)
+set_property(TEST mriv_test_slice_geometry
+    PROPERTY ENVIRONMENT
+    "MRIV_THICK_SLICES_FIXTURE=${MRIV_TEST_DATA_DIR}/mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc"
 )
-add_test(NAME mriv_colourmap_arg COMMAND test_colourmap_arg)
+add_mriv_test(test_resample)
+add_mriv_test(test_terminal LINKS PkgConfig::NOTCURSES)
 
-add_nr_test(test_window_level
-    INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../src
-    LINKS    mriv_lib
-)
-add_test(NAME mriv_window_level COMMAND test_window_level)
+# Layer A: escape-sequence structure tests.
+add_mriv_test(test_structure)
 
-add_nr_test(test_mriv_volume_info
-    INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../src
-    LINKS    mriv_lib
-)
-add_test(NAME mriv_volume_info COMMAND test_mriv_volume_info)
+# Layer B: decoded-pixel correctness tests.
+add_mriv_test(test_pixels)
 
-add_nr_test(test_slice_geometry
-    INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../src
-    LINKS    mriv_lib
+# Layer C: CLI integration tests. Use a small real fixture (sq1.mnc is 21 KB
+# and therefore cheap enough to load repeatedly).
+add_mriv_test(test_cli
+    ARGS ${PROJECT_SOURCE_DIR}/tests/sq1.mnc
 )
-add_test(NAME mriv_slice_geometry
-    COMMAND test_slice_geometry ${MRIV_TEST_DATA_DIR}/mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc
-)
-
-add_nr_test(test_resample
-    INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../src
-    LINKS    mriv_lib
-)
-add_test(NAME mriv_resample COMMAND test_resample)
-
-add_nr_test(test_terminal
-    INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../src
-    LINKS    mriv_lib PkgConfig::NOTCURSES
-)
-add_test(NAME mriv_terminal COMMAND test_terminal)

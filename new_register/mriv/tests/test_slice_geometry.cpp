@@ -65,11 +65,13 @@ void testAspectAxesAgainstThickSlicesVolume(const std::string& path)
 
 int main(int argc, char** argv)
 {
-    assert(argc == 2 && "usage: test_slice_geometry <thick_slices.mnc>");
+    (void)argc;
+    const char* path = getenv("MRIV_THICK_SLICES_FIXTURE");
+    assert(path && "MRIV_THICK_SLICES_FIXTURE must point to mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc");
 
     testAxisToViewIndex();
     testAspectAxesTable();
-    testAspectAxesAgainstThickSlicesVolume(argv[1]);
+    testAspectAxesAgainstThickSlicesVolume(path);
 
     return 0;
 }

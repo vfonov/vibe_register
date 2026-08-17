@@ -1,5 +1,6 @@
 #pragma once
 
+#include <iosfwd>
 #include <optional>
 #include <string>
 #include <vector>
@@ -61,10 +62,19 @@ struct ParseResult
 /// Parse argc/argv into an Options struct using cxxopts.
 ParseResult parseArgs(int argc, char** argv);
 
+/// Parse argc/argv, writing diagnostics to `err` on failure.
+ParseResult parseArgs(int argc, char** argv, std::ostream& err);
+
 /// Print usage/help text to stdout.
 void printHelp();
 
+/// Print usage/help text to the supplied stream.
+void printHelp(std::ostream& out);
+
 /// Print the version string to stdout.
 void printVersion();
+
+/// Print the version string to the supplied stream.
+void printVersion(std::ostream& out);
 
 } // namespace mriv::term

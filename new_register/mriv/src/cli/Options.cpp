@@ -1,6 +1,7 @@
 #include "cli/Options.hpp"
 
 #include <iostream>
+#include <ostream>
 
 #include <cxxopts.hpp>
 
@@ -44,6 +45,11 @@ cxxopts::Options buildParser()
 
 ParseResult parseArgs(int argc, char** argv)
 {
+    return parseArgs(argc, argv, std::cerr);
+}
+
+ParseResult parseArgs(int argc, char** argv, std::ostream& err)
+{
     ParseResult result;
     auto opts = buildParser();
 
@@ -71,7 +77,7 @@ ParseResult parseArgs(int argc, char** argv)
         std::string axisArg = parsed["axis"].as<std::string>();
         if (axisArg.size() != 1 || (axisArg[0] != 'x' && axisArg[0] != 'y' && axisArg[0] != 'z'))
         {
-            std::cerr << "mriv: invalid --axis '" << axisArg << "' (expected x, y, or z)\n";
+            err << "mriv: invalid --axis '" << axisArg << "' (expected x, y, or z)\n";
             result.ok = false;
             return result;
         }
@@ -80,7 +86,7 @@ ParseResult parseArgs(int argc, char** argv)
         std::string sliceArg = parsed["slice"].as<std::string>();
         if (!parseSliceArg(sliceArg).has_value())
         {
-            std::cerr << "mriv: invalid --slice '" << sliceArg
+            err << "mriv: invalid --slice '" << sliceArg
                        << "' (expected an index, a percentage like '50%', or 'mid')\n";
             result.ok = false;
             return result;
@@ -91,13 +97,13 @@ ParseResult parseArgs(int argc, char** argv)
         bool hasLevel  = parsed.count("level") > 0;
         if (hasWindow != hasLevel)
         {
-            std::cerr << "mriv: --window and --level must be given together\n";
+            err << "mriv: --window and --level must be given together\n";
             result.ok = false;
             return result;
         }
         if (hasWindow && hasLevel && parsed.count("auto-window"))
         {
-            std::cerr << "mriv: --auto-window cannot be combined with --window/--level\n";
+            err << "mriv: --auto-window cannot be combined with --window/--level\n";
             result.ok = false;
             return result;
         }
@@ -114,7 +120,7 @@ ParseResult parseArgs(int argc, char** argv)
             std::string colourMapArg = parsed["colourmap"].as<std::string>();
             if (!resolveColourMapArg(colourMapArg).has_value())
             {
-                std::cerr << "mriv: invalid --colourmap '" << colourMapArg
+                err << "mriv: invalid --colourmap '" << colourMapArg
                            << "'. Valid names: " << listColourMapNames() << "\n";
                 result.ok = false;
                 return result;
@@ -130,7 +136,7 @@ ParseResult parseArgs(int argc, char** argv)
     }
     catch (const std::exception& e)
     {
-        std::cerr << "mriv: " << e.what() << "\n";
+        err << "mriv: " << e.what() << "\n";
         result.ok = false;
     }
 
@@ -139,12 +145,22 @@ ParseResult parseArgs(int argc, char** argv)
 
 void printHelp()
 {
-    std::cout << buildParser().help() << "\n";
+    printHelp(std::cout);
+}
+
+void printHelp(std::ostream& out)
+{
+    out << buildParser().help() << "\n";
 }
 
 void printVersion()
 {
-    std::cout << kVersion << "\n";
+    printVersion(std::cout);
+}
+
+void printVersion(std::ostream& out)
+{
+    out << kVersion << "\n";
 }
 
 } // namespace mriv::term
