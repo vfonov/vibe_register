@@ -12,7 +12,7 @@ FetchContent_MakeAvailable(cxxopts)
 
 add_library(mriv_lib STATIC
     src/cli/Options.cpp
-    # src/render/*.cpp added in M2
+    src/render/SliceGeometry.cpp
 )
 target_include_directories(mriv_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(mriv_lib PUBLIC nr_core cxxopts::cxxopts)
