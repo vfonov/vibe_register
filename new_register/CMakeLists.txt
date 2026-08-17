@@ -107,8 +107,83 @@ endif()
 # --- MINC/HDF5/NetCDF dependencies (not needed for new_qc only) ---
 if(NOT BUILD_QC_ONLY)
 
-    # 2.5 HDF5 (Required by minc2 headers)
-    find_package(HDF5 REQUIRED COMPONENTS C)
+    # ---------------------------------------------------------------------
+    # 2.4 MINC toolkit — must be resolved BEFORE HDF5.
+    #
+    # A minc-toolkit install ships its own HDF5 (plus NetCDF and zlib) under
+    # the same prefix, and libminc is tightly coupled to that exact HDF5
+    # build.  Mixing it with a system HDF5 is not merely suboptimal, it does
+    # not compile: the two H5public.h copies use different include guards
+    # (_H5public_H in 1.10.6 vs H5public_H in 1.10.10), so both headers get
+    # included and every HDF5 enum and struct is declared twice.
+    #
+    # So: when a toolkit is present, pin HDF5/NetCDF/zlib to it and never
+    # consult the system copies.  Pass -DMINC_TOOLKIT_DIR=<prefix> or set
+    # $MINC_TOOLKIT to select one explicitly.
+    # ---------------------------------------------------------------------
+    find_path(MINC_TOOLKIT_DIR bin/mincstats
+        HINTS $ENV{MINC_TOOLKIT}
+        PATHS /opt/minc/1.9.18.9 /opt/minc/1.9.18 /opt/minc /usr/local/bic
+        DOC "minc-toolkit install prefix")
+
+    set(MINC_TOOLKIT_HAS_HDF5 OFF)
+    if(MINC_TOOLKIT_DIR AND EXISTS "${MINC_TOOLKIT_DIR}/include/hdf5.h")
+        find_library(MINC_TOOLKIT_HDF5_LIBRARY NAMES hdf5
+            HINTS "${MINC_TOOLKIT_DIR}/lib${LIB_SUFFIX}" "${MINC_TOOLKIT_DIR}/lib"
+            NO_DEFAULT_PATH)
+        if(MINC_TOOLKIT_HDF5_LIBRARY)
+            set(MINC_TOOLKIT_HAS_HDF5 ON)
+        endif()
+    endif()
+
+    if(MINC_TOOLKIT_HAS_HDF5)
+        get_filename_component(MINC_TOOLKIT_LIB_DIR "${MINC_TOOLKIT_HDF5_LIBRARY}" DIRECTORY)
+
+        # Read the version out of the toolkit's own H5public.h rather than
+        # trusting whatever find_package would have reported.
+        file(STRINGS "${MINC_TOOLKIT_DIR}/include/H5public.h" _h5_vers
+             REGEX "^#define[ \t]+H5_VERS_(MAJOR|MINOR|RELEASE)[ \t]+[0-9]+")
+        set(_h5_major 0)
+        set(_h5_minor 0)
+        set(_h5_patch 0)
+        foreach(_line IN LISTS _h5_vers)
+            if(_line MATCHES "H5_VERS_MAJOR[ \t]+([0-9]+)")
+                set(_h5_major "${CMAKE_MATCH_1}")
+            elseif(_line MATCHES "H5_VERS_MINOR[ \t]+([0-9]+)")
+                set(_h5_minor "${CMAKE_MATCH_1}")
+            elseif(_line MATCHES "H5_VERS_RELEASE[ \t]+([0-9]+)")
+                set(_h5_patch "${CMAKE_MATCH_1}")
+            endif()
+        endforeach()
+
+        set(HDF5_FOUND        TRUE)
+        set(HDF5_VERSION      "${_h5_major}.${_h5_minor}.${_h5_patch}")
+        set(HDF5_IS_PARALLEL  FALSE)
+        set(HDF5_INCLUDE_DIRS "${MINC_TOOLKIT_DIR}/include")
+        set(HDF5_C_LIBRARIES  "${MINC_TOOLKIT_HDF5_LIBRARY}")
+        set(HDF5_LIBRARIES    "${MINC_TOOLKIT_HDF5_LIBRARY}")
+
+        # Seed the cache entries that FindHDF5 (and LIBMINCConfig's own
+        # find_dependency(HDF5)) consult, so every downstream find_package
+        # in this build — including the sub-builds of libminc and
+        # minc2-simple — resolves to this same HDF5 and not the system one.
+        set(HDF5_ROOT                 "${MINC_TOOLKIT_DIR}" CACHE PATH     "HDF5 prefix (pinned to minc-toolkit)" FORCE)
+        set(HDF5_C_INCLUDE_DIR        "${MINC_TOOLKIT_DIR}/include" CACHE PATH "HDF5 C include dir (pinned to minc-toolkit)" FORCE)
+        set(HDF5_INCLUDE_DIR          "${MINC_TOOLKIT_DIR}/include" CACHE PATH "HDF5 include dir (pinned to minc-toolkit)" FORCE)
+        set(HDF5_hdf5_LIBRARY_RELEASE "${MINC_TOOLKIT_HDF5_LIBRARY}" CACHE FILEPATH "HDF5 C library (pinned to minc-toolkit)" FORCE)
+        set(HDF5_LIBRARY              "${MINC_TOOLKIT_HDF5_LIBRARY}" CACHE FILEPATH "HDF5 C library (pinned to minc-toolkit)" FORCE)
+        set(HDF5_NO_FIND_PACKAGE_CONFIG_FILE ON)
+
+        message(STATUS "MINC toolkit: ${MINC_TOOLKIT_DIR}")
+        message(STATUS "HDF5: pinned to minc-toolkit copy ${HDF5_VERSION} (${MINC_TOOLKIT_HDF5_LIBRARY})")
+    else()
+        if(MINC_TOOLKIT_DIR)
+            message(STATUS "MINC toolkit at ${MINC_TOOLKIT_DIR} ships no HDF5 — falling back to system HDF5")
+        endif()
+
+        # 2.5 HDF5 (Required by minc2 headers)
+        find_package(HDF5 REQUIRED COMPONENTS C)
+    endif()
 
     # Safety net: if FindHDF5 found the library but not the headers
     if(HDF5_FOUND AND NOT HDF5_INCLUDE_DIRS)
@@ -134,8 +209,35 @@ if(NOT BUILD_QC_ONLY)
         endif()
     endif()
 
-    # For MINC1 support
-    FIND_PACKAGE(NETCDF REQUIRED)
+    # For MINC1 support.  As with HDF5, a toolkit's NetCDF and zlib are the
+    # ones libminc was linked against, so prefer them over the system copies.
+    if(MINC_TOOLKIT_HAS_HDF5)
+        find_path(NETCDF_INCLUDE_DIR netcdf.h
+            HINTS "${MINC_TOOLKIT_DIR}/include" NO_DEFAULT_PATH)
+        find_library(NETCDF_LIBRARY NAMES netcdf
+            HINTS "${MINC_TOOLKIT_LIB_DIR}" NO_DEFAULT_PATH)
+        if(NETCDF_INCLUDE_DIR AND NETCDF_LIBRARY)
+            set(NETCDF_FOUND TRUE)
+        endif()
+
+        find_library(ZLIB_LIBRARY NAMES z
+            HINTS "${MINC_TOOLKIT_LIB_DIR}" NO_DEFAULT_PATH)
+        if(ZLIB_LIBRARY AND EXISTS "${MINC_TOOLKIT_DIR}/include/zlib.h")
+            set(ZLIB_ROOT         "${MINC_TOOLKIT_DIR}" CACHE PATH "zlib prefix (pinned to minc-toolkit)" FORCE)
+            set(ZLIB_INCLUDE_DIR  "${MINC_TOOLKIT_DIR}/include" CACHE PATH "zlib include dir (pinned to minc-toolkit)" FORCE)
+            set(ZLIB_INCLUDE_DIRS "${MINC_TOOLKIT_DIR}/include")
+            set(ZLIB_LIBRARIES    "${ZLIB_LIBRARY}")
+            set(ZLIB_FOUND        TRUE)
+            message(STATUS "zlib: pinned to minc-toolkit copy (${ZLIB_LIBRARY})")
+        endif()
+    endif()
+
+    if(NOT NETCDF_FOUND)
+        FIND_PACKAGE(NETCDF REQUIRED)
+    endif()
+    if(NOT ZLIB_FOUND)
+        find_package(ZLIB REQUIRED)
+    endif()
 
     if(NETCDF_FOUND)
         message(STATUS "NETCDF found: ${NETCDF_INCLUDE_DIR}")
@@ -227,10 +329,14 @@ if(NOT BUILD_QC_ONLY)
     set(eigen_INCLUDE_DIR "${EIGEN_INSTALL_PREFIX}/include/eigen3")
 
     # 3.9. NIfTI-1 library (for .nii and .nii.gz file support)
-    # Note: We compile nifti1_io and znzlib directly (bundled with libminc)
-    # This avoids network fetch and uses the same version as legacy nii2mnc tool
-    set(nifti_INCLUDE_DIR "${CMAKE_BINARY_DIR}/libminc-prefix/src/libminc/nifti")
-    set(nifti_SOURCE_DIR "${CMAKE_BINARY_DIR}/libminc-prefix/src/libminc/nifti")
+    # We compile nifti1_io and znzlib directly from a vendored copy of the
+    # sources libminc bundles (same version as the legacy nii2mnc tool).
+    # They live in-tree rather than being read out of the libminc
+    # ExternalProject source dir, because that dir does not exist when
+    # libminc comes from a system minc-toolkit.  third_party/niftilib also
+    # supplies the small config.h that upstream znzlib.h expects.
+    set(nifti_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/niftilib")
+    set(nifti_SOURCE_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/third_party/niftilib")
     
     # Compile nifti1_io.c and znzlib.c as part of nr_core
     set(NIFTI_SOURCES
@@ -298,11 +404,14 @@ if(NOT BUILD_QC_ONLY)
     message(STATUS "Fake find modules written to: ${_FAKE_MODULES_DIR}")
     ENDIF() # NEUROSLOP
 
-    # Try system LIBMINC first, then fall back to FetchContent
+    # Try a system / minc-toolkit LIBMINC first, then fall back to
+    # ExternalProject.  MINC_TOOLKIT_DIR was resolved above, before HDF5.
     set(_USE_SYSTEM_MINC OFF)
 
-    FIND_PATH( MINC_TOOLKIT_DIR bin/mincstats  HINTS $ENV{MINC_TOOLKIT} DOC "minc-toolkit install prefix")
-    FIND_PACKAGE( LIBMINC QUIET HINTS ${MINC_TOOLKIT_DIR}/lib${LIB_SUFFIX})
+    FIND_PACKAGE( LIBMINC QUIET
+        HINTS ${MINC_TOOLKIT_DIR}/lib${LIB_SUFFIX}
+              ${MINC_TOOLKIT_DIR}/lib${LIB_SUFFIX}/cmake
+              ${MINC_TOOLKIT_DIR}/lib/cmake)
 
     if(LIBMINC_FOUND AND LIBMINC_DIR)
         if(NOT LIBMINC_DIR MATCHES "_deps")
@@ -311,11 +420,37 @@ if(NOT BUILD_QC_ONLY)
     endif()
 
     if(_USE_SYSTEM_MINC)
-        message(STATUS "Using system LIBMINC: ${LIBMINC_DIR}")
-        INCLUDE( ${LIBMINC_USE_FILE} )
-        set(MINC2_LIB ${LIBMINC_LIBRARIES})
-        set(MINC2_INCLUDE_DIR "${LIBMINC_DIR}/include")
-        set(MINC2_LIB_DIR ${LIBMINC_DIR})
+        # LIBMINC_DIR names the directory containing LIBMINCConfig.cmake
+        # (<prefix>/lib/cmake) — not the install prefix.  Derive the prefix;
+        # minc2.h lives in <prefix>/include, and treating LIBMINC_DIR as the
+        # prefix yields <prefix>/lib/cmake/include, which does not exist.
+        if(LIBMINC_INSTALL_PREFIX)
+            set(_LIBMINC_PREFIX "${LIBMINC_INSTALL_PREFIX}")
+        else()
+            get_filename_component(_LIBMINC_PREFIX "${LIBMINC_DIR}/../.." ABSOLUTE)
+        endif()
+
+        message(STATUS "Using system LIBMINC: ${LIBMINC_DIR} (prefix ${_LIBMINC_PREFIX})")
+
+        # Note: deliberately NOT include(${LIBMINC_USE_FILE}) and NOT the
+        # LIBMINC::minc2 imported target.  A relocated toolkit bakes its
+        # original build machine's paths into both — LIBMINC-targets.cmake
+        # carries INTERFACE_LINK_LIBRARIES entries under /home/<builder>/... —
+        # which do not exist here.  Resolve against the install prefix instead.
+        find_library(MINC2_LIB NAMES minc2
+            HINTS "${_LIBMINC_PREFIX}/lib${LIB_SUFFIX}" "${_LIBMINC_PREFIX}/lib"
+            NO_DEFAULT_PATH)
+        if(NOT MINC2_LIB)
+            message(FATAL_ERROR
+                "LIBMINC config found at ${LIBMINC_DIR} but no libminc2 under ${_LIBMINC_PREFIX}")
+        endif()
+        get_filename_component(MINC2_LIB_DIR "${MINC2_LIB}" DIRECTORY)
+        set(MINC2_INCLUDE_DIR "${_LIBMINC_PREFIX}/include")
+
+        add_definitions(-DMINC2=1 -DHAVE_MINC2=1)
+        if(HAVE_MINC1)
+            add_definitions(-DHAVE_MINC1=1)
+        endif()
     else()
         message(STATUS "LIBMINC not found or in _deps, using ExternalProject...")
 
@@ -330,6 +465,16 @@ if(NOT BUILD_QC_ONLY)
             -DBUILD_SHARED_LIBS=OFF
             -DLIBMINC_BUILD_EZMINC=OFF
         )
+
+        # Propagate the pinned HDF5 so the sub-build cannot pick a different one.
+        if(MINC_TOOLKIT_HAS_HDF5)
+            list(APPEND _LIBMINC_ARGS
+                "-DHDF5_ROOT:PATH=${HDF5_ROOT}"
+                "-DHDF5_C_INCLUDE_DIR:PATH=${HDF5_C_INCLUDE_DIR}"
+                "-DHDF5_hdf5_LIBRARY_RELEASE:FILEPATH=${HDF5_hdf5_LIBRARY_RELEASE}"
+                -DHDF5_NO_FIND_PACKAGE_CONFIG_FILE:BOOL=ON
+            )
+        endif()
 
         if(NETCDF_FOUND)
             list(APPEND _LIBMINC_ARGS
@@ -378,6 +523,36 @@ if(NOT BUILD_QC_ONLY)
     endif()
     string(REPLACE ";" "\\;" _MINC2_CMAKE_PREFIX_PATH "${_MINC2_PREFIX_LIST}")
 
+    # minc2-simple compiles minc2.h, which includes hdf5.h, and it runs
+    # find_package(LIBMINC) -> find_dependency(HDF5) in its own scope.  Hand it
+    # the exact HDF5/NetCDF/zlib we resolved above; otherwise its FindHDF5 picks
+    # the system copy and the two H5public.h variants collide (see 2.4).
+    set(_MINC2_DEP_ARGS "")
+    if(MINC_TOOLKIT_HAS_HDF5)
+        list(APPEND _MINC2_DEP_ARGS
+            "-DHDF5_ROOT:PATH=${HDF5_ROOT}"
+            "-DHDF5_C_INCLUDE_DIR:PATH=${HDF5_C_INCLUDE_DIR}"
+            "-DHDF5_INCLUDE_DIR:PATH=${HDF5_C_INCLUDE_DIR}"
+            "-DHDF5_hdf5_LIBRARY_RELEASE:FILEPATH=${HDF5_hdf5_LIBRARY_RELEASE}"
+            "-DHDF5_LIBRARY:FILEPATH=${HDF5_hdf5_LIBRARY_RELEASE}"
+            -DHDF5_NO_FIND_PACKAGE_CONFIG_FILE:BOOL=ON
+        )
+        if(ZLIB_ROOT)
+            list(APPEND _MINC2_DEP_ARGS
+                "-DZLIB_ROOT:PATH=${ZLIB_ROOT}"
+                "-DZLIB_INCLUDE_DIR:PATH=${ZLIB_INCLUDE_DIR}"
+                "-DZLIB_LIBRARY:FILEPATH=${ZLIB_LIBRARY}"
+            )
+        endif()
+    endif()
+    if(NETCDF_FOUND)
+        list(APPEND _MINC2_DEP_ARGS
+            "-DNETCDF_INCLUDE_DIR:PATH=${NETCDF_INCLUDE_DIR}"
+            "-DNETCDF_LIBRARY:FILEPATH=${NETCDF_LIBRARY}"
+            -DNETCDF_FOUND:BOOL=ON
+        )
+    endif()
+
     ExternalProject_Add(minc2-simple-static
         GIT_REPOSITORY https://github.com/NIST-MNI/minc2-simple.git
         GIT_TAG        develop
@@ -393,6 +568,7 @@ if(NOT BUILD_QC_ONLY)
             -DLIBMINC_DIR=${MINC2_LIB_DIR}/cmake
             -DBUILD_TESTING:BOOL=OFF
             -DBUILD_MINC2_SIMPLE_SHARED:BOOL=OFF
+            ${_MINC2_DEP_ARGS}
         BUILD_BYPRODUCTS ${MINC2_SIMPLE_INSTALL_PREFIX}/lib/libminc2-simple-static.a
     )
     if(NOT _USE_SYSTEM_MINC)
@@ -433,8 +609,7 @@ if(NOT BUILD_QC_ONLY)
         ${eigen_INCLUDE_DIR}
         ${minc2-simple-static_INCLUDE_DIR}
         ${MINC2_INCLUDE_DIR}
-        ${nifti_INCLUDE_DIR}  # NIfTI headers (nifti1_io.h, znzlib.h)
-        ${CMAKE_BINARY_DIR}/libminc-prefix/src/libminc-build  # config.h for nifti
+        ${nifti_INCLUDE_DIR}  # NIfTI headers (nifti1_io.h, znzlib.h, config.h)
     )
     message("HDF5_LIBRARIES=${HDF5_LIBRARIES}")
     message("HDF5_C_LIBRARIES=${HDF5_C_LIBRARIES}")
@@ -446,7 +621,7 @@ if(NOT BUILD_QC_ONLY)
         ${HDF5_LIBRARIES}
         nlohmann_json::nlohmann_json
         glm
-        z # Have to figure out how to do this more elegantly
+        ${ZLIB_LIBRARIES}  # must match the zlib libminc/HDF5 were built against
     )
     add_dependencies(nr_core Eigen)
     if(NOT _USE_SYSTEM_MINC)
@@ -655,28 +830,34 @@ endif() # BUILD_NEW_QC OR BUILD_QC_ONLY
 # --- Testing ---
 enable_testing()
 if(ENABLE_TESTS)
+    # Resolve OSMesa/OpenGL/Threads BEFORE add_subdirectory(tests): two of the
+    # tests defined there link ${OSMESA_LIBRARY} directly.  Finding it
+    # afterwards left the variable empty on a clean configure (it only appeared
+    # to work on re-configure, when the find_library cache entry already
+    # existed), so those tests failed to link with undefined OSMesa symbols.
+
+    # Find OSMesa (libosmesa6-dev provides libOSMesa)
+    find_library(OSMESA_LIBRARY NAMES OSMesa osmesa)
+    if(NOT OSMESA_LIBRARY)
+        set(OSMESA_LIBRARY -lOSMesa)
+    endif()
+    message(STATUS "OSMesa library: ${OSMESA_LIBRARY}")
+
+    # Ensure OpenGL is available (may already be found via ENABLE_OPENGL2)
+    if(NOT TARGET OpenGL::GL)
+        find_package(OpenGL REQUIRED)
+    endif()
+
+    # Ensure Threads is available (may already be found in NOT BUILD_QC_ONLY block)
+    if(NOT TARGET Threads::Threads)
+        find_package(Threads REQUIRED)
+    endif()
+
     add_subdirectory(tests)
 
     # ============================================================
     # headless_tests — OSMesa + ImGui offscreen UI tests
     # ============================================================
-
-# Find OSMesa (libosmesa6-dev provides libOSMesa)
-find_library(OSMESA_LIBRARY NAMES OSMesa osmesa)
-if(NOT OSMESA_LIBRARY)
-    set(OSMESA_LIBRARY -lOSMesa)
-endif()
-message(STATUS "OSMesa library: ${OSMESA_LIBRARY}")
-
-# Ensure OpenGL is available (may already be found via ENABLE_OPENGL2)
-if(NOT TARGET OpenGL::GL)
-    find_package(OpenGL REQUIRED)
-endif()
-
-# Ensure Threads is available (may already be found in NOT BUILD_QC_ONLY block)
-if(NOT TARGET Threads::Threads)
-    find_package(Threads REQUIRED)
-endif()
 
 # stb — used for stb_image_write.h (PNG saving in imgui_impl_osmesa.cpp).
 # stb may already be fetched for new_qc; guard to avoid duplicate declarations.
