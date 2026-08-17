@@ -23,7 +23,7 @@ of tests across 24 test suites.
 
 **Note:** `new_qc` was merged into `new_register/src/qc/` on 2026-03-16 (commit a75fb1a).
 
-**Build system:** CMake with FetchContent for ImGui, nlohmann/json, GLM, cxxopts, and
+**Build system:** CMake with FetchContent for ImGui, nlohmann/json, GLM, and
 ExternalProject for Eigen, libminc, minc2-simple.
 
 ---
@@ -82,7 +82,7 @@ ExternalProject for Eigen, libminc, minc2-simple.
 
 ### 3.1 main.cpp (1015 lines)
 
-Entry point, CLI parsing (via `cxxopts`), GLFW window creation, main render loop.
+Entry point, CLI parsing (hand-rolled argv walk — `cxxopts` was removed), GLFW window creation, main render loop.
 
 - Backend selection with multi-level fallback (Vulkan -> OpenGL2 -> OpenGL2-EGL)
 - DPI-aware window sizing with monitor workarea clamping
@@ -119,7 +119,7 @@ MINC2 volume representation: loading, coordinate transforms, label support.
 
 ### 3.4 ColourMap.cpp (395 lines)
 
-21 colour maps via piecewise-linear interpolation of control points.
+18 colour maps via piecewise-linear interpolation of control points.
 
 - Static control-point arrays define all maps
 - Lazy static initialization (built once, thread-safe)
@@ -329,7 +329,6 @@ Headless test runner using OSMesa + ImGui test engine.
 | **nlohmann/json** | FetchContent | v3.11.3 | JSON config persistence |
 | **GLM** | FetchContent | v1.0.1 | Math (vectors, matrices) |
 | **Eigen** | FetchContent | v3.4.0 | Levenberg-Marquardt optimizer |
-| **cxxopts** | FetchContent | v3.2.1 | CLI argument parsing |
 | **GLFW** | System | — | Window management |
 | **Vulkan** | System (optional) | — | GPU backend |
 | **OpenGL** | System (optional) | — | Legacy GPU backend |
@@ -460,9 +459,9 @@ Headless test runner using OSMesa + ImGui test engine.
 
 A feature-rich, functional application that covers the core functionality of the legacy `register` tool:
 
-- Multi-volume MINC2 viewer with 3-plane slice views and crosshairs
+- Multi-volume MINC2 and NIfTI viewer with 3-plane slice views and crosshairs
 - Dual GPU backends (Vulkan + OpenGL 2) with automatic fallback and EGL support
-- 21 colour maps with per-volume selection and under/over colour modes
+- 18 colour maps with per-volume selection and under/over colour modes
 - Alpha-blended overlay with world-coordinate resampling
 - Full tag-point registration (LSQ6/7/9/10/12 + TPS) with LM optimization
 - Transform visualization in overlay (scanline-optimized linear, per-pixel TPS)
@@ -470,7 +469,7 @@ A feature-rich, functional application that covers the core functionality of the
 - Label volume support with FreeSurfer LUT parsing
 - JSON config persistence with file dialogs
 - Screenshot (PNG) for both backends
-- 24 passing test suites (including OverlapTest, NiftiMncMatchTest, headless_ui_tests)
+- 27 passing test suites (including OverlapTest, NiftiMncMatchTest, headless_ui_tests)
 - WARN verdict system with configurable verdict options and 1..N hotkeys
 - clangd LSP configuration with auto-generated compile commands
 - **NIfTI-1 support** (`.nii`, `.nii.gz`) via native loader replicating the `nii2mnc` algorithm — coordinate-identical to MINC for the same volume (2026-04-03/05)
@@ -1059,7 +1058,7 @@ All 42 tests pass. Tests create and clean up temporary CSV files.
 
 ### Short-term (Quality)
 4. Add unit tests for `QCApp` navigation and QC marking logic (test-only init without GLFW).
-5. Replace manual CLI parsing with `cxxopts` (already used in `new_register`).
+5. Consider factoring out a shared CLI-parsing helper. Note `new_register` no longer uses `cxxopts` — it hand-rolls argv parsing, as does `new_mincpik` (`src/mincpik/mincpik_cli.cpp`), so `mincpik_cli` is the pattern to follow rather than adding a dependency.
 6. Add image prefetching for previous/next cases (simple background load or at least on-advance pre-load).
 7. Add tests for BackendFactory fallback logic.
 

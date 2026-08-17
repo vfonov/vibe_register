@@ -1,8 +1,12 @@
-# problem.md — Known Open Issue: OverlapTest Resampling Bug
+# problem.md — Post-Mortem: OverlapTest Resampling Bug (RESOLVED)
 
 ## Status
 
-**RESOLVED** — OverlapTest now passes. The coordinate conversion bug in `renderOverlaySlice()` was fixed by rewriting the world-space transform chain in `Volume.cpp` and `SliceRenderer.cpp`. All reference PNGs now match.
+**RESOLVED** — OverlapTest passes; kept as a reference for the coordinate-transform conventions and as the template for recording future issues.
+
+> Everything below describes the bug **as it stood before the fix**, in the present tense of the original report. It is retained for the diagnostic reasoning, not as a description of current behaviour. Jump to [Resolution](#resolution) for what actually changed.
+
+OverlapTest now passes. The coordinate conversion bug in `renderOverlaySlice()` was fixed by rewriting the world-space transform chain in `Volume.cpp` and `SliceRenderer.cpp`. All reference PNGs now match.
 
 ---
 
@@ -37,7 +41,7 @@ This approach is verified correct by an independent tool chain. The resulting PN
 
 ---
 
-## What is broken
+## What was broken (historical)
 
 `renderOverlaySlice()` performs its own world-space resampling:
 for each output pixel in `sq1`'s grid → compute world coordinates → map to `sq2_tr` voxel space → nearest-neighbor sample.
@@ -46,7 +50,7 @@ The current implementation produces output that differs from the ground truth by
 
 ---
 
-## Where to look
+## Where the bug lived (historical)
 
 The relevant code is entirely in:
 
@@ -64,7 +68,7 @@ Candidate causes:
 
 ---
 
-## How to diagnose
+## How it was diagnosed
 
 Use the `dump_vol` debug tool (built in the test directory, not a ctest):
 

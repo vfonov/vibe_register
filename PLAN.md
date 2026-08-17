@@ -36,7 +36,7 @@ Modern C++17 rewrite of the legacy `register` application using Vulkan/OpenGL 2,
 - [x] World (0,0,0) maps to correct voxel for both test volumes
 
 ### Colour Maps
-- [x] 21 colour map types (Gray, HotMetal, Spectral, Red, Green, Blue, negative variants, Contour, etc.)
+- [x] 18 colour map types (GrayScale, HotMetal/ColdMetal/GreenMetal/LimeMetal/RedMetal/PurpleMetal, Spectral, Red, Green, Blue, Contour, Viridis, Jet, Magma, Inferno, Plasma, Turbo) plus an invert flag
 - [x] Quick-access swatch buttons with gradient preview
 - [x] "More..." dropdown for all 21 maps
 - [x] Per-volume colour map selection
@@ -602,7 +602,7 @@ Static library of GPU-free modules shared by both `new_register` and `new_mincpi
 | Source | Purpose |
 |--------|---------|
 | `Volume.cpp` | MINC2 loading, coordinate transforms |
-| `ColourMap.cpp` | 21 colour map LUT generation |
+| `ColourMap.cpp` | 18 colour map LUT generation |
 | `Transform.cpp` | Tag-point registration (LSQ6-12, TPS) |
 | `TagWrapper.cpp` | Tag file I/O |
 | `AppConfig.cpp` | JSON config persistence |
