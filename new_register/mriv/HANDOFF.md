@@ -440,3 +440,4 @@ Append one line per milestone as you complete it, so the next agent knows where 
 
 - 2026-08-17 — handoff written; `mriv/` is docs-only, no code yet.
 - 2026-08-17 — parent groundwork committed on `build-hdf5-pin-and-mriv-spec` (build fix, doc reconciliation, this spec). Parent build green: 27/27 ctest. M1 not started.
+- 2026-08-17 — M1 complete: `mriv` skeleton (CMake, `mriv_lib`/`mriv` split, cxxopts wiring under `mriv::term`, `--help`, positional files), one `mriv_options` test. Parent `add_subdirectory(mriv)` landed as its own commit. `ctest` green 28/28 (27 parent + 1 mriv). M2 not started.
