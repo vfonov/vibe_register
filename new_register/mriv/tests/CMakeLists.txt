@@ -17,6 +17,12 @@ add_nr_test(test_slice_selection
 )
 add_test(NAME mriv_slice_selection COMMAND test_slice_selection)
 
+add_nr_test(test_colourmap_arg
+    INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../src
+    LINKS    mriv_lib
+)
+add_test(NAME mriv_colourmap_arg COMMAND test_colourmap_arg)
+
 add_nr_test(test_slice_geometry
     INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../src
     LINKS    mriv_lib
