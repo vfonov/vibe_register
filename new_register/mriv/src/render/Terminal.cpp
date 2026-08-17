@@ -2,9 +2,12 @@
 
 #include <algorithm>
 #include <iostream>
+#include <ostream>
 #include <utility>
 
 #include <notcurses/notcurses.h>
+
+#include "render/Encode.hpp"
 
 namespace mriv::term
 {
@@ -15,7 +18,9 @@ Terminal::~Terminal()
 }
 
 Terminal::Terminal(Terminal&& other) noexcept
-    : nc_(std::exchange(other.nc_, nullptr))
+    : nc_(std::exchange(other.nc_, nullptr)),
+      out_(std::exchange(other.out_, nullptr)),
+      forcedProtocol_(other.forcedProtocol_)
 {
 }
 
@@ -25,6 +30,8 @@ Terminal& Terminal::operator=(Terminal&& other) noexcept
     {
         destroy();
         nc_ = std::exchange(other.nc_, nullptr);
+        out_ = std::exchange(other.out_, nullptr);
+        forcedProtocol_ = other.forcedProtocol_;
     }
     return *this;
 }
@@ -36,6 +43,9 @@ void Terminal::destroy()
         notcurses_stop(nc_);
         nc_ = nullptr;
     }
+    // Test-mode state is just a raw pointer to a stream; nothing to tear down.
+    out_ = nullptr;
+    forcedProtocol_ = PixelProtocol::None;
 }
 
 bool Terminal::init(FILE* outFile, uint64_t optionFlags)
@@ -59,8 +69,15 @@ bool Terminal::initCli(FILE* outFile)
     return init(outFile, NCOPTION_CLI_MODE | NCOPTION_SUPPRESS_BANNERS | NCOPTION_DRAIN_INPUT);
 }
 
+Terminal::Terminal(std::ostream& out, PixelProtocol forcedProtocol)
+    : out_(&out), forcedProtocol_(forcedProtocol)
+{
+}
+
 bool Terminal::hasPixelSupport() const
 {
+    if (out_)
+        return forcedProtocol_ != PixelProtocol::None;
     if (!nc_)
         return false;
     return notcurses_check_pixel_support(nc_) != NCPIXEL_NONE;
@@ -68,6 +85,12 @@ bool Terminal::hasPixelSupport() const
 
 Terminal::PixelGeometry Terminal::pixelGeometry() const
 {
+    if (out_)
+    {
+        // Synthetic generous box for test mode.
+        return PixelGeometry{4096, 4096};
+    }
+
     if (!nc_)
         return PixelGeometry{0, 0};
 
@@ -92,10 +115,9 @@ unsigned Terminal::cursorRow() const
     return y;
 }
 
-
 bool Terminal::blit(const uint32_t* rgba, int w, int h)
 {
-    if (!nc_)
+    if (!nc_ && !out_)
     {
         std::cerr << "mriv: blit() called before a successful init()\n";
         return false;
@@ -104,6 +126,30 @@ bool Terminal::blit(const uint32_t* rgba, int w, int h)
     {
         std::cerr << "mriv: blit() called with an empty image\n";
         return false;
+    }
+
+    // Test mode: bypass notcurses entirely and write deterministic bytes
+    // to the injected stream.
+    if (out_)
+    {
+        if (forcedProtocol_ == PixelProtocol::None)
+        {
+            std::cerr << "mriv: test-mode Terminal constructed with PixelProtocol::None\n";
+            return false;
+        }
+
+        std::string bytes = encodePixels(forcedProtocol_,
+                                         reinterpret_cast<const std::uint8_t*>(rgba),
+                                         static_cast<std::size_t>(w),
+                                         static_cast<std::size_t>(h));
+        if (bytes.empty())
+        {
+            std::cerr << "mriv: encodePixels() produced no output\n";
+            return false;
+        }
+
+        out_->write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        return out_->good();
     }
 
     // ncvisual_from_rgba()'s middle argument is rowstride in *bytes*, not
@@ -160,6 +206,5 @@ bool Terminal::blit(const uint32_t* rgba, int w, int h)
     ncvisual_destroy(ncv);
     return ok;
 }
-
 
 } // namespace mriv::term

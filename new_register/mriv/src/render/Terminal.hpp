@@ -2,6 +2,9 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <iosfwd>
+
+#include "render/PixelProtocol.hpp"
 
 // Forward-declared only: this header must not force notcurses includes on
 // consumers (see mriv/CLAUDE.md, header hygiene). <notcurses/notcurses.h>
@@ -36,8 +39,16 @@ public:
     /// prints one image and exits, it does not take over the terminal.
     bool initCli(FILE* outFile);
 
+    /// Test-mode constructor: skip notcurses entirely and write a
+    /// forced pixel protocol directly to the supplied stream. This is
+    /// the seam that makes cheap CI tests possible -- no real terminal,
+    /// no environment probing, just deterministic escape-sequence bytes.
+    /// The stream must outlive the Terminal.
+    explicit Terminal(std::ostream& out, PixelProtocol forcedProtocol);
+
     /// True if the terminal supports a pixel graphics protocol
-    /// (Kitty/sixel/iTerm2). Only meaningful after a successful init().
+    /// (Kitty/sixel/iTerm2). Only meaningful after a successful init();
+    /// always true for test-mode terminals with a non-None protocol.
     bool hasPixelSupport() const;
 
     struct PixelGeometry
@@ -49,11 +60,13 @@ public:
     /// The pixel box available for a blit on the standard plane, already
     /// clamped to the terminal's own maximum bitmap size when it reports
     /// one. Zero-initialized if called before a successful init().
+    /// In test mode this reports a generous synthetic box (4096x4096).
     PixelGeometry pixelGeometry() const;
 
     /// Blit a packed RGBA (0xAABBGGRR) buffer of size (w,h) to the
-    /// terminal with NCBLIT_PIXEL and flush it to the output. Returns
-    /// false and writes a diagnostic to std::cerr on failure.
+    /// terminal with the active pixel protocol and flush it to the
+    /// output. Returns false and writes a diagnostic to std::cerr on
+    /// failure.
     bool blit(const uint32_t* rgba, int w, int h);
 
     /// The standard plane's current cursor row. Exposed mainly so tests
@@ -68,6 +81,9 @@ private:
     void destroy();
 
     notcurses* nc_ = nullptr;
+
+    std::ostream* out_ = nullptr;
+    PixelProtocol forcedProtocol_ = PixelProtocol::None;
 };
 
 } // namespace mriv::term

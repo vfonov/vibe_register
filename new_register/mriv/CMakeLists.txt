@@ -25,11 +25,15 @@ add_library(mriv_lib STATIC
     src/cli/ColourMapArg.cpp
     src/cli/WindowLevel.cpp
     src/cli/VolumeInfo.cpp
+    src/cli/Run.cpp
     src/render/SliceGeometry.cpp
     src/render/Resample.cpp
     src/render/Terminal.cpp
+    src/render/Encode.cpp
+    src/util/Base64.cpp
 )
 target_include_directories(mriv_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(mriv_lib PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
 target_link_libraries(mriv_lib PUBLIC nr_core cxxopts::cxxopts)
 target_link_libraries(mriv_lib PRIVATE PkgConfig::NOTCURSES)
 
