@@ -24,3 +24,9 @@ add_nr_test(test_resample
     LINKS    mriv_lib
 )
 add_test(NAME mriv_resample COMMAND test_resample)
+
+add_nr_test(test_terminal
+    INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../src
+    LINKS    mriv_lib PkgConfig::NOTCURSES
+)
+add_test(NAME mriv_terminal COMMAND test_terminal)
