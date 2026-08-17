@@ -11,7 +11,7 @@ std::string formatVolumeInfo(const Volume& vol, const std::string& path)
 {
     std::ostringstream out;
     out << "=== " << path << " ===\n";
-    out << "  dims  : " << vol.dimensions.x << " x " << vol.dimensions.y << " x "
+    out << "  dimensions: " << vol.dimensions.x << " x " << vol.dimensions.y << " x "
         << vol.dimensions.z << "\n";
     out << "  step  : " << vol.step.x << "  " << vol.step.y << "  " << vol.step.z << "\n";
     out << "  start : " << vol.start.x << "  " << vol.start.y << "  " << vol.start.z << "\n";

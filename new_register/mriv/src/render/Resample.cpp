@@ -11,7 +11,7 @@ ResampleSize computeResampleSize(int w, int h, double aspect, int maxW, int maxH
     double effectiveW = w * aspect;
     double effectiveH = h;
 
-    double scale = std::min(maxW / effectiveW, maxH / effectiveH);
+    double scale = std::min(1.0, std::min(maxW / effectiveW, maxH / effectiveH));
 
     int outW = std::max(1, static_cast<int>(std::lround(effectiveW * scale)));
     int outH = std::max(1, static_cast<int>(std::lround(effectiveH * scale)));
