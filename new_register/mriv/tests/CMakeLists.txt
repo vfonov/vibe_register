@@ -11,6 +11,12 @@ add_nr_test(test_options
 )
 add_test(NAME mriv_options COMMAND test_options)
 
+add_nr_test(test_slice_selection
+    INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../src
+    LINKS    mriv_lib
+)
+add_test(NAME mriv_slice_selection COMMAND test_slice_selection)
+
 add_nr_test(test_slice_geometry
     INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../src
     LINKS    mriv_lib
