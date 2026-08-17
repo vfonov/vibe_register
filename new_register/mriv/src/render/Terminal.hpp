@@ -56,6 +56,14 @@ public:
     /// false and writes a diagnostic to std::cerr on failure.
     bool blit(const uint32_t* rgba, int w, int h);
 
+    /// The standard plane's current cursor row. Exposed mainly so tests
+    /// can confirm blit() places images at the cursor and advances past
+    /// them, rather than always drawing at row 0 (see the comment in
+    /// Terminal::blit() -- ncvisual_options::y defaults to 0, which is
+    /// *not* the current cursor position unless nothing has been
+    /// written since init()). Zero before a successful init().
+    unsigned cursorRow() const;
+
 private:
     void destroy();
 

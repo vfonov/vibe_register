@@ -83,6 +83,16 @@ Terminal::PixelGeometry Terminal::pixelGeometry() const
     return geom;
 }
 
+unsigned Terminal::cursorRow() const
+{
+    if (!nc_)
+        return 0;
+    unsigned y = 0, x = 0;
+    ncplane_cursor_yx(notcurses_stdplane_const(nc_), &y, &x);
+    return y;
+}
+
+
 bool Terminal::blit(const uint32_t* rgba, int w, int h)
 {
     if (!nc_)
@@ -105,9 +115,28 @@ bool Terminal::blit(const uint32_t* rgba, int w, int h)
         return false;
     }
 
+    // With no ncplane given, ncvisual_options::y/x place the *new* plane
+    // relative to the standard plane's origin -- NOT at the current
+    // cursor position. Left at their zero-initialized default, the image
+    // is drawn at row 0 of the std plane, which in CLI/scrolling mode is
+    // wherever the physical cursor happened to be when notcurses_init()
+    // ran (NCOPTION_PRESERVE_CURSOR seeds the std plane's virtual cursor
+    // from the physical one at that point) -- but only by coincidence if
+    // nothing else has been printed since. Query the std plane's current
+    // cursor row explicitly so the image lands where the caller's output
+    // actually is, rather than silently drawing over row 0 and leaving
+    // no visible trace once the shell prints its next prompt at the old
+    // cursor position (NCOPTION_PRESERVE_CURSOR / _NO_CLEAR_BITMAPS keep
+    // that old position around).
+    struct ncplane* stdPlane = notcurses_stdplane(nc_);
+    unsigned cursorY = 0, cursorX = 0;
+    ncplane_cursor_yx(stdPlane, &cursorY, &cursorX);
+
     ncvisual_options vopts{};
     vopts.scaling = NCSCALE_NONE;
     vopts.blitter = NCBLIT_PIXEL;
+    vopts.y = static_cast<int>(cursorY);
+    vopts.x = 0;
 
     struct ncplane* plane = ncvisual_blit(nc_, ncv, &vopts);
     if (!plane)
@@ -117,6 +146,13 @@ bool Terminal::blit(const uint32_t* rgba, int w, int h)
         return false;
     }
 
+    // Advance the std plane's cursor past the image so a scrolling
+    // caller's next output (e.g. the shell prompt after we exit) lands
+    // below it instead of overwriting it in place.
+    unsigned rows = 0;
+    ncplane_dim_yx(plane, &rows, nullptr);
+    ncplane_cursor_move_yx(stdPlane, static_cast<int>(cursorY + rows), 0);
+
     bool ok = notcurses_render(nc_) == 0;
     if (!ok)
         std::cerr << "mriv: notcurses_render() failed\n";
@@ -124,5 +160,6 @@ bool Terminal::blit(const uint32_t* rgba, int w, int h)
     ncvisual_destroy(ncv);
     return ok;
 }
+
 
 } // namespace mriv::term
