@@ -973,3 +973,11 @@ target_link_libraries(generate_headless_baselines PRIVATE
 )
 
 endif() # ENABLE_TESTS
+
+# --- mriv: terminal-based slice viewer (subproject) ---
+# Placed last: it needs nr_core (line ~605) and, for its tests, the
+# add_nr_test() macro defined by add_subdirectory(tests) above.
+option(BUILD_TERMINAL_VIEWER "Build the terminal-based slice viewer (mriv)" ON)
+if(BUILD_TERMINAL_VIEWER AND NOT BUILD_QC_ONLY)
+    add_subdirectory(mriv)
+endif()
