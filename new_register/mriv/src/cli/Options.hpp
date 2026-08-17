@@ -31,6 +31,12 @@ struct Options
     double window = 0.0;
     double level = 0.0;
 
+    /// Explicit --auto-window flag. Auto-window is already the default
+    /// when neither --window nor --level is given; this flag exists so
+    /// scripts can say so explicitly (PLAN.md's CLI surface). It is an
+    /// error to combine it with --window/--level.
+    bool autoWindow = false;
+
     /// Raw --colourmap argument; already validated by parseArgs() against
     /// cli/ColourMapArg.hpp's normalised name matching. Empty means the
     /// default (grayscale).

@@ -66,6 +66,7 @@ void testDefaults()
     assert(result.options.axis == 'z');
     assert(result.options.sliceArg == "mid");
     assert(!result.options.hasWindowLevel);
+    assert(!result.options.autoWindow);
     assert(result.options.colourMapArg.empty());
     assert(!result.options.invert);
     assert(!result.options.requirePixels);
@@ -114,6 +115,19 @@ void testWindowWithoutLevelRejected()
     // -W without -L (or vice versa) is an incomplete pair -- reject with a
     // clear message rather than silently defaulting level to 0.
     auto result = parse({"mriv", "-W", "100", "a.mnc"});
+    assert(!result.ok);
+}
+
+void testAutoWindowFlag()
+{
+    auto result = parse({"mriv", "--auto-window", "a.mnc"});
+    assert(result.ok);
+    assert(result.options.autoWindow);
+}
+
+void testAutoWindowWithWindowLevelRejected()
+{
+    auto result = parse({"mriv", "--auto-window", "-W", "100", "-L", "50", "a.mnc"});
     assert(!result.ok);
 }
 
@@ -174,6 +188,8 @@ int main()
     testInvalidSliceRejected();
     testWindowLevelFlags();
     testWindowWithoutLevelRejected();
+    testAutoWindowFlag();
+    testAutoWindowWithWindowLevelRejected();
     testColourMapFlag();
     testInvalidColourMapRejected();
     testInvertFlag();

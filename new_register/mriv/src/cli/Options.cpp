@@ -28,6 +28,7 @@ cxxopts::Options buildParser()
             cxxopts::value<std::string>()->default_value("mid"))
         ("W,window", "Window width for intensity mapping", cxxopts::value<double>())
         ("L,level", "Window level", cxxopts::value<double>())
+        ("auto-window", "Percentile-based auto range (default on)")
         ("c,colourmap", "Colour map name (default: Gray). See ColourMap.h.",
             cxxopts::value<std::string>())
         ("invert", "Invert the colour map")
@@ -94,12 +95,19 @@ ParseResult parseArgs(int argc, char** argv)
             result.ok = false;
             return result;
         }
+        if (hasWindow && hasLevel && parsed.count("auto-window"))
+        {
+            std::cerr << "mriv: --auto-window cannot be combined with --window/--level\n";
+            result.ok = false;
+            return result;
+        }
         if (hasWindow && hasLevel)
         {
             result.options.hasWindowLevel = true;
             result.options.window = parsed["window"].as<double>();
             result.options.level  = parsed["level"].as<double>();
         }
+        result.options.autoWindow = parsed.count("auto-window") > 0;
 
         if (parsed.count("colourmap"))
         {
