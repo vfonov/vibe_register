@@ -33,6 +33,8 @@ add_library(mriv_lib STATIC
     src/interactive/StatusLine.cpp
     src/render/SliceGeometry.cpp
     src/render/Resample.cpp
+    src/render/Compose.cpp
+    src/render/Layout.cpp
     src/render/SlicePipeline.cpp
     src/render/Terminal.cpp
     src/render/Encode.cpp

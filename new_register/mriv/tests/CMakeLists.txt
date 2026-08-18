@@ -56,6 +56,8 @@ add_mriv_test(test_view_state)
 add_mriv_test(test_session)
 add_mriv_test(test_interactive)
 add_mriv_test(test_slice_pipeline)
+add_mriv_test(test_layout)
+add_mriv_test(test_compose)
 add_mriv_test(test_resample)
 add_mriv_test(test_terminal LINKS PkgConfig::NOTCURSES)
 
