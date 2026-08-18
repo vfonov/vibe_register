@@ -1,17 +1,20 @@
-/// test_terminal.cpp — notcurses wrapper lifecycle and blit path.
+/// test_terminal.cpp — notcurses (direct-mode) wrapper lifecycle and blit
+/// path.
 ///
 /// The dev host has no pixel-capable terminal (HANDOFF.md sec 3.9), so
-/// these tests redirect notcurses at a tmpfile() and assert on structure
+/// these tests redirect ncdirect at a tmpfile() and assert on structure
 /// (did it crash, is output non-empty, does it contain an escape byte),
 /// never on exact bytes -- terminal output isn't byte-stable across
-/// notcurses versions.
+/// notcurses versions. Despite <notcurses/direct.h>'s doc comment that its
+/// FILE* "must be a tty", ncdirect_init() does not enforce this at runtime
+/// (verified experimentally) -- tmpfile() works fine as a redirect target.
 
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
 
-#include <notcurses/notcurses.h>
+#include <notcurses/direct.h>
 
 #include "render/Terminal.hpp"
 
@@ -20,8 +23,8 @@ using namespace mriv::term;
 namespace
 {
 
-constexpr uint64_t kTestFlags =
-    NCOPTION_SUPPRESS_BANNERS | NCOPTION_DRAIN_INPUT | NCOPTION_NO_ALTERNATE_SCREEN;
+// Matches the flags Terminal::initCli() uses in production.
+constexpr uint64_t kTestFlags = NCDIRECT_OPTION_DRAIN_INPUT;
 
 /// init()/destroy() must not crash, repeatedly, and via move too.
 void testInitLifecycle()
@@ -124,17 +127,28 @@ void testBlitStructure()
     fclose(f);
 }
 
-/// Regression test for a real-world bug: blit() used to leave
-/// ncvisual_options::y/x at their zero-initialized default, which places
-/// the image at row 0 of the standard plane rather than at the current
-/// cursor position. In a real scrolling CLI session this drew the image
-/// off in the scrollback and then restored the old cursor position,
-/// making it look like nothing had been rendered at all (reported
-/// against a real Kitty terminal). If blit() succeeds, the std plane's
-/// cursor must end up strictly below where it started, proving the
-/// image was placed at (and the cursor advanced past) the prior cursor
-/// row rather than always at row 0.
-void testBlitPlacesImageAtCursorAndAdvancesPastIt()
+/// Regression coverage for a real-world bug, in two rounds (see
+/// HANDOFF.md): round 1 found that blit() left ncvisual_options::y/x at
+/// their zero-initialized default via full notcurses's ncvisual_blit(),
+/// placing the image at row 0 of the standard plane instead of the
+/// current cursor position. Round 2 found that even after fixing
+/// placement, notcurses_stop() could wipe the just-drawn bitmap on exit
+/// per its own NCOPTION_NO_CLEAR_BITMAPS doc comment ("might still get
+/// cleared even if this is set") -- confirmed against a real Kitty
+/// session. Both were properties of full notcurses's whole-screen
+/// teardown. The fix was to stop using that API for the one-shot render
+/// path and switch to ncdirect, which owns neither a "screen" to restore
+/// nor manual y/x placement: ncdirect_raster_frame() places the image at
+/// the current cursor position and advances past it internally, and
+/// ncdirect_stop() has no bitmap-clearing teardown to speak of. There is
+/// no longer any cursor bookkeeping in this class for a test to pin. This
+/// is a lighter smoke check that blit() still succeeds and does not
+/// regress to leaving the cursor row unmoved when the query round-trip
+/// can succeed -- ncdirect_cursor_yx() requires a real terminal reply and
+/// fails (not hangs, verified experimentally) against a tmpfile(), so
+/// `after > before` is unreachable in this sandbox exactly as it was
+/// before the rewrite; it is exercised against a real terminal.
+void testBlitSucceedsAndCursorAdvancesWhenQueryable()
 {
     FILE* f = tmpfile();
     assert(f);
@@ -143,7 +157,7 @@ void testBlitPlacesImageAtCursorAndAdvancesPastIt()
     bool blitOk = false;
     {
         Terminal term;
-        assert(term.init(f, kTestFlags | NCOPTION_SCROLLING));
+        assert(term.init(f, kTestFlags));
         before = term.cursorRow();
 
         std::vector<uint32_t> pixels{0xFF0000FFu, 0xFF00FF00u, 0xFFFF0000u, 0xFFFFFFFFu};
@@ -151,12 +165,7 @@ void testBlitPlacesImageAtCursorAndAdvancesPastIt()
         after = term.cursorRow();
     }
 
-    // This sandbox has no pixel protocol (HANDOFF.md sec 3.9), so blitOk
-    // will typically be false here and this assertion is unreachable in
-    // CI -- it is exercised whenever a pixel-capable terminal runs the
-    // suite, and was confirmed against the reported bug in a real Kitty
-    // session.
-    if (blitOk)
+    if (blitOk && after != 0)
         assert(after > before);
 
     fclose(f);
@@ -171,6 +180,6 @@ int main()
     testBlitBeforeInitFails();
     testBlitEmptyImageFails();
     testBlitStructure();
-    testBlitPlacesImageAtCursorAndAdvancesPastIt();
+    testBlitSucceedsAndCursorAdvancesWhenQueryable();
     return 0;
 }
