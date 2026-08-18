@@ -252,14 +252,20 @@ Positional:
                           volumes, each opened via Volume::load().
 
 Slice selection:
-  -a, --axis <x|y|z>      Axis to slice along (default: z / axial).
+  -v, --views <list>      Planes to show, stacked top to bottom: a comma-
+                          separated subset of x,y,z (default: z,x,y -- all
+                          three).
+  -a, --axis <x|y|z>      The axis --slice positions and the keyboard moves
+                          (default: z / axial).
   -s, --slice <n|p%|mid>  Slice index, percentage, or "mid" (default: mid).
 
 Display:
   -R, --range <low,hi>    Intensity range for mapping: low maps to the
                           darkest colour, high to the brightest.
       --auto-window       Percentile-based auto range (default on).
-  -c, --colourmap <name>  Colour map name (default: grayscale). See ColourMap.h.
+  -c, --colourmap <name>  Colour map name, or one name per file separated by
+                          commas (default: Spectral for the first volume,
+                          Gray for the rest). See ColourMap.h.
       --invert            Invert the colour map.
       --require-pixels    Exit non-zero if the terminal has no pixel protocol.
       --max-width <px>    Cap the rendered image width in pixels.
@@ -267,7 +273,7 @@ Display:
 
 Interactive:
       --interactive       Navigate with the keyboard. Default when stdout is
-                          a terminal and exactly one file is given.
+                          a terminal.
       --no-interactive    Print one slice and exit, even on a terminal.
 
 Info:
@@ -292,34 +298,91 @@ pixel replication (each display pixel becomes an `n x n` block), applied *after*
 aspect-correct fit into the terminal's pixel box — see `render/Resample.hpp`'s
 `resampleToDisplay()`. A `--scale` of 1 (the default) is a no-op.
 
-Multiple inputs render as a strip (one row per file) so `mriv *.mnc` gives an at-a-glance overview.
-Each row is captioned with its path so the images can be told apart; a single-file invocation is left
-uncaptioned, staying pure image bytes for the "cat for medical images" case. Every row gets the full
-height budget rather than `1/N` of the screen — terminals scroll, and a volume should not change size
-according to how many siblings were on the command line. A file that fails to load is reported and
-skipped; the run only exits non-zero if nothing rendered at all.
+### The display grid
 
-An interactive mode (`--interactive`, or auto-detected when stdout is a TTY *and* only one file is
-given) enables minimal vim-style keybindings: `j/k` slice, `x/y/z` axis, `+/-` window, `q` quit
-(`Esc` also quits). Small; a bonus. Note there is no `h/l` time navigation — see
-[Deferred work](#deferred-work--blocked-on-the-parent).
+Both the one-shot path and the interactive loop draw the same thing: a grid, composed into a single
+RGBA buffer and blitted once.
+
+```
+        volume 0        volume 1        <- columns, one per input file, in argument order
+      +-------------+-------------+
+ z    |   axial     |   axial     |     <- rows, one per --views entry, in the order given
+      +-------------+-------------+
+ x    |  sagittal   |  sagittal   |
+      +-------------+-------------+
+ y    |  coronal    |  coronal    |
+      +-------------+-------------+
+```
+
+Judging a registration or a conversion means seeing all three planes at once, and comparing two
+volumes means seeing them side by side with the same slice under the cursor — so all three planes
+are shown by default, and `--views` narrows the set.
+
+One bitmap for the whole grid is load-bearing rather than incidental: it keeps the notcurses
+wrappers free of per-pane plane bookkeeping, makes the layout a pure function testable with no
+terminal at all, and makes redrawing — or re-blitting the final frame on exit — a matter of handing
+over a buffer that already exists. `render/Layout.hpp` divides the box, `render/FrameBuilder.hpp`
+renders the cells, `render/Compose.hpp` composites them.
+
+The terminal's pixel box is a *budget*, not the output size. Each slice is fitted into its share of
+it and the frame is then sized to what those fits produced, because `renderSliceForDisplay()` never
+upscales: a box-sized canvas would wrap a small volume in a screenful of black and blit megabytes of
+it on every keypress. `--scale` magnifies the gutter along with the panes so the proportions hold.
+
+Multiple inputs become columns, captioned once with the file names in order so they can be told
+apart; a single-file invocation is left uncaptioned, staying pure image bytes for the "cat for
+medical images" case. A file that fails to load is reported and skipped; the run only exits non-zero
+if nothing rendered at all.
+
+### Interactive mode
+
+`--interactive`, or auto-detected whenever stdout is a TTY. The file count does not enter into it:
+several volumes become columns of one navigable grid, which is more use interactively than piped.
+
+| Key | Effect |
+|-----|--------|
+| `j` / `k` | Move the cursor ±1 along the active axis — every column moves together |
+| `x` / `y` / `z` | Choose the axis `j`/`k` moves. Does **not** change which views are shown |
+| `Tab`, `1`–`9` | Select the active column |
+| `c` / `C` | Cycle the active column's colour map forward / back |
+| `r` | Open the range prompt for the active column |
+| `q`, `Esc` | Quit |
+| *in prompt* | printable → append, Backspace → delete, Enter → apply, `Esc` → cancel |
+
+There is no `h`/`l` time navigation — see [Deferred work](#deferred-work--blocked-on-the-parent).
+
+Position is a single 3D voxel cursor, held in the *first* volume's index space and mapped onto the
+others by `mapSliceIndex()`. One cursor is what makes navigation synchronised, which is the point of
+showing columns side by side; equal slice counts map index-for-index, and mismatched ones track
+proportionally. Each axis keeps its own component, so leaving an axis and returning to it lands
+exactly where you left off — the three are geometrically independent and there is no meaningful way
+to carry a position between them.
+
+Ranges are **typed, not scaled**: `r` prompts for `low high` (or `low,high`) on the status row, for
+the active column only. On real data the numbers you want are known, and hunting for them by
+repeated multiplication was slower than typing them. An entry that will not parse keeps the prompt
+and the typing and says why. While the prompt is open every key belongs to it, including the
+navigation letters and `Esc` — typing a number must not also move a slice.
+
+Colour maps default to Spectral for the first volume and grayscale for the rest: the first is
+usually the one being judged and the others are references it is compared against. `--colourmap`
+overrides, with one name for all of them or one per file.
 
 `--no-interactive` is the escape hatch for a user sitting at a terminal who wants the one-shot
-"cat for medical images" behaviour anyway; scripts can pass it unconditionally. An explicit
-`--interactive` that cannot be honoured — no TTY, more than one file, or combined with `--info` —
-is refused with a reason and a non-zero exit rather than silently degrading to a one-shot render,
-which would look to the user like the keys were broken.
-
-Position is a 3D voxel cursor rather than one index rescaled between views: the three axes are
-geometrically independent, so leaving an axis and returning to it lands exactly where you left off.
-`+`/`-` scale the intensity window multiplicatively about its centre, so the midtone does not drift
-and the range cannot be collapsed or inverted by holding `-`.
+behaviour anyway; scripts can pass it unconditionally. An explicit `--interactive` that cannot be
+honoured — no TTY, or combined with `--info` — is refused with a reason and a non-zero exit rather
+than silently degrading to a one-shot render, which would look to the user like the keys were broken.
 
 Interactive mode uses **full notcurses** (alternate screen, `notcurses_render()` per frame), not the
 `ncdirect` path the one-shot renderer uses. Redrawing in place requires releasing the previous
 frame's bitmap before drawing the next, which is what notcurses's sprixel lifecycle handles; the
 teardown bitmap-clearing that made `ncdirect` necessary for the one-shot path is not a problem on
 the alternate screen, where restoring the terminal on exit is the wanted behaviour.
+
+Quitting does leave the last frame on the terminal, though. The alternate screen takes its contents
+with it, so the final frame is re-emitted through the one-shot `ncdirect` path — the same code that
+prints an image and exits, and the only one proven not to have its bitmaps wiped on teardown. It is
+captioned with the status row minus the key legend.
 
 ## Project layout
 
