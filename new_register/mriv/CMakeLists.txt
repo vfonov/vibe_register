@@ -34,6 +34,7 @@ add_library(mriv_lib STATIC
     src/render/SliceGeometry.cpp
     src/render/Resample.cpp
     src/render/Compose.cpp
+    src/render/FrameBuilder.cpp
     src/render/Layout.cpp
     src/render/SlicePipeline.cpp
     src/render/Terminal.cpp
