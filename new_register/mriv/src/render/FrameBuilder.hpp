@@ -55,6 +55,22 @@ struct FrameRequest
     int scale = 1;
 };
 
+/// Where the panes ended up in the finished frame: one entry per column
+/// and per row, in the same order as FrameRequest::panes and ::views.
+///
+/// The layout starts from per-cell *budgets* and then shrinks to what the
+/// fit produced, so these are not the rectangles computeGrid() returned --
+/// only buildFrame() knows the final ones. They exist so a caller drawing
+/// terminal text around the image (interactive/Overlay.hpp) can put a
+/// marker over the right pane instead of guessing.
+struct FrameTracks
+{
+    std::vector<int> columnX;
+    std::vector<int> columnWidths;
+    std::vector<int> rowY;
+    std::vector<int> rowHeights;
+};
+
 /// Render every (view, volume) cell and composite them into the single
 /// RGBA buffer that gets blitted. Rows are views, columns are volumes.
 ///
@@ -72,6 +88,9 @@ struct FrameRequest
 /// rather than failing the frame -- one bad column should not cost the
 /// user the others. Returns an empty image for a degenerate request (no
 /// panes, no views, or an empty box).
-ResampledImage buildFrame(const FrameRequest& request);
+/// `tracks`, when given, receives the pane geometry described above.
+/// It is cleared first, so a degenerate request leaves nothing stale
+/// behind for an overlay to mark.
+ResampledImage buildFrame(const FrameRequest& request, FrameTracks* tracks = nullptr);
 
 } // namespace mriv::term

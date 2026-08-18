@@ -41,8 +41,11 @@ int totalExtent(const std::vector<int>& sizes, int gap)
 
 } // namespace
 
-ResampledImage buildFrame(const FrameRequest& request)
+ResampledImage buildFrame(const FrameRequest& request, FrameTracks* tracks)
 {
+    if (tracks)
+        *tracks = FrameTracks{};
+
     if (request.panes.empty() || request.views.empty())
         return ResampledImage{};
 
@@ -121,6 +124,14 @@ ResampledImage buildFrame(const FrameRequest& request)
                                                   columnWidths[static_cast<size_t>(col)],
                                                   rowHeights[static_cast<size_t>(row)]}});
         }
+    }
+
+    if (tracks)
+    {
+        tracks->columnX      = columnX;
+        tracks->columnWidths = columnWidths;
+        tracks->rowY         = rowY;
+        tracks->rowHeights   = rowHeights;
     }
 
     return composeGrid(placed, width, height);

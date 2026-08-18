@@ -235,6 +235,53 @@ void testMissingPaneDataLeavesTheCellBlank()
     assert(drawnPixelsInBand(frame, 1, 0, 21, frame.height) > 0);
 }
 
+/// The grid's track geometry comes back with the frame. The overlay that
+/// marks the active row and column has to point at real pixels, and only
+/// buildFrame() knows where the panes landed: the tracks are sized by what
+/// the fit produced, not by the budget the layout started from.
+void testTracksReportWhereThePanesLanded()
+{
+    Volume vol = makeVolume(20, 20, 20, 1.0f);
+    FrameRequest request;
+    request.panes     = {makePane(vol, {10, 10}), makePane(vol, {10, 10})};
+    request.views     = {0, 1};
+    request.boxWidth  = 400;
+    request.boxHeight = 300;
+    request.gap       = 6;
+
+    FrameTracks tracks;
+    auto frame = buildFrame(request, &tracks);
+
+    assert(tracks.columnX.size() == 2);
+    assert(tracks.rowY.size() == 2);
+    assert(tracks.columnX[0] == 0 && tracks.columnX[1] == 26);   // 20 + gap
+    assert(tracks.columnWidths[0] == 20 && tracks.columnWidths[1] == 20);
+    assert(tracks.rowY[0] == 0 && tracks.rowY[1] == 26);
+    assert(tracks.rowHeights[0] == 20 && tracks.rowHeights[1] == 20);
+
+    // The last track ends exactly at the frame's edge, so a marker centred
+    // on it cannot point past the picture.
+    assert(tracks.columnX.back() + tracks.columnWidths.back() == frame.width);
+    assert(tracks.rowY.back() + tracks.rowHeights.back() == frame.height);
+}
+
+/// A frame that could not be built has no tracks either: an overlay planned
+/// from stale ones would mark panes that are not on screen.
+void testDegenerateRequestLeavesNoTracks()
+{
+    FrameTracks tracks;
+    tracks.columnX = {99};
+
+    FrameRequest noPanes;
+    noPanes.views     = {0};
+    noPanes.boxWidth  = 100;
+    noPanes.boxHeight = 100;
+
+    assert(buildFrame(noPanes, &tracks).pixels.empty());
+    assert(tracks.columnX.empty());
+    assert(tracks.rowY.empty());
+}
+
 void testDegenerateRequestsYieldAnEmptyFrame()
 {
     Volume vol = makeVolume(20, 20, 20, 1.0f);
@@ -269,6 +316,8 @@ int main()
     testVolumesBecomeColumnsInOrder();
     testEachPaneIsAspectCorrected();
     testMissingPaneDataLeavesTheCellBlank();
+    testTracksReportWhereThePanesLanded();
+    testDegenerateRequestLeavesNoTracks();
     testDegenerateRequestsYieldAnEmptyFrame();
     return 0;
 }
