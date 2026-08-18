@@ -17,6 +17,26 @@ using namespace mriv::term;
 namespace
 {
 
+/// The tests below predate multi-volume mode; this keeps them expressing
+/// one volume with all three planes so they stay about the loop, not the
+/// layout.
+ViewState makeViewState(const glm::ivec3& dims, char axis, int slice,
+                        double low, double high)
+{
+    glm::ivec3 cursor(dims.x / 2, dims.y / 2, dims.z / 2);
+    switch (axis)
+    {
+        case 'x': cursor.x = slice; break;
+        case 'y': cursor.y = slice; break;
+        default:  cursor.z = slice; break;
+    }
+
+    VolumeDisplay display;
+    display.rangeLow  = low;
+    display.rangeHigh = high;
+    return ViewState({dims}, {0, 1, 2}, axis, cursor, {display});
+}
+
 bool contains(const std::string& haystack, const std::string& needle)
 {
     return haystack.find(needle) != std::string::npos;
@@ -125,7 +145,7 @@ const glm::ivec3 kDims{64, 229, 96};
 
 void testStatusLineNamesThePlaneSliceAndRange()
 {
-    ViewState state(kDims, 'z', 48, 0.0, 100.0);
+    ViewState state = makeViewState(kDims, 'z', 48, 0.0, 100.0);
     std::string line = formatStatusLine(state, "brain.mnc");
 
     assert(contains(line, "brain.mnc"));
@@ -137,13 +157,13 @@ void testStatusLineNamesThePlaneSliceAndRange()
 
 void testStatusLineNamesEachPlane()
 {
-    ViewState axial(kDims, 'z', 0, 0.0, 1.0);
+    ViewState axial = makeViewState(kDims, 'z', 0, 0.0, 1.0);
     assert(contains(formatStatusLine(axial, "v.mnc"), "axial"));
 
-    ViewState sagittal(kDims, 'x', 0, 0.0, 1.0);
+    ViewState sagittal = makeViewState(kDims, 'x', 0, 0.0, 1.0);
     assert(contains(formatStatusLine(sagittal, "v.mnc"), "sagittal"));
 
-    ViewState coronal(kDims, 'y', 0, 0.0, 1.0);
+    ViewState coronal = makeViewState(kDims, 'y', 0, 0.0, 1.0);
     assert(contains(formatStatusLine(coronal, "v.mnc"), "coronal"));
 }
 
@@ -152,10 +172,10 @@ void testStatusLineNamesEachPlane()
 /// though the index passed to renderSlice() is 0-based.
 void testStatusLineSliceNumberIsOneBased()
 {
-    ViewState first(kDims, 'z', 0, 0.0, 1.0);
+    ViewState first = makeViewState(kDims, 'z', 0, 0.0, 1.0);
     assert(contains(formatStatusLine(first, "v.mnc"), "1/96"));
 
-    ViewState last(kDims, 'z', 95, 0.0, 1.0);
+    ViewState last = makeViewState(kDims, 'z', 95, 0.0, 1.0);
     assert(contains(formatStatusLine(last, "v.mnc"), "96/96"));
 }
 
@@ -163,7 +183,7 @@ void testStatusLineSliceNumberIsOneBased()
 /// the legend goes missing the keys become undiscoverable.
 void testStatusLineListsTheKeys()
 {
-    ViewState state(kDims, 'z', 0, 0.0, 1.0);
+    ViewState state = makeViewState(kDims, 'z', 0, 0.0, 1.0);
     std::string line = formatStatusLine(state, "v.mnc");
 
     assert(contains(line, "j/k"));
@@ -176,7 +196,7 @@ void testStatusLineListsTheKeys()
 /// embedded newline would push the image down and corrupt the layout.
 void testStatusLineIsASingleLine()
 {
-    ViewState state(kDims, 'y', 100, -1234.5678, 98765.4321);
+    ViewState state = makeViewState(kDims, 'y', 100, -1234.5678, 98765.4321);
     std::string line = formatStatusLine(state, "some/long/path/to/a volume.nii.gz");
     assert(line.find('\n') == std::string::npos);
     assert(line.find('\r') == std::string::npos);
@@ -186,7 +206,7 @@ void testStatusLineIsASingleLine()
 /// formatting must stay compact rather than printing raw doubles.
 void testStatusLineKeepsLargeRangesCompact()
 {
-    ViewState state(kDims, 'z', 0, 0.0, 32767.123456789);
+    ViewState state = makeViewState(kDims, 'z', 0, 0.0, 32767.123456789);
     std::string line = formatStatusLine(state, "v.mnc");
     assert(!contains(line, "32767.123456789"));
     assert(contains(line, "3.277e+04") || contains(line, "32770") || contains(line, "3.277e+004"));

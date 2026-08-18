@@ -17,6 +17,26 @@ using namespace mriv::term;
 namespace
 {
 
+/// The tests below predate multi-volume mode; this keeps them expressing
+/// one volume with all three planes so they stay about the loop, not the
+/// layout.
+ViewState makeViewState(const glm::ivec3& dims, char axis, int slice,
+                        double low, double high)
+{
+    glm::ivec3 cursor(dims.x / 2, dims.y / 2, dims.z / 2);
+    switch (axis)
+    {
+        case 'x': cursor.x = slice; break;
+        case 'y': cursor.y = slice; break;
+        default:  cursor.z = slice; break;
+    }
+
+    VolumeDisplay display;
+    display.rangeLow  = low;
+    display.rangeHigh = high;
+    return ViewState({dims}, {0, 1, 2}, axis, cursor, {display});
+}
+
 const glm::ivec3 kDims{64, 229, 96};
 
 /// Feeds a scripted key sequence, then reports end-of-input.
@@ -44,6 +64,7 @@ struct RecordingSink
         int sliceIndex;
         double rangeLow;
         double rangeHigh;
+        ColourMapType colourMap;
     };
 
     std::vector<Frame> frames;
@@ -54,14 +75,15 @@ struct RecordingSink
         if (failAtCall >= 0 && static_cast<int>(frames.size()) == failAtCall)
             return false;
         frames.push_back({state.axis(), state.sliceIndex(),
-                          state.rangeLow(), state.rangeHigh()});
+                          state.display(0).rangeLow, state.display(0).rangeHigh,
+                          state.display(0).colourMap});
         return true;
     }
 };
 
 ViewState makeState()
 {
-    return ViewState(kDims, 'z', 48, 0.0, 100.0);
+    return makeViewState(kDims, 'z', 48, 0.0, 100.0);
 }
 
 /// The user must see the slice they asked for before pressing anything.
@@ -121,7 +143,7 @@ void testOnlyChangingKeysRepaint()
 /// 'j' at the top of a stack is free rather than a redraw storm.
 void testClampedNavigationDoesNotRepaint()
 {
-    ViewState state(kDims, 'z', 95, 0.0, 100.0);
+    ViewState state = makeViewState(kDims, 'z', 95, 0.0, 100.0);
     ScriptedKeys keys{"jjj"};
     RecordingSink sink;
 
@@ -143,16 +165,18 @@ void testFramesFollowTheKeySequence()
     assert(sink.frames[3].axis == 'x' && sink.frames[3].sliceIndex == 31);
 }
 
-void testWindowKeysReachTheSink()
+/// A display change repaints just like a navigation change: the loop must
+/// not treat "the cursor did not move" as "nothing to redraw".
+void testDisplayKeysReachTheSink()
 {
     ViewState state = makeState();
-    ScriptedKeys keys{"+"};
+    ScriptedKeys keys{"c"};
     RecordingSink sink;
 
     assert(runSession(state, std::ref(keys), std::ref(sink)) == 0);
     assert(sink.frames.size() == 2);
-    assert(sink.frames[1].rangeHigh > sink.frames[0].rangeHigh);
-    assert(sink.frames[1].rangeLow < sink.frames[0].rangeLow);
+    assert(sink.frames[1].sliceIndex == sink.frames[0].sliceIndex);
+    assert(sink.frames[1].colourMap != sink.frames[0].colourMap);
 }
 
 /// A sink that cannot draw ends the session non-zero and stops immediately;
@@ -191,7 +215,7 @@ int main()
     testOnlyChangingKeysRepaint();
     testClampedNavigationDoesNotRepaint();
     testFramesFollowTheKeySequence();
-    testWindowKeysReachTheSink();
+    testDisplayKeysReachTheSink();
     testFailedFrameEndsTheSessionNonZero();
     testFailedInitialFrameReadsNoKeys();
 

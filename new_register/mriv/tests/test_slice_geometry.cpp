@@ -25,6 +25,19 @@ void testAxisToViewIndex()
     assert(!viewIndexForAxis('\0').has_value());
 }
 
+/// The reverse of viewIndexForAxis(), for reporting the active plane back
+/// to the user and for falling back to a displayed view when the requested
+/// --axis is not one of them.
+void testAxisForViewIndex()
+{
+    assert(axisForViewIndex(0) == 'z');
+    assert(axisForViewIndex(1) == 'x');
+    assert(axisForViewIndex(2) == 'y');
+    // Round trip through both directions.
+    for (char axis : {'x', 'y', 'z'})
+        assert(axisForViewIndex(viewIndexForAxis(axis).value()) == axis);
+}
+
 /// The number of slices along the axis a given view slices through.
 /// Pinned here because a wrong entry silently truncates the navigable
 /// range instead of failing: viewIndex 0 (axial) walks Z, 1 (sagittal)
@@ -124,6 +137,7 @@ int main(int argc, char** argv)
     assert(path && "MRIV_THICK_SLICES_FIXTURE must point to mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc");
 
     testAxisToViewIndex();
+    testAxisForViewIndex();
     testSliceCountForView();
     testMapSliceIndexIsIdentityForEqualCounts();
     testMapSliceIndexScalesProportionally();

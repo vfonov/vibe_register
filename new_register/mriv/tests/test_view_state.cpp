@@ -1,12 +1,12 @@
-/// test_view_state.cpp — the interactive mode's key handling, in isolation.
+/// test_view_state.cpp — the interactive session's model.
 ///
-/// ViewState is deliberately free of notcurses, Volume and IO so that all of
-/// M5's navigation logic is testable on a host with no TTY and no pixel
-/// protocol (mriv/HANDOFF.md sec 3.9). Everything asserted here is behaviour
-/// a user can observe by pressing a key; the untestable part is confined to
-/// interactive/Screen.
+/// ViewState is where every interactive decision lives, precisely because
+/// the display glue around it cannot be tested on a host with no TTY and no
+/// pixel protocol (mriv/HANDOFF.md sec 3.9). Anything asserted here is
+/// behaviour that would otherwise only be checkable by eye.
 
 #include <cassert>
+#include <vector>
 
 #include "interactive/ViewState.hpp"
 
@@ -15,180 +15,264 @@ using namespace mriv::term;
 namespace
 {
 
-// The thick-slices fixture's shape, reused here purely because its three
-// dimensions are all different -- a state machine that confuses X, Y and Z
-// cannot hide behind a cube.
-const glm::ivec3 kDims{64, 229, 96};
-
-ViewState makeState(char axis = 'z')
+std::vector<VolumeDisplay> displaysFor(size_t count)
 {
-    return ViewState(kDims, axis, sliceCountForView(*viewIndexForAxis(axis), kDims) / 2, 0.0, 100.0);
+    std::vector<VolumeDisplay> displays(count);
+    for (auto& display : displays)
+    {
+        display.rangeLow  = 0.0;
+        display.rangeHigh = 100.0;
+    }
+    return displays;
 }
 
-/// The displayed slice index is the cursor component belonging to the
-/// current axis, so the same cursor shows a different index per axis.
-void testSliceIndexFollowsAxis()
+/// One volume, all three planes, cursor at the centre.
+ViewState makeState(const glm::ivec3& dims = glm::ivec3(64, 128, 96),
+                    char axis = 'z')
 {
-    ViewState state = makeState('z');
-    assert(state.sliceCount() == 96);
-    assert(state.sliceIndex() == 48);
-
-    assert(state.handleKey('x') == KeyResult::Changed);
-    assert(state.sliceCount() == 64);
-    assert(state.sliceIndex() == 32);
-
-    assert(state.handleKey('y') == KeyResult::Changed);
-    assert(state.sliceCount() == 229);
-    assert(state.sliceIndex() == 114);
+    glm::ivec3 cursor(dims.x / 2, dims.y / 2, dims.z / 2);
+    return ViewState({dims}, {0, 1, 2}, axis, cursor, displaysFor(1));
 }
 
-void testJAndKMoveOneSlice()
+/// Two volumes of different depth, to pin the synchronised cursor.
+ViewState makeTwoVolumeState()
 {
-    ViewState state = makeState('z');
+    glm::ivec3 first(64, 128, 96);
+    glm::ivec3 second(64, 128, 48);
+    glm::ivec3 cursor(32, 64, 48);
+    return ViewState({first, second}, {0, 1, 2}, 'z', cursor, displaysFor(2));
+}
 
+void testViewsAndVolumeCount()
+{
+    auto state = makeState();
+    assert(state.views().size() == 3);
+    assert(state.volumeCount() == 1);
+    assert(state.activeVolume() == 0);
+    assert(state.axis() == 'z');
+    assert(state.viewIndex() == 0);
+}
+
+/// The active axis decides what j/k moves; every displayed view still has
+/// its own position, taken from the shared 3D cursor.
+void testEachViewKeepsItsOwnSlice()
+{
+    auto state = makeState();
+    assert(state.sliceIndexFor(0, 0) == 48); // axial   -> Z
+    assert(state.sliceIndexFor(0, 1) == 32); // sagittal-> X
+    assert(state.sliceIndexFor(0, 2) == 64); // coronal -> Y
+}
+
+void testJAndKMoveTheActiveAxisOnly()
+{
+    auto state = makeState();
     assert(state.handleKey('j') == KeyResult::Changed);
-    assert(state.sliceIndex() == 49);
-    assert(state.handleKey('j') == KeyResult::Changed);
-    assert(state.sliceIndex() == 50);
+    assert(state.sliceIndexFor(0, 0) == 49);
+    assert(state.sliceIndexFor(0, 1) == 32);
+    assert(state.sliceIndexFor(0, 2) == 64);
+
     assert(state.handleKey('k') == KeyResult::Changed);
-    assert(state.sliceIndex() == 49);
+    assert(state.sliceIndexFor(0, 0) == 48);
 }
 
-/// At either end of the volume the key is a no-op, and reports Ignored so
-/// the caller does not repaint an identical frame.
 void testSliceNavigationClampsAtBothEnds()
 {
-    ViewState top(kDims, 'z', 95, 0.0, 100.0);
-    assert(top.sliceIndex() == 95);
-    assert(top.handleKey('j') == KeyResult::Ignored);
-    assert(top.sliceIndex() == 95);
+    auto state = makeState(glm::ivec3(4, 4, 4));
+    for (int i = 0; i < 10; ++i)
+        state.handleKey('j');
+    assert(state.sliceIndex() == 3);
+    assert(state.handleKey('j') == KeyResult::Ignored);
 
-    ViewState bottom(kDims, 'z', 0, 0.0, 100.0);
-    assert(bottom.handleKey('k') == KeyResult::Ignored);
-    assert(bottom.sliceIndex() == 0);
+    for (int i = 0; i < 10; ++i)
+        state.handleKey('k');
+    assert(state.sliceIndex() == 0);
+    assert(state.handleKey('k') == KeyResult::Ignored);
 }
 
-void testConstructorClampsSliceIndex()
-{
-    ViewState high(kDims, 'z', 9999, 0.0, 100.0);
-    assert(high.sliceIndex() == 95);
-
-    ViewState low(kDims, 'z', -5, 0.0, 100.0);
-    assert(low.sliceIndex() == 0);
-}
-
-/// Axis switching moves a 3D cursor rather than rescaling one index, so
-/// leaving an axis and coming back lands exactly where you left it. The
-/// axes are geometrically independent -- there is no meaningful way to map
-/// "60% along Z" onto X -- which is why each axis keeps its own position.
+/// Leaving an axis and coming back lands exactly where it was left: the
+/// three axes are geometrically independent, so there is no meaningful way
+/// to carry a position from one to another.
 void testAxisSwitchIsLosslessRoundTrip()
 {
-    ViewState state = makeState('z');
+    auto state = makeState();
     state.handleKey('j');
     state.handleKey('j');
-    state.handleKey('j');
-    assert(state.sliceIndex() == 51);
+    int axialSlice = state.sliceIndex();
 
     assert(state.handleKey('x') == KeyResult::Changed);
-    assert(state.sliceIndex() == 32);
+    assert(state.axis() == 'x');
+    assert(state.viewIndex() == 1);
     state.handleKey('j');
-    assert(state.sliceIndex() == 33);
 
     assert(state.handleKey('z') == KeyResult::Changed);
-    assert(state.axis() == 'z');
-    assert(state.sliceIndex() == 51);
-
-    assert(state.handleKey('x') == KeyResult::Changed);
-    assert(state.sliceIndex() == 33);
+    assert(state.sliceIndex() == axialSlice);
 }
 
 void testReselectingTheCurrentAxisIsIgnored()
 {
-    ViewState state = makeState('z');
+    auto state = makeState();
     assert(state.handleKey('z') == KeyResult::Ignored);
+}
+
+/// An axis whose view is not on screen cannot be made active: pressing it
+/// would silently move a slice the user cannot see.
+void testAxisNotDisplayedIsIgnored()
+{
+    ViewState state({glm::ivec3(64, 128, 96)}, {0}, 'z', glm::ivec3(32, 64, 48),
+                    displaysFor(1));
+    assert(state.handleKey('x') == KeyResult::Ignored);
     assert(state.axis() == 'z');
-    assert(state.sliceIndex() == 48);
 }
 
-/// '+' widens the intensity window (less contrast), '-' narrows it (more
-/// contrast), both about the window's centre so the displayed midtone does
-/// not drift as the user adjusts it.
-void testWindowKeysScaleTheRangeAboutItsCentre()
+/// If --axis names a plane --views does not show, the active axis falls
+/// back to the first displayed view rather than being stranded off screen.
+void testActiveAxisFallsBackToADisplayedView()
 {
-    ViewState state(kDims, 'z', 0, 100.0, 200.0);
-
-    assert(state.handleKey('+') == KeyResult::Changed);
-    assert(state.rangeLow() < 100.0 && state.rangeHigh() > 200.0);
-    double centre = (state.rangeLow() + state.rangeHigh()) / 2.0;
-    assert(centre > 149.999 && centre < 150.001);
-    double widened = state.rangeHigh() - state.rangeLow();
-    assert(widened > 100.0);
-
-    assert(state.handleKey('-') == KeyResult::Changed);
-    double restored = state.rangeHigh() - state.rangeLow();
-    assert(restored > 99.999 && restored < 100.001);
-    centre = (state.rangeLow() + state.rangeHigh()) / 2.0;
-    assert(centre > 149.999 && centre < 150.001);
+    ViewState state({glm::ivec3(64, 128, 96)}, {2}, 'z', glm::ivec3(32, 64, 48),
+                    displaysFor(1));
+    assert(state.viewIndex() == 2);
+    assert(state.axis() == 'y');
 }
 
-/// Scaling is multiplicative, so a window can be narrowed indefinitely
-/// without ever collapsing to zero width or inverting.
-void testNarrowingNeverInvertsTheWindow()
+/// Every column moves together. Volume 1 has half the slices of volume 0,
+/// so it tracks proportionally rather than stalling or running off the end.
+void testSliceNavigationIsSynchronisedAcrossVolumes()
 {
-    ViewState state(kDims, 'z', 0, 0.0, 1.0);
-    for (int i = 0; i < 200; ++i)
-        state.handleKey('-');
-    assert(state.rangeLow() < state.rangeHigh());
+    auto state = makeTwoVolumeState();
+    assert(state.sliceIndexFor(0, 0) == 48);
+    assert(state.sliceIndexFor(1, 0) == mapSliceIndex(48, 96, 48));
+
+    state.handleKey('j');
+    assert(state.sliceIndexFor(0, 0) == 49);
+    assert(state.sliceIndexFor(1, 0) == mapSliceIndex(49, 96, 48));
+
+    // The axes the volumes share exactly stay index-for-index equal.
+    assert(state.sliceIndexFor(0, 1) == state.sliceIndexFor(1, 1));
+    assert(state.sliceIndexFor(0, 2) == state.sliceIndexFor(1, 2));
 }
 
-/// A volume whose auto-window quantiles coincide (a constant image) has no
-/// window to scale; the keys report Ignored rather than producing an
-/// inverted or NaN range.
-void testWindowKeysOnADegenerateRangeAreIgnored()
+/// The slice count reported for navigation is the first volume's -- that is
+/// the space the shared cursor lives in.
+void testSliceCountComesFromTheFirstVolume()
 {
-    ViewState state(kDims, 'z', 0, 7.0, 7.0);
-    assert(state.handleKey('+') == KeyResult::Ignored);
-    assert(state.handleKey('-') == KeyResult::Ignored);
-    assert(state.rangeLow() == 7.0 && state.rangeHigh() == 7.0);
+    auto state = makeTwoVolumeState();
+    assert(state.sliceCount() == 96);
+    assert(state.sliceCountFor(1, 0) == 48);
+}
+
+void testTabCyclesTheActiveVolume()
+{
+    auto state = makeTwoVolumeState();
+    assert(state.activeVolume() == 0);
+    assert(state.handleKey('\t') == KeyResult::Changed);
+    assert(state.activeVolume() == 1);
+    assert(state.handleKey('\t') == KeyResult::Changed);
+    assert(state.activeVolume() == 0);
+}
+
+/// With one volume there is nothing to switch to, so Tab changes nothing
+/// and must not ask for a repaint.
+void testTabWithOneVolumeIsIgnored()
+{
+    auto state = makeState();
+    assert(state.handleKey('\t') == KeyResult::Ignored);
+}
+
+void testDigitsSelectAVolumeDirectly()
+{
+    auto state = makeTwoVolumeState();
+    assert(state.handleKey('2') == KeyResult::Changed);
+    assert(state.activeVolume() == 1);
+    assert(state.handleKey('1') == KeyResult::Changed);
+    assert(state.activeVolume() == 0);
+    // Already selected, and out of range.
+    assert(state.handleKey('1') == KeyResult::Ignored);
+    assert(state.handleKey('3') == KeyResult::Ignored);
+    assert(state.activeVolume() == 0);
+}
+
+/// 'c' recolours only the active column: the whole point of separate
+/// colour maps is telling two volumes apart.
+void testColourMapCyclesOnTheActiveVolumeOnly()
+{
+    auto state = makeTwoVolumeState();
+    ColourMapType firstBefore  = state.display(0).colourMap;
+    ColourMapType secondBefore = state.display(1).colourMap;
+
+    assert(state.handleKey('c') == KeyResult::Changed);
+    assert(state.display(0).colourMap != firstBefore);
+    assert(state.display(1).colourMap == secondBefore);
+
+    // Back where it started.
+    assert(state.handleKey('C') == KeyResult::Changed);
+    assert(state.display(0).colourMap == firstBefore);
+}
+
+/// Cycling wraps in both directions rather than stopping at the ends.
+void testColourMapCycleWraps()
+{
+    auto state = makeState();
+    ColourMapType start = state.display(0).colourMap;
+    for (int i = 0; i < colourMapCount(); ++i)
+        state.handleKey('c');
+    assert(state.display(0).colourMap == start);
+
+    state.handleKey('C');
+    assert(state.display(0).colourMap
+           == static_cast<ColourMapType>(colourMapCount() - 1));
 }
 
 void testQuitAndUnknownKeys()
 {
-    ViewState state = makeState('z');
+    auto state = makeState();
     assert(state.handleKey('q') == KeyResult::Quit);
-
-    // No 'h'/'l': there is no time axis to navigate (PLAN.md, deferred work).
-    assert(state.handleKey('h') == KeyResult::Ignored);
-    assert(state.handleKey('l') == KeyResult::Ignored);
+    assert(state.handleKey('\x1b') == KeyResult::Quit);
     assert(state.handleKey('Z') == KeyResult::Ignored);
     assert(state.handleKey('\0') == KeyResult::Ignored);
+    // The window keys are gone: ranges are typed in, not scaled.
+    assert(state.handleKey('+') == KeyResult::Ignored);
+    assert(state.handleKey('-') == KeyResult::Ignored);
 }
 
-/// A degenerate single-slice axis must not let navigation escape the volume.
-void testSingleSliceAxis()
+void testSingleSliceAxisCannotMove()
 {
-    ViewState state(glm::ivec3{1, 1, 1}, 'z', 0, 0.0, 1.0);
+    auto state = makeState(glm::ivec3(4, 4, 1));
     assert(state.sliceCount() == 1);
     assert(state.handleKey('j') == KeyResult::Ignored);
     assert(state.handleKey('k') == KeyResult::Ignored);
     assert(state.sliceIndex() == 0);
 }
 
+void testConstructorClampsTheCursor()
+{
+    glm::ivec3 dims(4, 4, 4);
+    ViewState state({dims}, {0, 1, 2}, 'z', glm::ivec3(99, -3, 99), displaysFor(1));
+    assert(state.sliceIndexFor(0, 0) == 3);
+    assert(state.sliceIndexFor(0, 1) == 3);
+    assert(state.sliceIndexFor(0, 2) == 0);
+}
+
 } // namespace
 
 int main()
 {
-    testSliceIndexFollowsAxis();
-    testJAndKMoveOneSlice();
+    testViewsAndVolumeCount();
+    testEachViewKeepsItsOwnSlice();
+    testJAndKMoveTheActiveAxisOnly();
     testSliceNavigationClampsAtBothEnds();
-    testConstructorClampsSliceIndex();
     testAxisSwitchIsLosslessRoundTrip();
     testReselectingTheCurrentAxisIsIgnored();
-    testWindowKeysScaleTheRangeAboutItsCentre();
-    testNarrowingNeverInvertsTheWindow();
-    testWindowKeysOnADegenerateRangeAreIgnored();
+    testAxisNotDisplayedIsIgnored();
+    testActiveAxisFallsBackToADisplayedView();
+    testSliceNavigationIsSynchronisedAcrossVolumes();
+    testSliceCountComesFromTheFirstVolume();
+    testTabCyclesTheActiveVolume();
+    testTabWithOneVolumeIsIgnored();
+    testDigitsSelectAVolumeDirectly();
+    testColourMapCyclesOnTheActiveVolumeOnly();
+    testColourMapCycleWraps();
     testQuitAndUnknownKeys();
-    testSingleSliceAxis();
-
+    testSingleSliceAxisCannotMove();
+    testConstructorClampsTheCursor();
     return 0;
 }

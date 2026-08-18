@@ -204,11 +204,21 @@ int runInteractive(const Options& options, std::ostream& err)
     base.scale = options.scale;
 
     int viewIndex = viewIndexForAxis(options.axis).value_or(0);
-    ViewState state(vol.dimensions,
-                    options.axis,
-                    resolveStartSlice(options, vol, viewIndex),
-                    base.valueMin,
-                    base.valueMax);
+    glm::ivec3 cursor(vol.dimensions.x / 2, vol.dimensions.y / 2, vol.dimensions.z / 2);
+    switch (viewIndex)
+    {
+        case 1:  cursor.x = resolveStartSlice(options, vol, viewIndex); break;
+        case 2:  cursor.y = resolveStartSlice(options, vol, viewIndex); break;
+        default: cursor.z = resolveStartSlice(options, vol, viewIndex); break;
+    }
+
+    VolumeDisplay display;
+    display.rangeLow        = base.valueMin;
+    display.rangeHigh       = base.valueMax;
+    display.colourMap       = base.colourMap;
+    display.invertColourMap = base.invertColourMap;
+
+    ViewState state({vol.dimensions}, options.views, options.axis, cursor, {display});
 
     // Anything printed while the alternate screen is up is wiped when the
     // terminal is restored, so a diagnostic has to wait for Screen to be
@@ -240,8 +250,8 @@ int runInteractive(const Options& options, std::ostream& err)
                 SliceRequest request = base;
                 request.viewIndex  = current.viewIndex();
                 request.sliceIndex = current.sliceIndex();
-                request.valueMin   = current.rangeLow();
-                request.valueMax   = current.rangeHigh();
+                request.valueMin   = current.display(0).rangeLow;
+                request.valueMax   = current.display(0).rangeHigh;
                 request.maxWidth   = maxW;
                 request.maxHeight  = maxH;
 

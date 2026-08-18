@@ -1,8 +1,12 @@
 #pragma once
 
+#include <vector>
+
 #include <glm/glm.hpp>
 
 #include "render/SliceGeometry.hpp"
+
+#include "ColourMap.h"
 
 namespace mriv::term
 {
@@ -11,8 +15,8 @@ namespace mriv::term
 enum class KeyResult
 {
     /// The key is not bound, or it asked for something already true (the
-    /// current axis, a slice past either end). Nothing changed; do not
-    /// repaint.
+    /// current axis, a slice past either end, a volume already active).
+    /// Nothing changed; do not repaint.
     Ignored,
     /// State changed; the caller should render a new frame.
     Changed,
@@ -20,58 +24,93 @@ enum class KeyResult
     Quit,
 };
 
-/// The interactive session's model: where we are in the volume and how the
-/// intensities are mapped. Deliberately free of notcurses, Volume and IO --
-/// this is the part of M5 that can be tested without a TTY, so as much of
-/// the behaviour as possible lives here rather than in the render loop.
+/// How one volume's intensities are mapped. Per volume, not per session:
+/// the reason to put two volumes side by side is usually that they need
+/// different ranges and different colour maps.
+struct VolumeDisplay
+{
+    double rangeLow = 0.0;
+    double rangeHigh = 1.0;
+    ColourMapType colourMap = ColourMapType::GrayScale;
+    bool invertColourMap = false;
+};
+
+/// The interactive session's model: where the cursor is in the volumes and
+/// how each one's intensities are mapped. Deliberately free of notcurses,
+/// Volume and IO -- this is the part that can be tested without a TTY, so
+/// as much behaviour as possible lives here rather than in the render loop
+/// (mriv/HANDOFF.md sec 3.9).
 ///
-/// Position is a 3D voxel cursor rather than one index per view. The three
-/// axes are geometrically independent -- there is no meaningful mapping
-/// from "60% along Z" onto X -- so each keeps its own position and leaving
-/// an axis and returning to it lands exactly where you left off.
+/// Position is a single 3D voxel cursor, held in the *first* volume's index
+/// space and mapped onto the others by mapSliceIndex(). One cursor is what
+/// makes navigation synchronised: j/k moves every column at once, which is
+/// the point of showing them side by side. Each axis keeps its own
+/// component, so leaving an axis and returning to it lands exactly where it
+/// was left -- the three are geometrically independent and there is no
+/// meaningful way to carry a position between them.
 class ViewState
 {
 public:
-    /// `sliceIndex` positions the cursor along `axis` only; the other two
-    /// axes start at their midpoint, matching the CLI's default --slice.
-    /// Out-of-range values are clamped rather than rejected.
-    ViewState(const glm::ivec3& dimensions,
+    /// `dimensions` has one entry per volume, in column order; `views` is
+    /// the list of viewIndex values to display, in row order; `cursor` is a
+    /// voxel position in the first volume, clamped on entry; `displays` has
+    /// one entry per volume.
+    ///
+    /// `axis` is the axis j/k moves. If its view is not among `views` it
+    /// falls back to the first displayed view, rather than leaving the
+    /// user moving a slice they cannot see.
+    ViewState(std::vector<glm::ivec3> dimensions,
+              std::vector<int> views,
               char axis,
-              int sliceIndex,
-              double rangeLow,
-              double rangeHigh);
+              const glm::ivec3& cursor,
+              std::vector<VolumeDisplay> displays);
 
-    /// Apply one keypress: j/k slice, x/y/z axis, +/- window, q quit.
-    /// There is no h/l -- the parent has no time dimension (PLAN.md,
-    /// deferred work).
+    /// Apply one keypress: j/k slice, x/y/z axis, Tab and 1-9 active
+    /// volume, c/C colour map, q or Esc quit. There is no h/l -- the parent
+    /// has no time dimension (PLAN.md, deferred work).
     KeyResult handleKey(char key);
 
     char axis() const { return axis_; }
+
+    /// The viewIndex of the active axis -- what j/k moves, not the only
+    /// thing on screen.
     int viewIndex() const { return viewIndex_; }
 
-    /// The cursor's position along the current axis, and the number of
-    /// slices available there.
+    /// The displayed views, in row order.
+    const std::vector<int>& views() const { return views_; }
+
+    int volumeCount() const { return static_cast<int>(dimensions_.size()); }
+    int activeVolume() const { return activeVolume_; }
+
+    /// The slice `volume` shows for `viewIndex`, and how many it has there.
+    int sliceIndexFor(int volume, int viewIndex) const;
+    int sliceCountFor(int volume, int viewIndex) const;
+
+    /// The cursor's position along the active axis in the first volume --
+    /// the index space navigation happens in.
     int sliceIndex() const;
     int sliceCount() const;
 
-    double rangeLow() const { return rangeLow_; }
-    double rangeHigh() const { return rangeHigh_; }
+    const VolumeDisplay& display(int volume) const;
 
 private:
-    /// The cursor component the current axis navigates.
-    int& currentSlice();
-    const int& currentSlice() const;
+    int& cursorComponent(int viewIndex);
+    const int& cursorComponent(int viewIndex) const;
+
+    bool isDisplayed(int viewIndex) const;
 
     KeyResult moveSlice(int delta);
     KeyResult selectAxis(char axis);
-    KeyResult scaleWindow(double factor);
+    KeyResult selectVolume(int volume);
+    KeyResult cycleColourMap(int delta);
 
-    glm::ivec3 dimensions_;
+    std::vector<glm::ivec3> dimensions_;
+    std::vector<int> views_;
+    std::vector<VolumeDisplay> displays_;
     glm::ivec3 cursor_;
     char axis_;
     int viewIndex_;
-    double rangeLow_;
-    double rangeHigh_;
+    int activeVolume_ = 0;
 };
 
 } // namespace mriv::term

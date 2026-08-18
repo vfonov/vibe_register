@@ -40,8 +40,8 @@ std::string formatStatusLine(const ViewState& state, const std::string& path)
         // position indicator should say, even though renderSlice() takes a
         // 0-based index.
         << "  slice " << (state.sliceIndex() + 1) << "/" << state.sliceCount()
-        << "  range " << formatValue(state.rangeLow())
-        << " to " << formatValue(state.rangeHigh())
+        << "  range " << formatValue(state.display(state.activeVolume()).rangeLow)
+        << " to " << formatValue(state.display(state.activeVolume()).rangeHigh)
         << "  |  j/k slice  x/y/z axis  +/- window  q quit";
     return out.str();
 }

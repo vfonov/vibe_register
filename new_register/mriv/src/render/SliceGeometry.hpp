@@ -13,6 +13,10 @@ namespace mriv::term
 /// error instead of silently defaulting.
 std::optional<int> viewIndexForAxis(char axis);
 
+/// The inverse of viewIndexForAxis(). Anything outside [0,2] falls back to
+/// 'z', matching the other tables' treatment of an out-of-range viewIndex.
+char axisForViewIndex(int viewIndex);
+
 /// The number of slices available along the axis a given view slices
 /// through: viewIndex 0 (axial) walks Z, 1 (sagittal) walks X, 2
 /// (coronal) walks Y. Anything else falls back to Z, matching
