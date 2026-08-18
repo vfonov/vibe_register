@@ -25,6 +25,18 @@ void testAxisToViewIndex()
     assert(!viewIndexForAxis('\0').has_value());
 }
 
+/// The number of slices along the axis a given view slices through.
+/// Pinned here because a wrong entry silently truncates the navigable
+/// range instead of failing: viewIndex 0 (axial) walks Z, 1 (sagittal)
+/// walks X, 2 (coronal) walks Y.
+void testSliceCountForView()
+{
+    glm::ivec3 dims{64, 229, 96};
+    assert(sliceCountForView(0, dims) == 96);
+    assert(sliceCountForView(1, dims) == 64);
+    assert(sliceCountForView(2, dims) == 229);
+}
+
 void testAspectAxesTable()
 {
     auto axial = aspectAxesForView(0);
@@ -70,6 +82,7 @@ int main(int argc, char** argv)
     assert(path && "MRIV_THICK_SLICES_FIXTURE must point to mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc");
 
     testAxisToViewIndex();
+    testSliceCountForView();
     testAspectAxesTable();
     testAspectAxesAgainstThickSlicesVolume(path);
 

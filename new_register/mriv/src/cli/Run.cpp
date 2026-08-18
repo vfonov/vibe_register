@@ -103,9 +103,7 @@ bool renderAndBlitVolume(const Volume& vol,
     int viewIndex = *viewIndexOpt;
     log("axis='" + std::string(1, options.axis) + "' -> viewIndex=" + std::to_string(viewIndex));
 
-    int dimAlongAxis = viewIndex == 0 ? vol.dimensions.z
-                       : viewIndex == 1 ? vol.dimensions.x
-                                        : vol.dimensions.y;
+    int dimAlongAxis = sliceCountForView(viewIndex, vol.dimensions);
     log("dimAlongAxis=" + std::to_string(dimAlongAxis));
 
     auto sliceSelection = parseSliceArg(options.sliceArg);

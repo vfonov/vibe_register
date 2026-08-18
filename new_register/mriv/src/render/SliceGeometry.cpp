@@ -14,6 +14,16 @@ std::optional<int> viewIndexForAxis(char axis)
     }
 }
 
+int sliceCountForView(int viewIndex, const glm::ivec3& dimensions)
+{
+    switch (viewIndex)
+    {
+        case 1:  return dimensions.x;
+        case 2:  return dimensions.y;
+        default: return dimensions.z;
+    }
+}
+
 AspectAxes aspectAxesForView(int viewIndex)
 {
     switch (viewIndex)
