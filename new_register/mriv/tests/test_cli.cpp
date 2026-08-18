@@ -75,12 +75,21 @@ void testNoFilesFails()
 
 void testMissingFileFails()
 {
+    // Forces the test-mode terminal so this exercises what it means to --
+    // file handling -- rather than the host terminal's pixel support. The
+    // pixel-protocol check runs before any load, so without this the result
+    // depended on whether the developer's terminal happened to support
+    // pixels: no-pixel hosts never reached the load at all.
+    setenv("MRIV_TEST_RENDER", "1", 1);
+
     std::istringstream in;
     std::ostringstream out, err;
     int rc = run(Args{"mriv", "/does/not/exist.mnc"}.argc(),
                  Args{"mriv", "/does/not/exist.mnc"}.data(), in, out, err);
     assert(rc != 0);
     assert(err.str().find("failed to load") != std::string::npos);
+
+    unsetenv("MRIV_TEST_RENDER");
 }
 
 void testInfoProducesNoImageEvents(const char* fixturePath)
@@ -217,13 +226,196 @@ void testAxisChangesImage(const char* fixturePath)
     unsetenv("MRIV_TEST_RENDER");
 }
 
+void testMultipleFilesProduceLabelledStripInOrder(const char* fixtureA, const char* fixtureB)
+{
+    // M4: multiple positional files render as a strip -- one Kitty image
+    // per file, each captioned with its path, in argument order.
+    //
+    // Two *different* fixtures matter here: passing the same file N times
+    // makes every payload identical, so the test could only count images
+    // and would sail through a reordering or a dropped file. Ordering is
+    // asserted via the captions, which the escape parser surfaces as Text
+    // events interleaved with the images.
+    setenv("MRIV_TEST_RENDER", "1", 1);
+
+    std::istringstream in;
+    std::ostringstream out, err;
+    int rc = run(Args{"mriv", fixtureA, fixtureB, fixtureA}.argc(),
+                 Args{"mriv", fixtureA, fixtureB, fixtureA}.data(), in, out, err);
+    assert(rc == 0);
+
+    auto events = parseEscapeStream(out.str());
+
+    // Expect strictly alternating caption/image pairs, three of each.
+    std::vector<std::string> captions;
+    int imageCount = 0;
+    for (const auto& e : events)
+    {
+        if (e.kind == EventKind::Text)
+        {
+            // A caption must always precede its image.
+            assert(captions.size() == static_cast<std::size_t>(imageCount));
+            captions.push_back(e.payload);
+        }
+        else if (e.kind == EventKind::KittyGraphics)
+        {
+            ++imageCount;
+            assert(captions.size() == static_cast<std::size_t>(imageCount));
+        }
+    }
+    assert(imageCount == 3);
+    assert(captions.size() == 3);
+
+    assert(captions[0].find(fixtureA) != std::string::npos);
+    assert(captions[1].find(fixtureB) != std::string::npos);
+    assert(captions[2].find(fixtureA) != std::string::npos);
+
+    unsetenv("MRIV_TEST_RENDER");
+}
+
+void testSingleFileIsNotLabelled(const char* fixturePath)
+{
+    // A one-file run stays pure image bytes: no caption, nothing but the
+    // image. This is the "cat for medical images" case.
+    setenv("MRIV_TEST_RENDER", "1", 1);
+
+    std::istringstream in;
+    std::ostringstream out, err;
+    int rc = run(Args{"mriv", fixturePath}.argc(),
+                 Args{"mriv", fixturePath}.data(), in, out, err);
+    assert(rc == 0);
+
+    auto events = parseEscapeStream(out.str());
+    assert(events.size() == 1);
+    assert(events[0].kind == EventKind::KittyGraphics);
+
+    unsetenv("MRIV_TEST_RENDER");
+}
+
+void testMultipleFilesInfoPrintsEachInOrder(const char* fixtureA, const char* fixtureB)
+{
+    // --info with multiple files prints metadata for each, in argument
+    // order, and still emits no image events. formatVolumeInfo() heads each
+    // block with "=== <path> ===", which is what makes order checkable.
+    std::istringstream in;
+    std::ostringstream out, err;
+    int rc = run(Args{"mriv", "--info", fixtureA, fixtureB}.argc(),
+                 Args{"mriv", "--info", fixtureA, fixtureB}.data(), in, out, err);
+    assert(rc == 0);
+
+    const std::string& text = out.str();
+    std::size_t posA = text.find(fixtureA);
+    std::size_t posB = text.find(fixtureB);
+    assert(posA != std::string::npos);
+    assert(posB != std::string::npos);
+    assert(posA < posB);
+
+    std::size_t firstDims = text.find("dimensions:");
+    assert(firstDims != std::string::npos);
+    assert(text.find("dimensions:", firstDims + 1) != std::string::npos);
+
+    auto events = parseEscapeStream(text);
+    for (const auto& e : events)
+        assert(e.kind != EventKind::KittyGraphics);
+}
+
+void testOneMissingFileIsSkippedNotFatal(const char* fixturePath)
+{
+    // A bad path in a glob must not cost the user the rest of the strip:
+    // warn about the file that failed, render the ones that loaded, and
+    // exit 0 because something was actually drawn.
+    setenv("MRIV_TEST_RENDER", "1", 1);
+
+    std::istringstream in;
+    std::ostringstream out, err;
+    int rc = run(Args{"mriv", fixturePath, "/does/not/exist.mnc"}.argc(),
+                 Args{"mriv", fixturePath, "/does/not/exist.mnc"}.data(), in, out, err);
+    assert(rc == 0);
+    assert(err.str().find("failed to load") != std::string::npos);
+
+    auto events = parseEscapeStream(out.str());
+    int imageCount = 0;
+    for (const auto& e : events)
+        if (e.kind == EventKind::KittyGraphics)
+            ++imageCount;
+    assert(imageCount == 1);
+
+    unsetenv("MRIV_TEST_RENDER");
+}
+
+void testAllFilesMissingFails()
+{
+    // ...but a run that renders nothing at all is still an error.
+    setenv("MRIV_TEST_RENDER", "1", 1);
+
+    std::istringstream in;
+    std::ostringstream out, err;
+    int rc = run(Args{"mriv", "/does/not/exist.mnc", "/also/missing.mnc"}.argc(),
+                 Args{"mriv", "/does/not/exist.mnc", "/also/missing.mnc"}.data(), in, out, err);
+    assert(rc != 0);
+
+    auto events = parseEscapeStream(out.str());
+    for (const auto& e : events)
+        assert(e.kind != EventKind::KittyGraphics);
+
+    unsetenv("MRIV_TEST_RENDER");
+}
+
+void testNoPixelSupportReportsOnceForStrip(const char* fixtureA, const char* fixtureB)
+{
+    // The no-pixel message is a fact about the terminal, not about each
+    // file: an N-file strip must produce exactly one of them (it used to
+    // produce N, each after a wasted volume load), and no images.
+    setenv("MRIV_TEST_RENDER", "none", 1);
+
+    std::istringstream in;
+    std::ostringstream out, err;
+    int rc = run(Args{"mriv", fixtureA, fixtureB, fixtureA}.argc(),
+                 Args{"mriv", fixtureA, fixtureB, fixtureA}.data(), in, out, err);
+    assert(rc == 0); // no --require-pixels: not an error, just nothing drawn
+
+    const std::string& e = err.str();
+    std::size_t first = e.find("no pixel graphics protocol");
+    assert(first != std::string::npos);
+    assert(e.find("no pixel graphics protocol", first + 1) == std::string::npos);
+
+    auto events = parseEscapeStream(out.str());
+    for (const auto& ev : events)
+        assert(ev.kind != EventKind::KittyGraphics);
+
+    unsetenv("MRIV_TEST_RENDER");
+}
+
+void testRequirePixelsExitsNonZeroWithoutPixelSupport(const char* fixturePath)
+{
+    setenv("MRIV_TEST_RENDER", "none", 1);
+
+    std::istringstream in;
+    std::ostringstream out, err;
+    int rc = run(Args{"mriv", "--require-pixels", fixturePath}.argc(),
+                 Args{"mriv", "--require-pixels", fixturePath}.data(), in, out, err);
+    assert(rc != 0);
+    assert(err.str().find("no pixel graphics protocol") != std::string::npos);
+
+    auto events = parseEscapeStream(out.str());
+    for (const auto& ev : events)
+        assert(ev.kind != EventKind::KittyGraphics);
+
+    unsetenv("MRIV_TEST_RENDER");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
 {
-    const char* fixturePath = nullptr;
-    if (argc > 1)
-        fixturePath = argv[1];
+    // Assert rather than skip. This used to be `if (fixturePath)`, which
+    // silently turned nine of the tests below into no-ops when CMake failed
+    // to pass the fixture -- the suite reported "Passed" while asserting only
+    // argument-parsing trivia. Fail loudly instead, matching
+    // test_slice_geometry.cpp, so a wiring regression can never hide again.
+    assert(argc > 2 && "test_cli requires two fixture paths: <sq1.mnc> <sq2.mnc>");
+    const char* fixturePath  = argv[1];
+    const char* fixturePath2 = argv[2];
 
     testHelpReturnsZeroAndUsage();
     testVersionReturnsZero();
@@ -231,16 +423,19 @@ int main(int argc, char** argv)
     testNoFilesFails();
     testMissingFileFails();
 
-    // The following tests need a real fixture on disk.
-    if (fixturePath)
-    {
-        testInfoProducesNoImageEvents(fixturePath);
-        testRenderPipelineProducesKittyImage(fixturePath);
-        testMaxWidthCap(fixturePath);
-        testRangeFlagChangesImage(fixturePath);
-        testScaleFlagMagnifiesImage(fixturePath);
-        testAxisChangesImage(fixturePath);
-    }
+    testInfoProducesNoImageEvents(fixturePath);
+    testRenderPipelineProducesKittyImage(fixturePath);
+    testMaxWidthCap(fixturePath);
+    testRangeFlagChangesImage(fixturePath);
+    testScaleFlagMagnifiesImage(fixturePath);
+    testAxisChangesImage(fixturePath);
+    testMultipleFilesProduceLabelledStripInOrder(fixturePath, fixturePath2);
+    testSingleFileIsNotLabelled(fixturePath);
+    testMultipleFilesInfoPrintsEachInOrder(fixturePath, fixturePath2);
+    testOneMissingFileIsSkippedNotFatal(fixturePath);
+    testAllFilesMissingFails();
+    testNoPixelSupportReportsOnceForStrip(fixturePath, fixturePath2);
+    testRequirePixelsExitsNonZeroWithoutPixelSupport(fixturePath);
 
     return 0;
 }

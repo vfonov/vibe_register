@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <iosfwd>
+#include <string>
 
 #include "render/PixelProtocol.hpp"
 
@@ -83,6 +84,18 @@ public:
     /// size (no pixel protocol). In test mode this reports a generous
     /// synthetic box (4096x4096).
     PixelGeometry pixelGeometry() const;
+
+    /// Write a line of plain text (a trailing newline is added) at the
+    /// current cursor position. Used for the per-file captions above each
+    /// row of a multi-file strip.
+    ///
+    /// This goes through Terminal rather than straight to std::cout so all
+    /// output -- text and image bytes alike -- travels one path: in test
+    /// mode both land in the injected stream in the right order, and in
+    /// real mode both go through the same FILE* rather than interleaving
+    /// std::cout with ncdirect's stdio writes. Returns false and writes a
+    /// diagnostic to std::cerr on failure.
+    bool printLine(const std::string& text);
 
     /// Blit a packed RGBA (0xAABBGGRR) buffer of size (w,h) at the
     /// current cursor position and flush it to the output. Placement and

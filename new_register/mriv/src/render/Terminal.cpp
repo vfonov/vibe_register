@@ -185,6 +185,29 @@ unsigned Terminal::cursorRow() const
     return y;
 }
 
+bool Terminal::printLine(const std::string& text)
+{
+    debugLog("printLine: " + text);
+
+    if (out_)
+    {
+        *out_ << text << "\n";
+        return out_->good();
+    }
+
+    if (!nc_)
+    {
+        std::cerr << "mriv: printLine() called before a successful init()\n";
+        return false;
+    }
+
+    // ncdirect_putstr() takes an optional channel argument; 0 means "leave
+    // the terminal's current attributes alone", which is what we want for a
+    // plain caption.
+    std::string line = text + "\n";
+    return ncdirect_putstr(nc_, 0, line.c_str()) >= 0;
+}
+
 bool Terminal::blit(const uint32_t* rgba, int w, int h)
 {
     debugLog("blit called w=" + std::to_string(w) + " h=" + std::to_string(h));

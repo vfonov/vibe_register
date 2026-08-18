@@ -288,6 +288,11 @@ aspect-correct fit into the terminal's pixel box — see `render/Resample.hpp`'s
 `resampleToDisplay()`. A `--scale` of 1 (the default) is a no-op.
 
 Multiple inputs render as a strip (one row per file) so `mriv *.mnc` gives an at-a-glance overview.
+Each row is captioned with its path so the images can be told apart; a single-file invocation is left
+uncaptioned, staying pure image bytes for the "cat for medical images" case. Every row gets the full
+height budget rather than `1/N` of the screen — terminals scroll, and a volume should not change size
+according to how many siblings were on the command line. A file that fails to load is reported and
+skipped; the run only exits non-zero if nothing rendered at all.
 
 An interactive mode (`--interactive`, or auto-detected when stdout is a TTY *and* only one file is given) enables minimal vim-style keybindings: `j/k` slice, `x/y/z` axis, `+/-` window, `q` quit. Small; a bonus. Note there is no `h/l` time navigation — see [Deferred work](#deferred-work--blocked-on-the-parent).
 

@@ -20,22 +20,32 @@ target_link_libraries(mriv_test_support PUBLIC mriv_lib)
 
 # Convenience wrapper so every mriv test gets the production include dir and
 # the stb headers used by decode helpers.
+#
+# ARGS is parsed here and forwarded to add_test() rather than passed through to
+# add_nr_test(): add_nr_test() declares the ARGS keyword but never uses it (see
+# new_register/tests/CMakeLists.txt), so anything given to it that way is
+# silently dropped and the test runs with no arguments. That trap already cost
+# us a whole CLI suite -- mriv_test_cli was registered without its fixture path
+# and quietly skipped every render test while still reporting "Passed".
+# cmake_parse_arguments() clears its output variables on entry, so M_ARGS does
+# not leak between calls even though this is a macro.
 macro(add_mriv_test NAME)
+    cmake_parse_arguments(M "" "" "ARGS" ${ARGN})
     add_nr_test(${NAME}
         INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../src ${MRIV_STB_DIR}
         LINKS    mriv_lib mriv_test_support
-        ${ARGN}
+        ${M_UNPARSED_ARGUMENTS}
     )
-    add_test(NAME mriv_${NAME} COMMAND ${NAME})
+    add_test(NAME mriv_${NAME} COMMAND ${NAME} ${M_ARGS})
 endmacro()
 
 add_mriv_test(test_options)
 add_mriv_test(test_slice_selection)
 add_mriv_test(test_colourmap_arg)
 add_mriv_test(test_mriv_volume_info)
-# DO NOT pass test data as positional ARGS to add_mriv_test here: add_nr_test()
-# ignores ARGS (it does not declare the keyword). Instead set an environment
-# variable via CTest's PROPERTIES.
+# This one passes its fixture via the environment rather than ARGS. Either works
+# now that add_mriv_test() forwards ARGS properly; left as-is because the test
+# reads MRIV_THICK_SLICES_FIXTURE directly.
 add_mriv_test(test_slice_geometry)
 set_property(TEST mriv_test_slice_geometry
     PROPERTY ENVIRONMENT
@@ -50,8 +60,10 @@ add_mriv_test(test_structure)
 # Layer B: decoded-pixel correctness tests.
 add_mriv_test(test_pixels)
 
-# Layer C: CLI integration tests. Use a small real fixture (sq1.mnc is 21 KB
-# and therefore cheap enough to load repeatedly).
+# Layer C: CLI integration tests. Uses two small real fixtures (sq1.mnc is 21 KB
+# and therefore cheap enough to load repeatedly); the second is needed so
+# multi-file strip tests can tell the rows apart and assert argument order,
+# which passing the same file twice cannot do.
 add_mriv_test(test_cli
-    ARGS ${PROJECT_SOURCE_DIR}/tests/sq1.mnc
+    ARGS ${PROJECT_SOURCE_DIR}/tests/sq1.mnc ${PROJECT_SOURCE_DIR}/tests/sq2.mnc
 )

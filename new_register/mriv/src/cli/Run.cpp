@@ -71,10 +71,19 @@ bool buildRenderParams(const Options& options,
 }
 
 // Render a single volume slice, resample it to the terminal display box,
-// and blit it through the supplied Terminal.
+// and blit it through the supplied Terminal. `box` is the terminal's pixel
+// geometry, queried once by the caller -- it cannot change during a
+// one-shot run, and probing it per file costs a throwaway ncvisual each
+// time (see Terminal::pixelGeometry()).
+//
+// Every row of a multi-file strip gets the full height budget, exactly as
+// a single-file render does: terminals scroll, so there is no need to make
+// N images share one screen, and a volume should not change size according
+// to how many siblings happened to be on the command line.
 bool renderAndBlitVolume(const Volume& vol,
                          const Options& options,
                          Terminal& terminal,
+                         Terminal::PixelGeometry box,
                          std::ostream& err)
 {
     const bool verbose = debugEnabled();
@@ -122,24 +131,16 @@ bool renderAndBlitVolume(const Volume& vol,
         return false;
     }
 
-    log("checking pixel support...");
-    bool hasPixels = terminal.hasPixelSupport();
-    log("hasPixelSupport=" + std::string(hasPixels ? "true" : "false"));
-
-    if (!hasPixels)
-    {
-        err << "mriv: this terminal has no pixel graphics protocol "
-               "(Kitty, sixel, or iTerm2). Try Kitty, Ghostty, WezTerm, iTerm2, or "
-               "Konsole.\n";
-        return options.requirePixels ? false : true;
-    }
-
+    // Pixel-protocol support is checked once in run(), before any volume is
+    // loaded -- it is a property of the terminal, not of a file. Checking it
+    // here meant N identical error messages for an N-file strip, each one
+    // printed only after that volume had been loaded and rendered for
+    // nothing.
     auto axes     = aspectAxesForView(viewIndex);
     double aspect = vol.slicePixelAspect(axes.u, axes.v);
     log("aspect axes u=" + std::to_string(axes.u) + " v=" + std::to_string(axes.v)
         + " aspect=" + std::to_string(aspect));
 
-    auto box = terminal.pixelGeometry();
     log("terminal pixel geometry width=" + std::to_string(box.width)
         + " height=" + std::to_string(box.height));
 
@@ -203,41 +204,47 @@ int run(int argc, char** argv, std::istream& /*in*/, std::ostream& out, std::ost
         return 1;
     }
 
-    if (parsed.options.files.size() > 1)
-    {
-        err << "mriv: multiple files are not yet supported (coming in a later milestone)\n";
-        return 1;
-    }
+    // An unreadable file is skipped rather than aborting the whole run, so
+    // one bad path in `mriv *.mnc` doesn't cost the user everything else in
+    // the glob. Only a run that renders (or reports on) nothing at all is an
+    // error. `succeeded` tracks that across both the --info and render paths.
+    int succeeded = 0;
 
-    const std::string& path = parsed.options.files[0];
-    log("loading volume: " + path);
-
-    Volume vol;
-    try
-    {
-        vol.load(path);
-    }
-    catch (const std::exception& e)
-    {
-        err << "mriv: failed to load '" << path << "': " << e.what() << "\n";
-        return 1;
-    }
-    log("volume loaded dims=" + std::to_string(vol.dimensions.x) + "x"
-        + std::to_string(vol.dimensions.y) + "x" + std::to_string(vol.dimensions.z));
-
-    // --info prints metadata and exits before touching rendering.
+    // --info prints metadata for each file and exits before touching
+    // rendering or the terminal at all.
     if (parsed.options.info)
     {
-        out << formatVolumeInfo(vol, path);
-        return 0;
+        for (const auto& path : parsed.options.files)
+        {
+            log("loading volume for --info: " + path);
+            Volume vol;
+            try
+            {
+                vol.load(path);
+            }
+            catch (const std::exception& e)
+            {
+                err << "mriv: failed to load '" << path << "': " << e.what() << "\n";
+                continue;
+            }
+            out << formatVolumeInfo(vol, path);
+            ++succeeded;
+        }
+        return succeeded > 0 ? 0 : 1;
     }
 
     log("initializing Terminal");
     Terminal terminal;
-    if (std::getenv("MRIV_TEST_RENDER"))
+    if (const char* testRender = std::getenv("MRIV_TEST_RENDER"))
     {
-        log("MRIV_TEST_RENDER set -> test-mode Kitty terminal");
-        terminal = Terminal(out, PixelProtocol::Kitty);
+        // MRIV_TEST_RENDER=none forces a pixel-less test terminal so the
+        // no-pixel-support and --require-pixels branches are reachable from
+        // Layer C. Any other non-empty value keeps the Kitty behaviour every
+        // existing test relies on.
+        bool none = std::string(testRender) == "none";
+        log("MRIV_TEST_RENDER set -> test-mode terminal, protocol="
+            + std::string(none ? "None" : "Kitty"));
+        terminal = Terminal(out, none ? PixelProtocol::None : PixelProtocol::Kitty);
     }
     else
     {
@@ -250,15 +257,63 @@ int run(int argc, char** argv, std::istream& /*in*/, std::ostream& out, std::ost
         log("Terminal::initCli succeeded cursorRow=" + std::to_string(terminal.cursorRow()));
     }
 
-    log("entering renderAndBlitVolume");
-    if (!renderAndBlitVolume(vol, parsed.options, terminal, err))
+    // Checked once, before any volume is loaded: pixel support is a property
+    // of the terminal, so testing it per file produced N copies of this
+    // message and wasted a full load + renderSlice() on each one.
+    log("checking pixel support...");
+    if (!terminal.hasPixelSupport())
     {
-        log("renderAndBlitVolume returned false -> exiting 1");
-        return 1;
+        log("hasPixelSupport=false");
+        err << "mriv: this terminal has no pixel graphics protocol "
+               "(Kitty, sixel, or iTerm2). Try Kitty, Ghostty, WezTerm, iTerm2, or "
+               "Konsole.\n";
+        return parsed.options.requirePixels ? 1 : 0;
+    }
+    log("hasPixelSupport=true");
+
+    // Queried once: the terminal cannot resize during a one-shot run, and in
+    // real mode each probe allocates a throwaway ncvisual.
+    auto box = terminal.pixelGeometry();
+
+    // Multiple files render as a strip: one row per file, in argument order.
+    // Terminal::blit() places each image at the current cursor position and
+    // advances past it, so calling it repeatedly stacks the images vertically
+    // with no extra bookkeeping needed here.
+    const bool labelRows = parsed.options.files.size() > 1;
+    for (const auto& path : parsed.options.files)
+    {
+        log("loading volume: " + path);
+        Volume vol;
+        try
+        {
+            vol.load(path);
+        }
+        catch (const std::exception& e)
+        {
+            err << "mriv: failed to load '" << path << "': " << e.what() << "\n";
+            continue;
+        }
+        log("volume loaded dims=" + std::to_string(vol.dimensions.x) + "x"
+            + std::to_string(vol.dimensions.y) + "x" + std::to_string(vol.dimensions.z));
+
+        // Caption each row of a strip so the images can be told apart. A
+        // single-file run stays pure image bytes -- that is the "cat for
+        // medical images" case, where a caption is just noise.
+        if (labelRows)
+            terminal.printLine(path);
+
+        log("entering renderAndBlitVolume for " + path);
+        if (!renderAndBlitVolume(vol, parsed.options, terminal, box, err))
+        {
+            log("renderAndBlitVolume returned false -> exiting 1");
+            return 1;
+        }
+        ++succeeded;
     }
 
-    log("renderAndBlitVolume returned true -> exiting 0");
-    return 0;
+    log("rendered " + std::to_string(succeeded) + " of "
+        + std::to_string(parsed.options.files.size()) + " files");
+    return succeeded > 0 ? 0 : 1;
 }
 
 } // namespace mriv::term
