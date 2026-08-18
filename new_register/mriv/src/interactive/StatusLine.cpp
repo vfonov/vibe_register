@@ -45,23 +45,9 @@ std::string nameFor(const std::vector<std::string>& paths, int index)
 
 } // namespace
 
-std::string formatStatusLine(const ViewState& state, const std::vector<std::string>& paths)
+std::string formatSummaryLine(const ViewState& state, const std::vector<std::string>& paths)
 {
     std::ostringstream out;
-
-    // One reserved row means the prompt and the summary cannot both be on
-    // screen, and while the user is typing the prompt is what matters.
-    if (state.isEditing())
-    {
-        const RangeEditor& editor = state.editor();
-        out << "range for " << nameFor(paths, state.activeVolume())
-            << " [" << formatValue(editor.currentLow())
-            << " " << formatValue(editor.currentHigh()) << "]: "
-            << editor.text() << "_";
-        if (editor.hasError())
-            out << "   (expected \"low high\", low below high)";
-        return out.str();
-    }
 
     // Every column, in order, with the active one starred: 'c' and the
     // range act on it, so which one that is has to be visible.
@@ -83,15 +69,39 @@ std::string formatStatusLine(const ViewState& state, const std::vector<std::stri
         << " " << (state.sliceIndex() + 1) << "/" << state.sliceCount()
         << "  range " << formatValue(display.rangeLow)
         << " to " << formatValue(display.rangeHigh)
-        << "  " << colourMapName(display.colourMap)
-        << "  |  j/k slice  x/y/z axis";
+        << "  " << colourMapName(display.colourMap);
+
+    return out.str();
+}
+
+std::string formatStatusLine(const ViewState& state, const std::vector<std::string>& paths)
+{
+    // One reserved row means the prompt and the summary cannot both be on
+    // screen, and while the user is typing the prompt is what matters.
+    if (state.isEditing())
+    {
+        const RangeEditor& editor = state.editor();
+        std::ostringstream prompt;
+        prompt << "range for " << nameFor(paths, state.activeVolume())
+               << " [" << formatValue(editor.currentLow())
+               << " " << formatValue(editor.currentHigh()) << "]: "
+               << editor.text() << "_";
+        if (editor.hasError())
+            prompt << "   (expected \"low high\", low below high)";
+        return prompt.str();
+    }
+
+    // The live row is the summary plus the legend, so the two can never
+    // disagree about what is on screen.
+    std::ostringstream out;
+    out << formatSummaryLine(state, paths) << "  |  j/k slice  x/y/z axis";
 
     // Keys that only mean something with more than one column. Offering Tab
     // when there is nothing to switch to is noise, not discoverability.
     if (state.volumeCount() > 1)
         out << "  Tab volume";
 
-    out << "  c map  q quit";
+    out << "  c map  r range  q quit";
 
     return out.str();
 }

@@ -21,6 +21,14 @@ namespace mriv::term
 /// shown, since a full path would push the legend off the row.
 std::string formatStatusLine(const ViewState& state, const std::vector<std::string>& paths);
 
+/// The same line without the key legend: where the cursor is and how the
+/// active volume is mapped, and nothing about keys.
+///
+/// Printed above the frame that is left on the terminal after interactive
+/// mode exits. The keys are gone by then, but what the picture shows still
+/// needs saying.
+std::string formatSummaryLine(const ViewState& state, const std::vector<std::string>& paths);
+
 /// The caption printed above a multi-volume one-shot render. That path
 /// blits the whole grid as one image, so a caption naming the columns in
 /// order is the only way to tell them apart.

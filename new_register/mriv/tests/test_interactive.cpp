@@ -337,6 +337,37 @@ void testPromptReportsABadEntry()
     assert(contains(line, "low high") || contains(line, "?"));
 }
 
+// --- exit summary --------------------------------------------------------
+
+/// Quitting leaves the last frame on the terminal, captioned with where the
+/// user ended up. The key legend has no business there -- the keys are gone
+/// -- but everything identifying the picture must survive.
+void testSummaryLineKeepsThePositionAndDropsTheLegend()
+{
+    ViewState state = makeTwoVolumeState();
+    std::string summary = formatSummaryLine(state, {"a.mnc", "b.mnc"});
+
+    assert(contains(summary, "a.mnc"));
+    assert(contains(summary, "b.mnc"));
+    assert(contains(summary, "axial"));
+    assert(contains(summary, "49/96"));
+    assert(!contains(summary, "j/k"));
+    assert(!contains(summary, "q quit"));
+    assert(summary.find('\n') == std::string::npos);
+}
+
+/// The live status row is the summary plus the legend, so the two can never
+/// disagree about what is on screen.
+void testStatusLineIsTheSummaryPlusTheLegend()
+{
+    ViewState state = makeTwoVolumeState();
+    std::string summary = formatSummaryLine(state, {"a.mnc", "b.mnc"});
+    std::string status  = formatStatusLine(state, {"a.mnc", "b.mnc"});
+
+    assert(status.compare(0, summary.size(), summary) == 0);
+    assert(status.size() > summary.size());
+}
+
 // --- one-shot caption ----------------------------------------------------
 
 /// The one-shot grid is a single image, so the only way to tell the columns
@@ -374,6 +405,8 @@ int main()
     testStatusLineShowsThePromptWhileEditing();
     testPromptShowsTheRangeBeingReplaced();
     testPromptReportsABadEntry();
+    testSummaryLineKeepsThePositionAndDropsTheLegend();
+    testStatusLineIsTheSummaryPlusTheLegend();
     testCaptionNumbersEveryColumnInOrder();
 
     return 0;

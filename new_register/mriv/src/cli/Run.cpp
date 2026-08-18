@@ -233,6 +233,11 @@ int runInteractive(const Options& options, std::ostream& err)
     // destroyed. Hence the inner scope and the deferred message.
     int status = 0;
     std::string deferredError;
+
+    // The last frame drawn, kept so it can be put back on the terminal
+    // after the alternate screen is gone -- see below.
+    ResampledImage lastFrame;
+    std::string lastSummary;
     {
         Screen screen;
         if (!screen.init())
@@ -257,8 +262,13 @@ int runInteractive(const Options& options, std::ostream& err)
                 if (frame.width <= 0 || frame.height <= 0)
                     return false;
 
-                return screen.drawFrame(formatStatusLine(current, paths),
-                                        frame.pixels.data(), frame.width, frame.height);
+                if (!screen.drawFrame(formatStatusLine(current, paths),
+                                      frame.pixels.data(), frame.width, frame.height))
+                    return false;
+
+                lastFrame   = std::move(frame);
+                lastSummary = formatSummaryLine(current, paths);
+                return true;
             };
 
             auto keys = [&]() { return screen.readKey(); };
@@ -269,6 +279,22 @@ int runInteractive(const Options& options, std::ostream& err)
 
     if (!deferredError.empty())
         err << deferredError << "\n";
+
+    // Leave the last view on the terminal. The alternate screen is gone by
+    // now, taking its contents with it, so the frame is re-emitted through
+    // the one-shot ncdirect path -- the same code that prints an image and
+    // exits, and the only one proven not to have its bitmaps wiped on
+    // teardown (see render/Terminal.hpp). Best effort: failing to put the
+    // picture back is not worth a non-zero exit after a clean session.
+    if (status == 0 && lastFrame.width > 0 && lastFrame.height > 0)
+    {
+        Terminal terminal;
+        if (terminal.initCli(stdout) && terminal.hasPixelSupport())
+        {
+            terminal.printLine(lastSummary);
+            terminal.blit(lastFrame.pixels.data(), lastFrame.width, lastFrame.height);
+        }
+    }
 
     return status;
 }
