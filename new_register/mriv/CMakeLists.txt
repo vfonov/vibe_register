@@ -25,6 +25,7 @@ add_library(mriv_lib STATIC
     src/cli/ColourMapArg.cpp
     src/cli/VolumeInfo.cpp
     src/cli/Run.cpp
+    src/interactive/ViewState.cpp
     src/render/SliceGeometry.cpp
     src/render/Resample.cpp
     src/render/Terminal.cpp
