@@ -143,10 +143,27 @@ void testInteractiveAndNoInteractiveTogetherIsRefused()
 
 const glm::ivec3 kDims{64, 229, 96};
 
+/// Two volumes of different depth, so the shared-cursor mapping shows up in
+/// what the line reports.
+ViewState makeTwoVolumeState()
+{
+    VolumeDisplay first;
+    first.rangeLow  = 0.0;
+    first.rangeHigh = 100.0;
+    first.colourMap = ColourMapType::Spectral;
+
+    VolumeDisplay second;
+    second.rangeLow  = 0.0;
+    second.rangeHigh = 400.0;
+
+    return ViewState({kDims, glm::ivec3(64, 229, 48)}, {0, 1, 2}, 'z',
+                     glm::ivec3(32, 114, 48), {first, second});
+}
+
 void testStatusLineNamesThePlaneSliceAndRange()
 {
     ViewState state = makeViewState(kDims, 'z', 48, 0.0, 100.0);
-    std::string line = formatStatusLine(state, "brain.mnc");
+    std::string line = formatStatusLine(state, {"brain.mnc"});
 
     assert(contains(line, "brain.mnc"));
     assert(contains(line, "axial"));
@@ -158,13 +175,13 @@ void testStatusLineNamesThePlaneSliceAndRange()
 void testStatusLineNamesEachPlane()
 {
     ViewState axial = makeViewState(kDims, 'z', 0, 0.0, 1.0);
-    assert(contains(formatStatusLine(axial, "v.mnc"), "axial"));
+    assert(contains(formatStatusLine(axial, {"v.mnc"}), "axial"));
 
     ViewState sagittal = makeViewState(kDims, 'x', 0, 0.0, 1.0);
-    assert(contains(formatStatusLine(sagittal, "v.mnc"), "sagittal"));
+    assert(contains(formatStatusLine(sagittal, {"v.mnc"}), "sagittal"));
 
     ViewState coronal = makeViewState(kDims, 'y', 0, 0.0, 1.0);
-    assert(contains(formatStatusLine(coronal, "v.mnc"), "coronal"));
+    assert(contains(formatStatusLine(coronal, {"v.mnc"}), "coronal"));
 }
 
 /// The slice number shown is 1-based, because "slice 1/96" reading "the
@@ -173,10 +190,10 @@ void testStatusLineNamesEachPlane()
 void testStatusLineSliceNumberIsOneBased()
 {
     ViewState first = makeViewState(kDims, 'z', 0, 0.0, 1.0);
-    assert(contains(formatStatusLine(first, "v.mnc"), "1/96"));
+    assert(contains(formatStatusLine(first, {"v.mnc"}), "1/96"));
 
     ViewState last = makeViewState(kDims, 'z', 95, 0.0, 1.0);
-    assert(contains(formatStatusLine(last, "v.mnc"), "96/96"));
+    assert(contains(formatStatusLine(last, {"v.mnc"}), "96/96"));
 }
 
 /// The key legend is part of the line: this mode has no help panel, so if
@@ -184,12 +201,65 @@ void testStatusLineSliceNumberIsOneBased()
 void testStatusLineListsTheKeys()
 {
     ViewState state = makeViewState(kDims, 'z', 0, 0.0, 1.0);
-    std::string line = formatStatusLine(state, "v.mnc");
+    std::string line = formatStatusLine(state, {"v.mnc"});
 
     assert(contains(line, "j/k"));
     assert(contains(line, "x/y/z"));
-    assert(contains(line, "+/-"));
     assert(contains(line, "q"));
+}
+
+/// With more than one column the legend has to cover the keys that only
+/// mean something there, and the single-volume case must not carry them --
+/// a legend offering Tab when there is nothing to switch to is noise.
+void testStatusLineListsColumnKeysOnlyWhenThereAreColumns()
+{
+    ViewState one = makeViewState(kDims, 'z', 0, 0.0, 1.0);
+    assert(!contains(formatStatusLine(one, {"v.mnc"}), "Tab"));
+
+    ViewState two = makeTwoVolumeState();
+    std::string line = formatStatusLine(two, {"a.mnc", "b.mnc"});
+    assert(contains(line, "Tab"));
+}
+
+/// Every column is named, in order, and the active one is marked -- 'c' and
+/// the range prompt act on it, so which one it is has to be visible.
+void testStatusLineNamesEveryVolumeAndMarksTheActiveOne()
+{
+    ViewState state = makeTwoVolumeState();
+
+    std::string first = formatStatusLine(state, {"a.mnc", "b.mnc"});
+    assert(contains(first, "a.mnc"));
+    assert(contains(first, "b.mnc"));
+    assert(first.find("a.mnc") < first.find("b.mnc"));
+    assert(contains(first, "a.mnc*"));
+    assert(!contains(first, "b.mnc*"));
+
+    state.handleKey('\t');
+    std::string second = formatStatusLine(state, {"a.mnc", "b.mnc"});
+    assert(contains(second, "b.mnc*"));
+    assert(!contains(second, "a.mnc*"));
+}
+
+/// The range and colour map shown are the active volume's: they are what
+/// 'c' and 'r' would change.
+void testStatusLineShowsTheActiveVolumesDisplay()
+{
+    ViewState state = makeTwoVolumeState();
+    assert(contains(formatStatusLine(state, {"a.mnc", "b.mnc"}), "100"));
+    assert(contains(formatStatusLine(state, {"a.mnc", "b.mnc"}), "Spectral"));
+
+    state.handleKey('\t');
+    assert(contains(formatStatusLine(state, {"a.mnc", "b.mnc"}), "400"));
+}
+
+/// Long paths would push the key legend off the row, so only the file name
+/// is shown.
+void testStatusLineShowsBaseNamesOnly()
+{
+    ViewState state = makeViewState(kDims, 'z', 0, 0.0, 1.0);
+    std::string line = formatStatusLine(state, {"/data/study/sub-01/anat/t1.mnc"});
+    assert(contains(line, "t1.mnc"));
+    assert(!contains(line, "/data/study"));
 }
 
 /// One line, always -- it occupies a single reserved terminal row, and an
@@ -197,7 +267,7 @@ void testStatusLineListsTheKeys()
 void testStatusLineIsASingleLine()
 {
     ViewState state = makeViewState(kDims, 'y', 100, -1234.5678, 98765.4321);
-    std::string line = formatStatusLine(state, "some/long/path/to/a volume.nii.gz");
+    std::string line = formatStatusLine(state, {"some/long/path/to/a volume.nii.gz"});
     assert(line.find('\n') == std::string::npos);
     assert(line.find('\r') == std::string::npos);
 }
@@ -207,9 +277,22 @@ void testStatusLineIsASingleLine()
 void testStatusLineKeepsLargeRangesCompact()
 {
     ViewState state = makeViewState(kDims, 'z', 0, 0.0, 32767.123456789);
-    std::string line = formatStatusLine(state, "v.mnc");
+    std::string line = formatStatusLine(state, {"v.mnc"});
     assert(!contains(line, "32767.123456789"));
     assert(contains(line, "3.277e+04") || contains(line, "32770") || contains(line, "3.277e+004"));
+}
+
+// --- one-shot caption ----------------------------------------------------
+
+/// The one-shot grid is a single image, so the only way to tell the columns
+/// apart is a caption naming them in order.
+void testCaptionNumbersEveryColumnInOrder()
+{
+    std::string caption = formatCaption({"/tmp/a.mnc", "/tmp/b.mnc"});
+    assert(contains(caption, "a.mnc"));
+    assert(contains(caption, "b.mnc"));
+    assert(caption.find("a.mnc") < caption.find("b.mnc"));
+    assert(caption.find('\n') == std::string::npos);
 }
 
 } // namespace
@@ -227,8 +310,13 @@ int main()
     testStatusLineNamesEachPlane();
     testStatusLineSliceNumberIsOneBased();
     testStatusLineListsTheKeys();
+    testStatusLineListsColumnKeysOnlyWhenThereAreColumns();
+    testStatusLineNamesEveryVolumeAndMarksTheActiveOne();
+    testStatusLineShowsTheActiveVolumesDisplay();
+    testStatusLineShowsBaseNamesOnly();
     testStatusLineIsASingleLine();
     testStatusLineKeepsLargeRangesCompact();
+    testCaptionNumbersEveryColumnInOrder();
 
     return 0;
 }

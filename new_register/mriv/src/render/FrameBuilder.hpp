@@ -58,6 +58,12 @@ struct FrameRequest
 /// Render every (view, volume) cell and composite them into the single
 /// RGBA buffer that gets blitted. Rows are views, columns are volumes.
 ///
+/// The box is a budget, not the output size: each slice is fitted into its
+/// share of it, and the frame is then sized to what those fits produced.
+/// renderSliceForDisplay() never upscales, so sizing the frame to the box
+/// would surround a small volume with a screen of black and blit megabytes
+/// of it on every keypress.
+///
 /// Shared by the one-shot path and the interactive loop so the two cannot
 /// drift: `mriv a.mnc b.mnc` piped to a file and the same command on a
 /// terminal must show the same layout.

@@ -208,34 +208,63 @@ void testScaleFlagMagnifiesImage(const char* fixturePath)
     unsetenv("MRIV_TEST_RENDER");
 }
 
-void testAxisChangesImage(const char* fixturePath)
+void testViewsChangeImage(const char* fixturePath)
 {
+    // --views decides which planes are drawn and how many rows the grid
+    // has, so it is what changes the picture. --axis no longer does on its
+    // own: every plane is shown by default, and --axis only says which one
+    // the cursor and --slice act on.
     setenv("MRIV_TEST_RENDER", "1", 1);
 
-    auto renderAxis = [&](const char* axis) -> std::string {
+    auto renderViews = [&](const char* views) -> std::string {
         std::istringstream in;
         std::ostringstream out, err;
-        int rc = run(Args{"mriv", "--axis", axis, fixturePath}.argc(),
-                     Args{"mriv", "--axis", axis, fixturePath}.data(), in, out, err);
+        int rc = run(Args{"mriv", "--views", views, fixturePath}.argc(),
+                     Args{"mriv", "--views", views, fixturePath}.data(), in, out, err);
         assert(rc == 0);
         return out.str();
     };
 
-    assert(renderAxis("z") != renderAxis("y"));
+    assert(renderViews("z") != renderViews("y"));
+    assert(renderViews("z") != renderViews("z,x,y"));
 
     unsetenv("MRIV_TEST_RENDER");
 }
 
-void testMultipleFilesProduceLabelledStripInOrder(const char* fixtureA, const char* fixtureB)
+void testAxisSelectsWhatSliceAppliesTo(const char* fixturePath)
 {
-    // M4: multiple positional files render as a strip -- one Kitty image
-    // per file, each captioned with its path, in argument order.
+    // --axis still matters: it is the axis --slice positions. Shown with a
+    // single view so the difference is not diluted by the other two planes,
+    // which --slice does not touch.
+    setenv("MRIV_TEST_RENDER", "1", 1);
+
+    auto render = [&](const char* axis) -> std::string {
+        std::istringstream in;
+        std::ostringstream out, err;
+        int rc = run(Args{"mriv", "--views", "z", "--axis", axis, "--slice", "0", fixturePath}.argc(),
+                     Args{"mriv", "--views", "z", "--axis", axis, "--slice", "0", fixturePath}.data(),
+                     in, out, err);
+        assert(rc == 0);
+        return out.str();
+    };
+
+    // With --axis z the axial view jumps to slice 0; with --axis y it stays
+    // at its midpoint because --slice moved a different axis.
+    assert(render("z") != render("y"));
+
+    unsetenv("MRIV_TEST_RENDER");
+}
+
+void testMultipleFilesProduceOneCaptionedGrid(const char* fixtureA, const char* fixtureB)
+{
+    // Multiple positional files become columns of one grid, blitted once,
+    // with a single caption naming the columns in argument order.
     //
     // Two *different* fixtures matter here: passing the same file N times
-    // makes every payload identical, so the test could only count images
-    // and would sail through a reordering or a dropped file. Ordering is
-    // asserted via the captions, which the escape parser surfaces as Text
-    // events interleaved with the images.
+    // makes every column identical, so the test could only count images and
+    // would sail through a reordering or a dropped file. Ordering is
+    // asserted via the caption, which the escape parser surfaces as a Text
+    // event before the image.
     setenv("MRIV_TEST_RENDER", "1", 1);
 
     std::istringstream in;
@@ -246,29 +275,65 @@ void testMultipleFilesProduceLabelledStripInOrder(const char* fixtureA, const ch
 
     auto events = parseEscapeStream(out.str());
 
-    // Expect strictly alternating caption/image pairs, three of each.
     std::vector<std::string> captions;
     int imageCount = 0;
     for (const auto& e : events)
     {
         if (e.kind == EventKind::Text)
         {
-            // A caption must always precede its image.
-            assert(captions.size() == static_cast<std::size_t>(imageCount));
+            // The caption must precede the image it describes.
+            assert(imageCount == 0);
             captions.push_back(e.payload);
         }
         else if (e.kind == EventKind::KittyGraphics)
         {
             ++imageCount;
-            assert(captions.size() == static_cast<std::size_t>(imageCount));
         }
     }
-    assert(imageCount == 3);
-    assert(captions.size() == 3);
+    assert(imageCount == 1);
+    assert(captions.size() == 1);
 
-    assert(captions[0].find(fixtureA) != std::string::npos);
-    assert(captions[1].find(fixtureB) != std::string::npos);
-    assert(captions[2].find(fixtureA) != std::string::npos);
+    // Only the file names are shown, numbered left to right.
+    const std::string& caption = captions[0];
+    auto name = [](const std::string& path) {
+        size_t slash = path.find_last_of('/');
+        return slash == std::string::npos ? path : path.substr(slash + 1);
+    };
+    size_t first  = caption.find(name(fixtureA));
+    size_t second = caption.find(name(fixtureB));
+    assert(first != std::string::npos);
+    assert(second != std::string::npos);
+    assert(first < second);
+    assert(caption.find(name(fixtureA), second) != std::string::npos);
+
+    unsetenv("MRIV_TEST_RENDER");
+}
+
+/// Two volumes side by side make a wider frame than one on its own -- the
+/// columns are real, not one volume drawn over the other.
+void testMultipleFilesWidenTheFrame(const char* fixtureA, const char* fixtureB)
+{
+    setenv("MRIV_TEST_RENDER", "1", 1);
+
+    auto widthOf = [](const std::string& output) -> int {
+        for (const auto& e : parseEscapeStream(output))
+            if (e.kind == EventKind::KittyGraphics)
+                return std::stoi(e.params.at("s"));
+        assert(false);
+        return 0;
+    };
+
+    std::istringstream in1;
+    std::ostringstream out1, err1;
+    assert(run(Args{"mriv", fixtureA}.argc(), Args{"mriv", fixtureA}.data(),
+               in1, out1, err1) == 0);
+
+    std::istringstream in2;
+    std::ostringstream out2, err2;
+    assert(run(Args{"mriv", fixtureA, fixtureB}.argc(),
+               Args{"mriv", fixtureA, fixtureB}.data(), in2, out2, err2) == 0);
+
+    assert(widthOf(out2.str()) > widthOf(out1.str()));
 
     unsetenv("MRIV_TEST_RENDER");
 }
@@ -539,8 +604,10 @@ int main(int argc, char** argv)
     testMaxWidthCap(fixturePath);
     testRangeFlagChangesImage(fixturePath);
     testScaleFlagMagnifiesImage(fixturePath);
-    testAxisChangesImage(fixturePath);
-    testMultipleFilesProduceLabelledStripInOrder(fixturePath, fixturePath2);
+    testViewsChangeImage(fixturePath);
+    testAxisSelectsWhatSliceAppliesTo(fixturePath);
+    testMultipleFilesProduceOneCaptionedGrid(fixturePath, fixturePath2);
+    testMultipleFilesWidenTheFrame(fixturePath, fixturePath2);
     testSingleFileIsNotLabelled(fixturePath);
     testMultipleFilesInfoPrintsEachInOrder(fixturePath, fixturePath2);
     testOneMissingFileIsSkippedNotFatal(fixturePath);

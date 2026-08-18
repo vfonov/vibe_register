@@ -28,6 +28,7 @@ add_library(mriv_lib STATIC
     src/cli/ViewList.cpp
     src/cli/Run.cpp
     src/interactive/ViewState.cpp
+    src/interactive/FramePlan.cpp
     src/interactive/Screen.cpp
     src/interactive/Session.cpp
     src/interactive/StatusLine.cpp

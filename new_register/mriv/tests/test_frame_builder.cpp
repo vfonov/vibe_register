@@ -64,10 +64,10 @@ int drawnPixelsInBand(const ResampledImage& frame, int x0, int y0, int x1, int y
     return count;
 }
 
-/// The frame always fills the box it was given, whatever the panes look
-/// like: the terminal blits one bitmap, and a short one would leave the
-/// previous frame's rows on screen.
-void testFrameFillsTheRequestedBox()
+/// The frame is sized to its content, not to the box. The box is a budget:
+/// slices are never upscaled, so a box-sized canvas would wrap a small
+/// volume in a screenful of black and blit megabytes of it every keypress.
+void testFrameIsSizedToItsContent()
 {
     Volume vol = makeVolume(20, 20, 20, 1.0f);
     FrameRequest request;
@@ -75,11 +75,28 @@ void testFrameFillsTheRequestedBox()
     request.views     = {0, 1, 2};
     request.boxWidth  = 400;
     request.boxHeight = 300;
+    request.gap       = 0;
 
     auto frame = buildFrame(request);
-    assert(frame.width == 400);
-    assert(frame.height == 300);
-    assert(frame.pixels.size() == 400u * 300u);
+    assert(frame.width == 20);
+    assert(frame.height == 60);
+    assert(frame.pixels.size() == 20u * 60u);
+}
+
+/// The gutter goes between the rows and columns, never around the outside.
+void testGapSitsBetweenPanesOnly()
+{
+    Volume vol = makeVolume(20, 20, 20, 1.0f);
+    FrameRequest request;
+    request.panes     = {makePane(vol, {10, 10})};
+    request.views     = {0, 1};
+    request.boxWidth  = 400;
+    request.boxHeight = 300;
+    request.gap       = 6;
+
+    auto frame = buildFrame(request);
+    assert(frame.width == 20);       // one column, no gutter
+    assert(frame.height == 46);      // 20 + 6 + 20
 }
 
 /// Three views stacked vertically: every row band has something drawn in
@@ -95,9 +112,10 @@ void testEveryViewGetsARow()
     request.gap       = 0;
 
     auto frame = buildFrame(request);
-    assert(drawnPixelsInBand(frame, 0, 0, 120, 40) > 0);
-    assert(drawnPixelsInBand(frame, 0, 40, 120, 80) > 0);
-    assert(drawnPixelsInBand(frame, 0, 80, 120, 120) > 0);
+    assert(frame.height == 60);
+    assert(drawnPixelsInBand(frame, 0, 0, frame.width, 20) > 0);
+    assert(drawnPixelsInBand(frame, 0, 20, frame.width, 40) > 0);
+    assert(drawnPixelsInBand(frame, 0, 40, frame.width, 60) > 0);
 }
 
 /// One view means one row filling the height, not a third of it.
@@ -124,10 +142,9 @@ void testSingleViewUsesTheWholeHeight()
     auto one = buildFrame(request);
     auto all = buildFrame(three);
 
-    // The single pane is taller than any one pane of the three-row frame.
-    int oneDrawn   = drawnPixelsInBand(one, 0, 0, 120, 120);
-    int threeDrawn = drawnPixelsInBand(all, 0, 0, 120, 40);
-    assert(oneDrawn > threeDrawn);
+    // One row gets the whole 120px budget; three rows get 40 each.
+    assert(one.width == 120 && one.height == 120);
+    assert(all.width == 40 && all.height == 120);
 }
 
 /// Volumes become columns in argument order. Each volume here is a
@@ -146,10 +163,12 @@ void testVolumesBecomeColumnsInOrder()
     request.gap       = 0;
 
     auto frame = buildFrame(request);
-    assert(frame.width == 200);
+    // Two 20-wide columns of a 20x20x20 volume, no gutter.
+    assert(frame.width == 40);
+    assert(frame.height == 20);
 
-    uint32_t left  = pixelAt(frame, 50, 50);
-    uint32_t right = pixelAt(frame, 150, 50);
+    uint32_t left  = pixelAt(frame, 10, 10);
+    uint32_t right = pixelAt(frame, 30, 10);
     assert(left != kOpaqueBlack);
     assert(right != kOpaqueBlack);
     // Grayscale: the brighter volume's column is the brighter one, and it
@@ -172,18 +191,15 @@ void testEachPaneIsAspectCorrected()
     request.gap       = 0;
 
     auto frame = buildFrame(request);
-
-    // The drawn region is three times taller than it is wide, centred.
-    int drawn = drawnPixelsInBand(frame, 0, 0, 300, 300);
-    assert(drawn > 0);
+    assert(drawnPixelsInBand(frame, 0, 0, frame.width, frame.height) > 0);
 
     int widest = 0;
-    for (int x = 0; x < 300; ++x)
-        if (pixelAt(frame, x, 150) != kOpaqueBlack)
+    for (int x = 0; x < frame.width; ++x)
+        if (pixelAt(frame, x, frame.height / 2) != kOpaqueBlack)
             ++widest;
     int tallest = 0;
-    for (int y = 0; y < 300; ++y)
-        if (pixelAt(frame, 150, y) != kOpaqueBlack)
+    for (int y = 0; y < frame.height; ++y)
+        if (pixelAt(frame, frame.width / 2, y) != kOpaqueBlack)
             ++tallest;
 
     // 20 voxels across x 20 down, corrected by aspect 1/3: the narrow axis
@@ -212,8 +228,11 @@ void testMissingPaneDataLeavesTheCellBlank()
     request.gap       = 0;
 
     auto frame = buildFrame(request);
-    assert(drawnPixelsInBand(frame, 0, 0, 100, 100) == 0);
-    assert(drawnPixelsInBand(frame, 100, 0, 200, 100) > 0);
+    // The broken pane's column shrinks to a minimal track rather than
+    // vanishing, so the surviving column stays put on the right.
+    assert(frame.width == 21);
+    assert(drawnPixelsInBand(frame, 0, 0, 1, frame.height) == 0);
+    assert(drawnPixelsInBand(frame, 1, 0, 21, frame.height) > 0);
 }
 
 void testDegenerateRequestsYieldAnEmptyFrame()
@@ -243,7 +262,8 @@ void testDegenerateRequestsYieldAnEmptyFrame()
 
 int main()
 {
-    testFrameFillsTheRequestedBox();
+    testFrameIsSizedToItsContent();
+    testGapSitsBetweenPanesOnly();
     testEveryViewGetsARow();
     testSingleViewUsesTheWholeHeight();
     testVolumesBecomeColumnsInOrder();
