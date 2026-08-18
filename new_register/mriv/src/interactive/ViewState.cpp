@@ -148,8 +148,43 @@ KeyResult ViewState::cycleColourMap(int delta)
     return KeyResult::Changed;
 }
 
+KeyResult ViewState::beginRangeEdit()
+{
+    const VolumeDisplay& display = displays_[static_cast<size_t>(activeVolume_)];
+    editor_.begin(display.rangeLow, display.rangeHigh);
+    editing_ = true;
+    return KeyResult::Changed;
+}
+
+KeyResult ViewState::handleEditKey(char key)
+{
+    EditResult result = editor_.handleKey(key);
+
+    if (result == EditResult::Committed)
+    {
+        auto value = editor_.value();
+        auto& display = displays_[static_cast<size_t>(activeVolume_)];
+        display.rangeLow  = value->first;
+        display.rangeHigh = value->second;
+        editing_ = false;
+    }
+    else if (result == EditResult::Cancelled)
+    {
+        editing_ = false;
+    }
+
+    // Every keystroke changes the prompt shown on the status row, so every
+    // keystroke is a repaint. That costs a frame per character, the same as
+    // holding j -- cheap enough not to justify a second, status-only path
+    // through the render loop.
+    return KeyResult::Changed;
+}
+
 KeyResult ViewState::handleKey(char key)
 {
+    if (editing_)
+        return handleEditKey(key);
+
     switch (key)
     {
         case 'j': return moveSlice(1);
@@ -160,6 +195,7 @@ KeyResult ViewState::handleKey(char key)
         case '\t': return selectVolume((activeVolume_ + 1) % std::max(1, volumeCount()));
         case 'c': return cycleColourMap(1);
         case 'C': return cycleColourMap(-1);
+        case 'r': return beginRangeEdit();
         // Esc quits, the same as 'q' -- it is the reflex for getting out of
         // a full-screen terminal application.
         case 'q':

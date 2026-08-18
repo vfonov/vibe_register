@@ -8,6 +8,7 @@
 
 #include <cassert>
 #include <string>
+#include <string>
 
 #include "cli/InteractiveDecision.hpp"
 #include "interactive/StatusLine.hpp"
@@ -282,6 +283,53 @@ void testStatusLineKeepsLargeRangesCompact()
     assert(contains(line, "3.277e+04") || contains(line, "32770") || contains(line, "3.277e+004"));
 }
 
+// --- range prompt --------------------------------------------------------
+
+/// While the prompt is open the row shows it instead of the usual summary:
+/// one reserved terminal row means the two cannot both be on screen, and
+/// what is being typed is what matters at that moment.
+void testStatusLineShowsThePromptWhileEditing()
+{
+    ViewState state = makeTwoVolumeState();
+    state.handleKey('r');
+    for (char key : std::string("20 180"))
+        state.handleKey(key);
+
+    std::string line = formatStatusLine(state, {"a.mnc", "b.mnc"});
+    assert(contains(line, "range"));
+    assert(contains(line, "a.mnc"));   // which column is being changed
+    assert(contains(line, "20 180"));  // what has been typed so far
+    assert(line.find('\n') == std::string::npos);
+}
+
+/// The prompt names the range it is replacing, so the user can see what the
+/// numbers currently are before overwriting them.
+void testPromptShowsTheRangeBeingReplaced()
+{
+    ViewState state = makeTwoVolumeState();
+    state.handleKey('\t');
+    state.handleKey('r');
+
+    std::string line = formatStatusLine(state, {"a.mnc", "b.mnc"});
+    assert(contains(line, "b.mnc"));
+    assert(contains(line, "400"));
+}
+
+/// A rejected commit has to say so on the row, or the prompt just appears
+/// to have stopped responding to Enter.
+void testPromptReportsABadEntry()
+{
+    ViewState state = makeViewState(kDims, 'z', 0, 0.0, 1.0);
+    state.handleKey('r');
+    for (char key : std::string("nonsense"))
+        state.handleKey(key);
+    state.handleKey('\r');
+
+    std::string line = formatStatusLine(state, {"v.mnc"});
+    assert(contains(line, "nonsense"));
+    assert(contains(line, "low high") || contains(line, "?"));
+}
+
 // --- one-shot caption ----------------------------------------------------
 
 /// The one-shot grid is a single image, so the only way to tell the columns
@@ -316,6 +364,9 @@ int main()
     testStatusLineShowsBaseNamesOnly();
     testStatusLineIsASingleLine();
     testStatusLineKeepsLargeRangesCompact();
+    testStatusLineShowsThePromptWhileEditing();
+    testPromptShowsTheRangeBeingReplaced();
+    testPromptReportsABadEntry();
     testCaptionNumbersEveryColumnInOrder();
 
     return 0;

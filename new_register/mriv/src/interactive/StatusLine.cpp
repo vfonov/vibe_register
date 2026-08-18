@@ -49,6 +49,20 @@ std::string formatStatusLine(const ViewState& state, const std::vector<std::stri
 {
     std::ostringstream out;
 
+    // One reserved row means the prompt and the summary cannot both be on
+    // screen, and while the user is typing the prompt is what matters.
+    if (state.isEditing())
+    {
+        const RangeEditor& editor = state.editor();
+        out << "range for " << nameFor(paths, state.activeVolume())
+            << " [" << formatValue(editor.currentLow())
+            << " " << formatValue(editor.currentHigh()) << "]: "
+            << editor.text() << "_";
+        if (editor.hasError())
+            out << "   (expected \"low high\", low below high)";
+        return out.str();
+    }
+
     // Every column, in order, with the active one starred: 'c' and the
     // range act on it, so which one that is has to be visible.
     for (int i = 0; i < state.volumeCount(); ++i)

@@ -4,6 +4,7 @@
 
 #include <glm/glm.hpp>
 
+#include "interactive/RangeEditor.hpp"
 #include "render/SliceGeometry.hpp"
 
 #include "ColourMap.h"
@@ -66,9 +67,18 @@ public:
               std::vector<VolumeDisplay> displays);
 
     /// Apply one keypress: j/k slice, x/y/z axis, Tab and 1-9 active
-    /// volume, c/C colour map, q or Esc quit. There is no h/l -- the parent
-    /// has no time dimension (PLAN.md, deferred work).
+    /// volume, c/C colour map, r range prompt, q or Esc quit. There is no
+    /// h/l -- the parent has no time dimension (PLAN.md, deferred work).
+    ///
+    /// While the range prompt is open every key belongs to it, including
+    /// the navigation letters: typing a number must not also move a slice,
+    /// and Esc must close the prompt rather than leave the application.
     KeyResult handleKey(char key);
+
+    /// True while the range prompt is open. The status line renders the
+    /// prompt instead of the usual summary when it is.
+    bool isEditing() const { return editing_; }
+    const RangeEditor& editor() const { return editor_; }
 
     char axis() const { return axis_; }
 
@@ -103,6 +113,8 @@ private:
     KeyResult selectAxis(char axis);
     KeyResult selectVolume(int volume);
     KeyResult cycleColourMap(int delta);
+    KeyResult beginRangeEdit();
+    KeyResult handleEditKey(char key);
 
     std::vector<glm::ivec3> dimensions_;
     std::vector<int> views_;
@@ -111,6 +123,8 @@ private:
     char axis_;
     int viewIndex_;
     int activeVolume_ = 0;
+    RangeEditor editor_;
+    bool editing_ = false;
 };
 
 } // namespace mriv::term

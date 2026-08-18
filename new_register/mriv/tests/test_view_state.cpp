@@ -6,6 +6,7 @@
 /// behaviour that would otherwise only be checkable by eye.
 
 #include <cassert>
+#include <string>
 #include <vector>
 
 #include "interactive/ViewState.hpp"
@@ -222,6 +223,92 @@ void testColourMapCycleWraps()
            == static_cast<ColourMapType>(colourMapCount() - 1));
 }
 
+// --- range prompt --------------------------------------------------------
+
+/// 'r' opens a prompt on the active column. While it is open the keys
+/// belong to the editor, not to navigation: typing "j" into a number must
+/// not also move a slice.
+void testRangePromptSwallowsNavigationKeys()
+{
+    auto state = makeState();
+    int before = state.sliceIndex();
+
+    assert(state.handleKey('r') == KeyResult::Changed);
+    assert(state.isEditing());
+
+    state.handleKey('j');
+    assert(state.sliceIndex() == before);
+    assert(state.editor().text() == "j");
+}
+
+void testRangePromptCommitsToTheActiveVolume()
+{
+    auto state = makeTwoVolumeState();
+    state.handleKey('\t');
+    assert(state.activeVolume() == 1);
+
+    state.handleKey('r');
+    for (char key : std::string("20 180"))
+        state.handleKey(key);
+    assert(state.handleKey('\r') == KeyResult::Changed);
+
+    assert(!state.isEditing());
+    assert(state.display(1).rangeLow == 20.0);
+    assert(state.display(1).rangeHigh == 180.0);
+    // The other column is untouched.
+    assert(state.display(0).rangeHigh == 100.0);
+}
+
+void testRangePromptCancelLeavesTheRangeAlone()
+{
+    auto state = makeState();
+    double low  = state.display(0).rangeLow;
+    double high = state.display(0).rangeHigh;
+
+    state.handleKey('r');
+    for (char key : std::string("20 180"))
+        state.handleKey(key);
+    assert(state.handleKey('\x1b') == KeyResult::Changed);
+
+    assert(!state.isEditing());
+    assert(state.display(0).rangeLow == low);
+    assert(state.display(0).rangeHigh == high);
+}
+
+/// Esc closes the prompt rather than quitting: leaving the application
+/// because a range was typed wrong would be a nasty surprise.
+void testEscapeInThePromptDoesNotQuit()
+{
+    auto state = makeState();
+    state.handleKey('r');
+    assert(state.handleKey('\x1b') != KeyResult::Quit);
+    // Now that the prompt is closed, Esc quits again.
+    assert(state.handleKey('\x1b') == KeyResult::Quit);
+}
+
+/// A commit that will not parse keeps the prompt open with a complaint.
+void testBadRangeKeepsThePromptOpen()
+{
+    auto state = makeState();
+    state.handleKey('r');
+    for (char key : std::string("nonsense"))
+        state.handleKey(key);
+
+    assert(state.handleKey('\r') == KeyResult::Changed);
+    assert(state.isEditing());
+    assert(state.editor().hasError());
+    assert(state.display(0).rangeHigh == 100.0);
+}
+
+/// The prompt opens showing the range it would replace.
+void testPromptStartsFromTheVolumesCurrentRange()
+{
+    auto state = makeState();
+    state.handleKey('r');
+    assert(state.editor().currentLow() == 0.0);
+    assert(state.editor().currentHigh() == 100.0);
+}
+
 void testQuitAndUnknownKeys()
 {
     auto state = makeState();
@@ -271,6 +358,12 @@ int main()
     testDigitsSelectAVolumeDirectly();
     testColourMapCyclesOnTheActiveVolumeOnly();
     testColourMapCycleWraps();
+    testRangePromptSwallowsNavigationKeys();
+    testRangePromptCommitsToTheActiveVolume();
+    testRangePromptCancelLeavesTheRangeAlone();
+    testEscapeInThePromptDoesNotQuit();
+    testBadRangeKeepsThePromptOpen();
+    testPromptStartsFromTheVolumesCurrentRange();
     testQuitAndUnknownKeys();
     testSingleSliceAxisCannotMove();
     testConstructorClampsTheCursor();
