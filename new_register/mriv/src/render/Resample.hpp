@@ -35,6 +35,14 @@ struct ResampledImage
 /// Convenience wrapper combining computeResampleSize() and
 /// resamplePixelsNearest() for a RenderedSlice from the parent's
 /// renderSlice().
-ResampledImage resampleToDisplay(const RenderedSlice& slice, double aspect, int maxW, int maxH);
+///
+/// `scale` is an integer pixel-magnification factor (default 1, no
+/// magnification): the slice is first fit into (maxW/scale, maxH/scale)
+/// as usual, then each resulting pixel is replicated into a scale x scale
+/// block via nearest-neighbour resampling, so the final image never
+/// exceeds (maxW, maxH) by more than (scale - 1) pixels in either
+/// dimension. Values <= 1 are treated as no magnification.
+ResampledImage resampleToDisplay(
+    const RenderedSlice& slice, double aspect, int maxW, int maxH, int scale = 1);
 
 } // namespace mriv::term

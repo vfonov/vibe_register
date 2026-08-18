@@ -26,16 +26,17 @@ struct Options
     /// (see cli/SliceSelection.hpp).
     std::string sliceArg = "mid";
 
-    /// Set when --window/--level were both given, overriding
-    /// --auto-window (the default). See cli/WindowLevel.hpp.
-    bool hasWindowLevel = false;
-    double window = 0.0;
-    double level = 0.0;
+    /// Set when --range was given, overriding --auto-window (the
+    /// default). low maps to the darkest colour, high to the brightest --
+    /// directly the parent's valueMin/valueMax model, no conversion.
+    bool hasRange = false;
+    double rangeLow = 0.0;
+    double rangeHigh = 0.0;
 
     /// Explicit --auto-window flag. Auto-window is already the default
-    /// when neither --window nor --level is given; this flag exists so
-    /// scripts can say so explicitly (PLAN.md's CLI surface). It is an
-    /// error to combine it with --window/--level.
+    /// when --range isn't given; this flag exists so scripts can say so
+    /// explicitly (PLAN.md's CLI surface). It is an error to combine it
+    /// with --range.
     bool autoWindow = false;
 
     /// Raw --colourmap argument; already validated by parseArgs() against
@@ -48,6 +49,13 @@ struct Options
 
     /// --max-width in pixels, if given.
     std::optional<int> maxWidth;
+
+    /// --scale: integer pixel-magnification factor applied after
+    /// resampling to the terminal's display box (default: 1, no
+    /// magnification). Each display pixel becomes an NxN block via
+    /// nearest-neighbour replication -- see render/Resample.hpp. Must be
+    /// >= 1; validated by parseArgs().
+    int scale = 1;
 };
 
 /// Outcome of parsing argv: the parsed Options, plus whether parsing

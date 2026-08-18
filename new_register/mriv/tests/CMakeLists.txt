@@ -32,7 +32,6 @@ endmacro()
 add_mriv_test(test_options)
 add_mriv_test(test_slice_selection)
 add_mriv_test(test_colourmap_arg)
-add_mriv_test(test_window_level)
 add_mriv_test(test_mriv_volume_info)
 # DO NOT pass test data as positional ARGS to add_mriv_test here: add_nr_test()
 # ignores ARGS (it does not declare the keyword). Instead set an environment

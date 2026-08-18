@@ -256,13 +256,14 @@ Slice selection:
   -s, --slice <n|p%|mid>  Slice index, percentage, or "mid" (default: mid).
 
 Display:
-  -W, --window <w>        Window width for intensity mapping.
-  -L, --level <l>         Window level.
+  -R, --range <low,hi>    Intensity range for mapping: low maps to the
+                          darkest colour, high to the brightest.
       --auto-window       Percentile-based auto range (default on).
   -c, --colourmap <name>  Colour map name (default: grayscale). See ColourMap.h.
       --invert            Invert the colour map.
       --require-pixels    Exit non-zero if the terminal has no pixel protocol.
       --max-width <px>    Cap the rendered image width in pixels.
+      --scale <n>         Integer pixel magnification factor (default: 1).
 
 Info:
   -i, --info              Print volume metadata and exit (no rendering).
@@ -270,14 +271,21 @@ Info:
       --version           Show version.
 ```
 
-`-W`/`-L` are sugar over the parent's range model — they are not a separate code path:
+`-R`/`--range` maps directly onto the parent's range model — there is no window/level
+arithmetic in between:
 
 ```cpp
-params.valueMin = level - window / 2.0;
-params.valueMax = level + window / 2.0;
+params.valueMin = rangeLow;
+params.valueMax = rangeHigh;
 ```
 
-`--auto-window` (the default) fills the same two fields from `Volume::computeQuantile()` instead.
+`--auto-window` (the default) fills the same two fields from `Volume::computeQuantile()`
+instead; it is an error to combine the two.
+
+`--scale` magnifies the resampled display image by an integer factor via nearest-neighbour
+pixel replication (each display pixel becomes an `n x n` block), applied *after* the
+aspect-correct fit into the terminal's pixel box — see `render/Resample.hpp`'s
+`resampleToDisplay()`. A `--scale` of 1 (the default) is a no-op.
 
 Multiple inputs render as a strip (one row per file) so `mriv *.mnc` gives an at-a-glance overview.
 

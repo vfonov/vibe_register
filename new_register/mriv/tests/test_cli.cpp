@@ -137,6 +137,68 @@ void testMaxWidthCap(const char* fixturePath)
     unsetenv("MRIV_TEST_RENDER");
 }
 
+void testRangeFlagChangesImage(const char* fixturePath)
+{
+    // -R/--range replaced -W/-L: low maps to the darkest colour, high to
+    // the brightest, straight into valueMin/valueMax -- no window/level
+    // arithmetic in between. sq1.mnc's values are exactly {0, 1} (see
+    // tests/dump_vol output), so a range straddling both ends without
+    // touching them ([-1, 2]) actually changes the mapped shade -- unlike
+    // e.g. "0,1", which clamps identically to the default auto-window
+    // range and would make this test pass for the wrong reason.
+    setenv("MRIV_TEST_RENDER", "1", 1);
+
+    std::istringstream in1;
+    std::ostringstream out1, err1;
+    int rc1 = run(Args{"mriv", fixturePath}.argc(), Args{"mriv", fixturePath}.data(), in1, out1, err1);
+    assert(rc1 == 0);
+
+    std::istringstream in2;
+    std::ostringstream out2, err2;
+    int rc2 = run(Args{"mriv", "--range", "-1,2", fixturePath}.argc(),
+                 Args{"mriv", "--range", "-1,2", fixturePath}.data(), in2, out2, err2);
+    assert(rc2 == 0);
+
+    assert(out1.str() != out2.str());
+
+    unsetenv("MRIV_TEST_RENDER");
+}
+
+void testScaleFlagMagnifiesImage(const char* fixturePath)
+{
+    // --scale is an integer pixel-magnification factor. In test mode the
+    // synthetic terminal box (4096x4096, see Terminal::pixelGeometry())
+    // is far bigger than sq1.mnc's native slice size, so the pre-scale
+    // fit stays at native resolution both with and without --scale, and
+    // --scale 3 must triple the blitted width and height exactly.
+    setenv("MRIV_TEST_RENDER", "1", 1);
+
+    std::istringstream in1;
+    std::ostringstream out1, err1;
+    int rc1 = run(Args{"mriv", fixturePath}.argc(), Args{"mriv", fixturePath}.data(), in1, out1, err1);
+    assert(rc1 == 0);
+    auto baseEvents = parseEscapeStream(out1.str());
+    assert(baseEvents.size() == 1);
+
+    std::istringstream in2;
+    std::ostringstream out2, err2;
+    int rc2 = run(Args{"mriv", "--scale", "3", fixturePath}.argc(),
+                 Args{"mriv", "--scale", "3", fixturePath}.data(), in2, out2, err2);
+    assert(rc2 == 0);
+    auto scaledEvents = parseEscapeStream(out2.str());
+    assert(scaledEvents.size() == 1);
+
+    int baseW = std::stoi(baseEvents[0].params.at("s"));
+    int baseH = std::stoi(baseEvents[0].params.at("v"));
+    int scaledW = std::stoi(scaledEvents[0].params.at("s"));
+    int scaledH = std::stoi(scaledEvents[0].params.at("v"));
+
+    assert(scaledW == baseW * 3);
+    assert(scaledH == baseH * 3);
+
+    unsetenv("MRIV_TEST_RENDER");
+}
+
 void testAxisChangesImage(const char* fixturePath)
 {
     setenv("MRIV_TEST_RENDER", "1", 1);
@@ -175,6 +237,8 @@ int main(int argc, char** argv)
         testInfoProducesNoImageEvents(fixturePath);
         testRenderPipelineProducesKittyImage(fixturePath);
         testMaxWidthCap(fixturePath);
+        testRangeFlagChangesImage(fixturePath);
+        testScaleFlagMagnifiesImage(fixturePath);
         testAxisChangesImage(fixturePath);
     }
 

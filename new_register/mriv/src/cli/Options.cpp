@@ -27,14 +27,16 @@ cxxopts::Options buildParser()
             cxxopts::value<std::string>()->default_value("z"))
         ("s,slice", "Slice index, percentage, or \"mid\" (default: mid)",
             cxxopts::value<std::string>()->default_value("mid"))
-        ("W,window", "Window width for intensity mapping", cxxopts::value<double>())
-        ("L,level", "Window level", cxxopts::value<double>())
+        ("R,range", "Intensity range \"low,high\" for mapping: low maps to the "
+            "darkest colour, high to the brightest", cxxopts::value<std::vector<double>>())
         ("auto-window", "Percentile-based auto range (default on)")
         ("c,colourmap", "Colour map name (default: Gray). See ColourMap.h.",
             cxxopts::value<std::string>())
         ("invert", "Invert the colour map")
         ("require-pixels", "Exit non-zero if the terminal has no pixel protocol")
         ("max-width", "Cap the rendered image width in pixels", cxxopts::value<int>())
+        ("scale", "Integer pixel magnification factor (default: 1)",
+            cxxopts::value<int>()->default_value("1"))
         ("file", "Volume file(s) to view", cxxopts::value<std::vector<std::string>>());
     opts.positional_help("<file>...");
     opts.parse_positional({"file"});
@@ -93,25 +95,32 @@ ParseResult parseArgs(int argc, char** argv, std::ostream& err)
         }
         result.options.sliceArg = sliceArg;
 
-        bool hasWindow = parsed.count("window") > 0;
-        bool hasLevel  = parsed.count("level") > 0;
-        if (hasWindow != hasLevel)
+        if (parsed.count("range"))
         {
-            err << "mriv: --window and --level must be given together\n";
-            result.ok = false;
-            return result;
-        }
-        if (hasWindow && hasLevel && parsed.count("auto-window"))
-        {
-            err << "mriv: --auto-window cannot be combined with --window/--level\n";
-            result.ok = false;
-            return result;
-        }
-        if (hasWindow && hasLevel)
-        {
-            result.options.hasWindowLevel = true;
-            result.options.window = parsed["window"].as<double>();
-            result.options.level  = parsed["level"].as<double>();
+            if (parsed.count("auto-window"))
+            {
+                err << "mriv: --auto-window cannot be combined with --range\n";
+                result.ok = false;
+                return result;
+            }
+            auto vals = parsed["range"].as<std::vector<double>>();
+            if (vals.size() != 2)
+            {
+                err << "mriv: --range requires exactly two comma-separated values, "
+                       "\"low,high\"\n";
+                result.ok = false;
+                return result;
+            }
+            if (!(vals[0] < vals[1]))
+            {
+                err << "mriv: --range low (" << vals[0] << ") must be less than high ("
+                    << vals[1] << ")\n";
+                result.ok = false;
+                return result;
+            }
+            result.options.hasRange  = true;
+            result.options.rangeLow  = vals[0];
+            result.options.rangeHigh = vals[1];
         }
         result.options.autoWindow = parsed.count("auto-window") > 0;
 
@@ -133,6 +142,14 @@ ParseResult parseArgs(int argc, char** argv, std::ostream& err)
 
         if (parsed.count("max-width"))
             result.options.maxWidth = parsed["max-width"].as<int>();
+
+        result.options.scale = parsed["scale"].as<int>();
+        if (result.options.scale < 1)
+        {
+            err << "mriv: --scale must be >= 1 (got " << result.options.scale << ")\n";
+            result.ok = false;
+            return result;
+        }
     }
     catch (const std::exception& e)
     {

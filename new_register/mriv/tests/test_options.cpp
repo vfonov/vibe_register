@@ -65,12 +65,13 @@ void testDefaults()
     assert(result.ok);
     assert(result.options.axis == 'z');
     assert(result.options.sliceArg == "mid");
-    assert(!result.options.hasWindowLevel);
+    assert(!result.options.hasRange);
     assert(!result.options.autoWindow);
     assert(result.options.colourMapArg.empty());
     assert(!result.options.invert);
     assert(!result.options.requirePixels);
     assert(!result.options.maxWidth.has_value());
+    assert(result.options.scale == 1);
     assert(!result.options.info);
     assert(!result.options.version);
 }
@@ -101,21 +102,37 @@ void testInvalidSliceRejected()
     assert(!result.ok);
 }
 
-void testWindowLevelFlags()
+void testRangeFlag()
 {
-    auto result = parse({"mriv", "-W", "100", "-L", "50", "a.mnc"});
+    auto result = parse({"mriv", "-R", "10,200", "a.mnc"});
     assert(result.ok);
-    assert(result.options.hasWindowLevel);
-    assert(result.options.window == 100.0);
-    assert(result.options.level == 50.0);
+    assert(result.options.hasRange);
+    assert(result.options.rangeLow == 10.0);
+    assert(result.options.rangeHigh == 200.0);
 }
 
-void testWindowWithoutLevelRejected()
+void testRangeLongFlag()
 {
-    // -W without -L (or vice versa) is an incomplete pair -- reject with a
-    // clear message rather than silently defaulting level to 0.
-    auto result = parse({"mriv", "-W", "100", "a.mnc"});
+    auto result = parse({"mriv", "--range", "-5,5", "a.mnc"});
+    assert(result.ok);
+    assert(result.options.hasRange);
+    assert(result.options.rangeLow == -5.0);
+    assert(result.options.rangeHigh == 5.0);
+}
+
+void testRangeWrongCountRejected()
+{
+    auto result = parse({"mriv", "--range", "10,20,30", "a.mnc"});
     assert(!result.ok);
+}
+
+void testRangeLowNotBelowHighRejected()
+{
+    auto result = parse({"mriv", "--range", "200,10", "a.mnc"});
+    assert(!result.ok);
+
+    auto equalResult = parse({"mriv", "--range", "50,50", "a.mnc"});
+    assert(!equalResult.ok);
 }
 
 void testAutoWindowFlag()
@@ -125,9 +142,9 @@ void testAutoWindowFlag()
     assert(result.options.autoWindow);
 }
 
-void testAutoWindowWithWindowLevelRejected()
+void testAutoWindowWithRangeRejected()
 {
-    auto result = parse({"mriv", "--auto-window", "-W", "100", "-L", "50", "a.mnc"});
+    auto result = parse({"mriv", "--auto-window", "--range", "10,200", "a.mnc"});
     assert(!result.ok);
 }
 
@@ -161,6 +178,32 @@ void testMaxWidthFlag()
     assert(result.options.maxWidth.value() == 800);
 }
 
+void testScaleFlag()
+{
+    auto result = parse({"mriv", "--scale", "4", "a.mnc"});
+    assert(result.ok);
+    assert(result.options.scale == 4);
+}
+
+void testScaleDefaultIsOne()
+{
+    auto result = parse({"mriv", "a.mnc"});
+    assert(result.ok);
+    assert(result.options.scale == 1);
+}
+
+void testScaleZeroRejected()
+{
+    auto result = parse({"mriv", "--scale", "0", "a.mnc"});
+    assert(!result.ok);
+}
+
+void testScaleNegativeRejected()
+{
+    auto result = parse({"mriv", "--scale", "-2", "a.mnc"});
+    assert(!result.ok);
+}
+
 void testInfoFlag()
 {
     assert(parse({"mriv", "-i", "a.mnc"}).options.info);
@@ -186,15 +229,21 @@ int main()
     testInvalidAxisRejected();
     testSliceFlag();
     testInvalidSliceRejected();
-    testWindowLevelFlags();
-    testWindowWithoutLevelRejected();
+    testRangeFlag();
+    testRangeLongFlag();
+    testRangeWrongCountRejected();
+    testRangeLowNotBelowHighRejected();
     testAutoWindowFlag();
-    testAutoWindowWithWindowLevelRejected();
+    testAutoWindowWithRangeRejected();
     testColourMapFlag();
     testInvalidColourMapRejected();
     testInvertFlag();
     testRequirePixelsFlag();
     testMaxWidthFlag();
+    testScaleFlag();
+    testScaleDefaultIsOne();
+    testScaleZeroRejected();
+    testScaleNegativeRejected();
     testInfoFlag();
     testVersionFlag();
     return 0;

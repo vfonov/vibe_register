@@ -199,7 +199,7 @@ Do not do full SSIM or perceptual metrics in the standard test suite. Property a
 2. **X-gradient volume, sagittal mid-slice, decoded image has a horizontal gradient.** Assert that mean intensity of the left column is measurably lower than the right column (or vice versa, per convention). Catches axis-swap bugs.
 3. **Checkerboard volume at native display size decodes to a checkerboard.** With `--max-width` set so no resampling happens, count transitions across a row and assert it matches the checkerboard period. Catches resampler-off-by-one and byte-order bugs.
 4. **Auto window/level produces non-degenerate output.** Uniform-intensity slice with `--auto-window` still produces a valid (if flat) image, not all-black or all-white. Assert that the decoded image mean is not 0 and not 255.
-5. **Explicit `--window`/`--level` clip as expected.** A gradient slice with a narrow window should decode to an image that's mostly saturated at both ends and has a small transition band. Assert histogram shape: > X% of pixels are near 0, > Y% near 255, small fraction in the middle.
+5. **Explicit `--range` clips as expected.** A gradient slice with a narrow `--range` should decode to an image that's mostly saturated at both ends and has a small transition band. Assert histogram shape: > X% of pixels are near 0, > Y% near 255, small fraction in the middle.
 6. **Golden Kitty PNG for one canonical fixture.** RMS-compare decoded output of `mriv fixture_axial.nii` against `golden/axial_kitty.png` within threshold.
 7. **Golden sixel for the same fixture (if sixel decoder is available).** Same as above with `NCPIXEL_IMPL=sixel`.
 
