@@ -39,11 +39,21 @@ struct Options
     /// with --range.
     bool autoWindow = false;
 
-    /// Raw --colourmap argument; already validated by parseArgs() against
-    /// cli/ColourMapArg.hpp's normalised name matching. Empty means the
-    /// default (grayscale).
-    std::string colourMapArg;
+    /// Raw --colourmap arguments, split on commas and each already
+    /// validated by parseArgs() against cli/ColourMapArg.hpp's normalised
+    /// name matching. Empty means the built-in defaults (Spectral for the
+    /// first volume, grayscale for the rest). One entry applies to every
+    /// volume; otherwise there is exactly one entry per file -- parseArgs()
+    /// rejects any other count.
+    std::vector<std::string> colourMapArgs;
     bool invert = false;
+
+    /// --views, resolved to the parent's viewIndex convention in the order
+    /// given (see cli/ViewList.hpp). Defaults to all three planes: axial,
+    /// sagittal, coronal. Each entry becomes one row of the display grid.
+    /// Distinct from `axis`, which picks the *active* axis that interactive
+    /// slice navigation moves.
+    std::vector<int> views{0, 1, 2};
 
     bool requirePixels = false;
 

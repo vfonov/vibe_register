@@ -67,7 +67,12 @@ void testDefaults()
     assert(result.options.sliceArg == "mid");
     assert(!result.options.hasRange);
     assert(!result.options.autoWindow);
-    assert(result.options.colourMapArg.empty());
+    assert(result.options.colourMapArgs.empty());
+    // All three planes by default -- axial, sagittal, coronal, in that order.
+    assert(result.options.views.size() == 3);
+    assert(result.options.views[0] == 0);
+    assert(result.options.views[1] == 1);
+    assert(result.options.views[2] == 2);
     assert(!result.options.invert);
     assert(!result.options.requirePixels);
     assert(!result.options.maxWidth.has_value());
@@ -152,7 +157,56 @@ void testColourMapFlag()
 {
     auto result = parse({"mriv", "-c", "Hot Metal", "a.mnc"});
     assert(result.ok);
-    assert(result.options.colourMapArg == "Hot Metal");
+    assert(result.options.colourMapArgs.size() == 1);
+    assert(result.options.colourMapArgs[0] == "Hot Metal");
+}
+
+/// One map per file, in argument order. Colour-map display names contain
+/// spaces but never commas, so splitting on ',' is unambiguous.
+void testColourMapListPerFile()
+{
+    auto result = parse({"mriv", "-c", "Spectral,Hot Metal", "a.mnc", "b.mnc"});
+    assert(result.ok);
+    assert(result.options.colourMapArgs.size() == 2);
+    assert(result.options.colourMapArgs[0] == "Spectral");
+    assert(result.options.colourMapArgs[1] == "Hot Metal");
+}
+
+void testInvalidColourMapInListRejected()
+{
+    assert(!parse({"mriv", "-c", "Spectral,not-a-real-map", "a.mnc", "b.mnc"}).ok);
+}
+
+/// A list whose length is neither 1 nor the file count is a typo, not an
+/// instruction: silently reusing or dropping entries would leave a volume
+/// coloured by something the user never named.
+void testColourMapCountMismatchRejected()
+{
+    assert(!parse({"mriv", "-c", "Spectral,Gray", "a.mnc"}).ok);
+    assert(!parse({"mriv", "-c", "Spectral,Gray", "a.mnc", "b.mnc", "c.mnc"}).ok);
+}
+
+void testViewsFlag()
+{
+    auto result = parse({"mriv", "--views", "y,z", "a.mnc"});
+    assert(result.ok);
+    assert(result.options.views.size() == 2);
+    assert(result.options.views[0] == 2);
+    assert(result.options.views[1] == 0);
+}
+
+void testSingleViewFlag()
+{
+    auto result = parse({"mriv", "--views", "x", "a.mnc"});
+    assert(result.ok);
+    assert(result.options.views.size() == 1);
+    assert(result.options.views[0] == 1);
+}
+
+void testInvalidViewsRejected()
+{
+    assert(!parse({"mriv", "--views", "w", "a.mnc"}).ok);
+    assert(!parse({"mriv", "--views", "", "a.mnc"}).ok);
 }
 
 void testInvalidColourMapRejected()
@@ -236,7 +290,13 @@ int main()
     testAutoWindowFlag();
     testAutoWindowWithRangeRejected();
     testColourMapFlag();
+    testColourMapListPerFile();
     testInvalidColourMapRejected();
+    testInvalidColourMapInListRejected();
+    testColourMapCountMismatchRejected();
+    testViewsFlag();
+    testSingleViewFlag();
+    testInvalidViewsRejected();
     testInvertFlag();
     testRequirePixelsFlag();
     testMaxWidthFlag();

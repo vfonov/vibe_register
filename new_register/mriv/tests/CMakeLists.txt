@@ -41,6 +41,7 @@ endmacro()
 
 add_mriv_test(test_options)
 add_mriv_test(test_slice_selection)
+add_mriv_test(test_view_list)
 add_mriv_test(test_colourmap_arg)
 add_mriv_test(test_mriv_volume_info)
 # This one passes its fixture via the environment rather than ARGS. Either works

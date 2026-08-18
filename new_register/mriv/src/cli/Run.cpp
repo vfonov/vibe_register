@@ -61,13 +61,14 @@ bool applyDisplayOptions(const Options& options,
         request.valueMax = vol.computeQuantile(kAutoWindowHighQuantile);
     }
 
-    if (!options.colourMapArg.empty())
+    if (!options.colourMapArgs.empty())
     {
-        auto map = resolveColourMapArg(options.colourMapArg);
+        auto map = resolveColourMapArg(options.colourMapArgs.front());
         if (!map.has_value())
         {
             // parseArgs() already validated this, so this is defensive.
-            err << "mriv: internal error: invalid colourmap '" << options.colourMapArg << "'\n";
+            err << "mriv: internal error: invalid colourmap '"
+                << options.colourMapArgs.front() << "'\n";
             return false;
         }
         request.colourMap = *map;

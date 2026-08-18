@@ -2,11 +2,14 @@
 
 #include <iostream>
 #include <ostream>
+#include <string>
+#include <vector>
 
 #include <cxxopts.hpp>
 
 #include "cli/ColourMapArg.hpp"
 #include "cli/SliceSelection.hpp"
+#include "cli/ViewList.hpp"
 
 namespace mriv::term
 {
@@ -15,6 +18,32 @@ namespace
 {
 
 constexpr const char* kVersion = "mriv 0.1.0";
+
+// Split a comma-separated argument, trimming surrounding spaces. Colour map
+// display names contain spaces ("Hot Metal") but never commas, so the split
+// is unambiguous. Empty elements are kept so the caller's validation
+// rejects them with a name-specific message.
+std::vector<std::string> splitOnCommas(const std::string& arg)
+{
+    std::vector<std::string> parts;
+    size_t pos = 0;
+    for (;;)
+    {
+        size_t comma = arg.find(',', pos);
+        std::string part = arg.substr(pos, comma == std::string::npos
+                                               ? std::string::npos
+                                               : comma - pos);
+        size_t begin = part.find_first_not_of(" \t");
+        size_t end   = part.find_last_not_of(" \t");
+        parts.push_back(begin == std::string::npos
+                            ? std::string()
+                            : part.substr(begin, end - begin + 1));
+        if (comma == std::string::npos)
+            break;
+        pos = comma + 1;
+    }
+    return parts;
+}
 
 cxxopts::Options buildParser()
 {
@@ -30,8 +59,12 @@ cxxopts::Options buildParser()
         ("R,range", "Intensity range \"low,high\" for mapping: low maps to the "
             "darkest colour, high to the brightest", cxxopts::value<std::vector<double>>())
         ("auto-window", "Percentile-based auto range (default on)")
-        ("c,colourmap", "Colour map name (default: Gray). See ColourMap.h.",
-            cxxopts::value<std::string>())
+        ("v,views", "Planes to show, stacked top to bottom: a comma-separated "
+            "subset of x,y,z (default: z,x,y -- all three)",
+            cxxopts::value<std::string>()->default_value("z,x,y"))
+        ("c,colourmap", "Colour map name, or one name per file separated by "
+            "commas (default: Spectral for the first volume, Gray for the "
+            "rest). See ColourMap.h.", cxxopts::value<std::string>())
         ("invert", "Invert the colour map")
         ("require-pixels", "Exit non-zero if the terminal has no pixel protocol")
         ("interactive", "Navigate the volume with the keyboard (default when "
@@ -127,17 +160,43 @@ ParseResult parseArgs(int argc, char** argv, std::ostream& err)
         }
         result.options.autoWindow = parsed.count("auto-window") > 0;
 
+        std::string viewsArg = parsed["views"].as<std::string>();
+        auto views = parseViewList(viewsArg);
+        if (!views.has_value())
+        {
+            err << "mriv: invalid --views '" << viewsArg
+                << "' (expected a comma-separated subset of x, y, z)\n";
+            result.ok = false;
+            return result;
+        }
+        result.options.views = *views;
+
         if (parsed.count("colourmap"))
         {
-            std::string colourMapArg = parsed["colourmap"].as<std::string>();
-            if (!resolveColourMapArg(colourMapArg).has_value())
+            auto names = splitOnCommas(parsed["colourmap"].as<std::string>());
+            for (const auto& name : names)
             {
-                err << "mriv: invalid --colourmap '" << colourMapArg
-                           << "'. Valid names: " << listColourMapNames() << "\n";
+                if (!resolveColourMapArg(name).has_value())
+                {
+                    err << "mriv: invalid --colourmap '" << name
+                        << "'. Valid names: " << listColourMapNames() << "\n";
+                    result.ok = false;
+                    return result;
+                }
+            }
+            // One name colours every volume; otherwise the list must name
+            // each file exactly once. Any other count is a typo, and
+            // reusing or dropping entries would colour a volume by
+            // something the user never asked for.
+            if (names.size() != 1 && names.size() != result.options.files.size())
+            {
+                err << "mriv: --colourmap has " << names.size() << " names but "
+                    << result.options.files.size() << " file(s) were given; pass "
+                       "one name for all of them or one per file\n";
                 result.ok = false;
                 return result;
             }
-            result.options.colourMapArg = colourMapArg;
+            result.options.colourMapArgs = names;
         }
 
         result.options.invert = parsed.count("invert") > 0;

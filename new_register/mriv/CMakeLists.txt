@@ -25,6 +25,7 @@ add_library(mriv_lib STATIC
     src/cli/ColourMapArg.cpp
     src/cli/VolumeInfo.cpp
     src/cli/InteractiveDecision.cpp
+    src/cli/ViewList.cpp
     src/cli/Run.cpp
     src/interactive/ViewState.cpp
     src/interactive/Screen.cpp
