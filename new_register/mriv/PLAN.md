@@ -265,6 +265,11 @@ Display:
       --max-width <px>    Cap the rendered image width in pixels.
       --scale <n>         Integer pixel magnification factor (default: 1).
 
+Interactive:
+      --interactive       Navigate with the keyboard. Default when stdout is
+                          a terminal and exactly one file is given.
+      --no-interactive    Print one slice and exit, even on a terminal.
+
 Info:
   -i, --info              Print volume metadata and exit (no rendering).
   -h, --help              Show help.
@@ -294,7 +299,27 @@ height budget rather than `1/N` of the screen — terminals scroll, and a volume
 according to how many siblings were on the command line. A file that fails to load is reported and
 skipped; the run only exits non-zero if nothing rendered at all.
 
-An interactive mode (`--interactive`, or auto-detected when stdout is a TTY *and* only one file is given) enables minimal vim-style keybindings: `j/k` slice, `x/y/z` axis, `+/-` window, `q` quit. Small; a bonus. Note there is no `h/l` time navigation — see [Deferred work](#deferred-work--blocked-on-the-parent).
+An interactive mode (`--interactive`, or auto-detected when stdout is a TTY *and* only one file is
+given) enables minimal vim-style keybindings: `j/k` slice, `x/y/z` axis, `+/-` window, `q` quit
+(`Esc` also quits). Small; a bonus. Note there is no `h/l` time navigation — see
+[Deferred work](#deferred-work--blocked-on-the-parent).
+
+`--no-interactive` is the escape hatch for a user sitting at a terminal who wants the one-shot
+"cat for medical images" behaviour anyway; scripts can pass it unconditionally. An explicit
+`--interactive` that cannot be honoured — no TTY, more than one file, or combined with `--info` —
+is refused with a reason and a non-zero exit rather than silently degrading to a one-shot render,
+which would look to the user like the keys were broken.
+
+Position is a 3D voxel cursor rather than one index rescaled between views: the three axes are
+geometrically independent, so leaving an axis and returning to it lands exactly where you left off.
+`+`/`-` scale the intensity window multiplicatively about its centre, so the midtone does not drift
+and the range cannot be collapsed or inverted by holding `-`.
+
+Interactive mode uses **full notcurses** (alternate screen, `notcurses_render()` per frame), not the
+`ncdirect` path the one-shot renderer uses. Redrawing in place requires releasing the previous
+frame's bitmap before drawing the next, which is what notcurses's sprixel lifecycle handles; the
+teardown bitmap-clearing that made `ncdirect` necessary for the one-shot path is not a problem on
+the alternate screen, where restoring the terminal on exit is the wanted behaviour.
 
 ## Project layout
 

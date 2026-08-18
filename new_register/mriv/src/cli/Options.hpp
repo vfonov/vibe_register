@@ -47,6 +47,12 @@ struct Options
 
     bool requirePixels = false;
 
+    /// --interactive / --no-interactive. Interactive mode is otherwise
+    /// auto-detected (a TTY plus a single file); these force the question
+    /// either way. See cli/InteractiveDecision.hpp for the rules.
+    bool interactive = false;
+    bool noInteractive = false;
+
     /// --max-width in pixels, if given.
     std::optional<int> maxWidth;
 

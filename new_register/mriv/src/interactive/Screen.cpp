@@ -1,0 +1,217 @@
+#include "interactive/Screen.hpp"
+
+#include <cstdlib>
+#include <iostream>
+
+#include <notcurses/notcurses.h>
+
+namespace mriv::term
+{
+
+namespace
+{
+
+/// The status line occupies the top row; the image gets everything below.
+constexpr int kStatusRows = 1;
+
+bool debugEnabled()
+{
+    const char* v = std::getenv("MRIV_DEBUG");
+    return v && v[0] != '\0';
+}
+
+void debugLog(const std::string& msg)
+{
+    if (debugEnabled())
+        std::cerr << "[mriv debug] Screen: " << msg << "\n";
+}
+
+} // namespace
+
+Screen::~Screen()
+{
+    destroy();
+}
+
+void Screen::destroy()
+{
+    if (imagePlane_)
+    {
+        ncplane_destroy(imagePlane_);
+        imagePlane_ = nullptr;
+    }
+    if (nc_)
+    {
+        notcurses_stop(nc_);
+        nc_ = nullptr;
+    }
+}
+
+bool Screen::init()
+{
+    notcurses_options opts{};
+    // Banners would scroll the very image we are about to draw. The
+    // alternate screen is the default and is wanted here: interactive mode
+    // takes over the terminal and gives it back untouched on exit.
+    opts.flags = NCOPTION_SUPPRESS_BANNERS;
+
+    nc_ = notcurses_init(&opts, stdout);
+    if (!nc_)
+    {
+        std::cerr << "mriv: failed to initialize the terminal for interactive mode\n";
+        return false;
+    }
+
+    debugLog("notcurses_init succeeded");
+    return true;
+}
+
+bool Screen::hasPixelSupport() const
+{
+    if (!nc_)
+        return false;
+
+    int support = notcurses_check_pixel_support(nc_);
+    debugLog("notcurses_check_pixel_support returned " + std::to_string(support));
+    return support > NCPIXEL_NONE;
+}
+
+Screen::PixelGeometry Screen::pixelGeometry() const
+{
+    PixelGeometry geometry{0, 0};
+    if (!nc_)
+        return geometry;
+
+    ncplane* stdplane = notcurses_stdplane(nc_);
+    unsigned rows = 0;
+    unsigned cols = 0;
+    ncplane_dim_yx(stdplane, &rows, &cols);
+
+    unsigned pxy = 0, pxx = 0, celly = 0, cellx = 0, maxbmapy = 0, maxbmapx = 0;
+    ncplane_pixel_geom(stdplane, &pxy, &pxx, &celly, &cellx, &maxbmapy, &maxbmapx);
+    debugLog("ncplane_pixel_geom pxy=" + std::to_string(pxy) + " pxx=" + std::to_string(pxx)
+             + " celly=" + std::to_string(celly) + " cellx=" + std::to_string(cellx)
+             + " maxbmapy=" + std::to_string(maxbmapy) + " maxbmapx=" + std::to_string(maxbmapx));
+
+    if (celly == 0 || cellx == 0)
+        return geometry;
+
+    unsigned imageRows = rows > static_cast<unsigned>(kStatusRows)
+                             ? rows - static_cast<unsigned>(kStatusRows)
+                             : 0;
+    geometry.height = imageRows * celly;
+    geometry.width  = cols * cellx;
+
+    // Clamp only when the terminal actually reports a limit -- zero means
+    // "no limit known", not "no space".
+    if (maxbmapy > 0 && geometry.height > maxbmapy)
+        geometry.height = maxbmapy;
+    if (maxbmapx > 0 && geometry.width > maxbmapx)
+        geometry.width = maxbmapx;
+
+    return geometry;
+}
+
+bool Screen::drawFrame(const std::string& status, const uint32_t* rgba, int w, int h)
+{
+    if (!nc_)
+    {
+        std::cerr << "mriv: drawFrame() called before a successful init()\n";
+        return false;
+    }
+    if (!rgba || w <= 0 || h <= 0)
+    {
+        std::cerr << "mriv: refusing to draw an empty frame\n";
+        return false;
+    }
+
+    // Destroy the previous frame's plane before drawing the next one, so
+    // its bitmap is released rather than left stacked underneath.
+    if (imagePlane_)
+    {
+        ncplane_destroy(imagePlane_);
+        imagePlane_ = nullptr;
+    }
+
+    ncplane* stdplane = notcurses_stdplane(nc_);
+    ncplane_erase(stdplane);
+    if (ncplane_putstr_yx(stdplane, 0, 0, status.c_str()) < 0)
+        debugLog("ncplane_putstr_yx for the status line failed (line too long?)");
+
+    // ncvisual_from_rgba() takes the row stride in *bytes*, not pixels --
+    // see mriv/HANDOFF.md sec 3.3.
+    ncvisual* visual = ncvisual_from_rgba(rgba, h, w * static_cast<int>(sizeof(uint32_t)), w);
+    if (!visual)
+    {
+        std::cerr << "mriv: failed to build an image for the terminal\n";
+        return false;
+    }
+
+    ncvisual_options vopts{};
+    vopts.n       = stdplane;
+    vopts.y       = kStatusRows;
+    vopts.x       = 0;
+    vopts.scaling = NCSCALE_NONE;
+    vopts.blitter = NCBLIT_PIXEL;
+    vopts.flags   = NCVISUAL_OPTION_CHILDPLANE;
+
+    imagePlane_ = ncvisual_blit(nc_, visual, &vopts);
+    ncvisual_destroy(visual);
+
+    if (!imagePlane_)
+    {
+        std::cerr << "mriv: failed to draw the slice\n";
+        return false;
+    }
+
+    if (notcurses_render(nc_) < 0)
+    {
+        std::cerr << "mriv: failed to render the frame\n";
+        return false;
+    }
+
+    return true;
+}
+
+std::optional<char> Screen::readKey()
+{
+    if (!nc_)
+        return std::nullopt;
+
+    for (;;)
+    {
+        ncinput input{};
+        uint32_t id = notcurses_get_blocking(nc_, &input);
+
+        if (id == static_cast<uint32_t>(-1) || id == NCKEY_EOF)
+            return std::nullopt;
+
+        // Terminals report both press and release; acting on both would
+        // apply every key twice.
+        if (input.evtype == NCTYPE_RELEASE)
+            continue;
+
+        if (id == NCKEY_RESIZE)
+        {
+            // Repaint at the new size on the next keypress. Re-fitting the
+            // image to a resized terminal immediately would need the render
+            // pipeline in here, and this class is deliberately logic-free.
+            notcurses_refresh(nc_, nullptr, nullptr);
+            continue;
+        }
+
+        // Escape leaves, the same as 'q' -- it is the reflex for getting out
+        // of a full-screen terminal application.
+        if (id == 0x1b)
+            return 'q';
+
+        // Special keys (arrows, function keys, mouse) live beyond Unicode
+        // and have no binding; swallow them rather than passing junk on.
+        if (id > 0x7f)
+            continue;
+
+        return static_cast<char>(id);
+    }
+}
+
+} // namespace mriv::term

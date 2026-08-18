@@ -404,6 +404,117 @@ void testRequirePixelsExitsNonZeroWithoutPixelSupport(const char* fixturePath)
     unsetenv("MRIV_TEST_RENDER");
 }
 
+// --- interactive mode ----------------------------------------------------
+//
+// The tests here run with stdout redirected to a pipe by CTest, so
+// isatty(STDOUT_FILENO) is false and interactive mode can never be entered.
+// That is exactly the boundary worth pinning: the auto-detection must not
+// fire, and an explicit --interactive must be refused with a reason rather
+// than silently degrading to a one-shot render. The loop itself is covered
+// by test_session, the navigation by test_view_state; only Screen needs a
+// real terminal, and it is deliberately too thin to hold logic.
+
+int countKittyImages(const std::string& bytes)
+{
+    int images = 0;
+    for (const auto& ev : parseEscapeStream(bytes))
+        if (ev.kind == EventKind::KittyGraphics)
+            ++images;
+    return images;
+}
+
+/// Without a TTY, a plain single-file invocation stays one-shot -- otherwise
+/// piping mriv into a file would block forever waiting for keys.
+void testNoTtyDoesNotEnterInteractiveMode(const char* fixture)
+{
+    setenv("MRIV_TEST_RENDER", "1", 1);
+    Args args{"mriv", fixture};
+    std::istringstream in;
+    std::ostringstream out, err;
+
+    int rc = run(args.argc(), args.data(), in, out, err);
+    assert(rc == 0);
+
+    // A one-shot render: exactly one image, and the process returned.
+    assert(countKittyImages(out.str()) == 1);
+
+    unsetenv("MRIV_TEST_RENDER");
+}
+
+void testExplicitInteractiveWithoutATtyIsRefused(const char* fixture)
+{
+    setenv("MRIV_TEST_RENDER", "1", 1);
+    Args args{"mriv", "--interactive", fixture};
+    std::istringstream in;
+    std::ostringstream out, err;
+
+    int rc = run(args.argc(), args.data(), in, out, err);
+    assert(rc == 1);
+    // The refusal specifically, not just any message mentioning a terminal:
+    // the no-pixel-support diagnostic also contains the word "terminal", and
+    // matching that instead would let a broken refusal pass by entering
+    // interactive mode and failing there.
+    assert(err.str().find("needs a terminal on stdout") != std::string::npos);
+    // Refused before anything was drawn.
+    assert(countKittyImages(out.str()) == 0);
+
+    unsetenv("MRIV_TEST_RENDER");
+}
+
+void testExplicitInteractiveWithMultipleFilesIsRefused(const char* fixture, const char* fixture2)
+{
+    setenv("MRIV_TEST_RENDER", "1", 1);
+    Args args{"mriv", "--interactive", fixture, fixture2};
+    std::istringstream in;
+    std::ostringstream out, err;
+
+    int rc = run(args.argc(), args.data(), in, out, err);
+    assert(rc == 1);
+    assert(err.str().find("needs exactly one file") != std::string::npos);
+
+    unsetenv("MRIV_TEST_RENDER");
+}
+
+void testInteractiveWithInfoIsRefused(const char* fixture)
+{
+    Args args{"mriv", "--interactive", "--info", fixture};
+    std::istringstream in;
+    std::ostringstream out, err;
+
+    int rc = run(args.argc(), args.data(), in, out, err);
+    assert(rc == 1);
+    assert(err.str().find("--info") != std::string::npos);
+    // The refusal comes before --info would have printed anything.
+    assert(out.str().find("dimensions:") == std::string::npos);
+}
+
+void testInteractiveAndNoInteractiveTogetherIsRefused(const char* fixture)
+{
+    Args args{"mriv", "--interactive", "--no-interactive", fixture};
+    std::istringstream in;
+    std::ostringstream out, err;
+
+    int rc = run(args.argc(), args.data(), in, out, err);
+    assert(rc == 1);
+    assert(err.str().find("--no-interactive") != std::string::npos);
+}
+
+/// --no-interactive is accepted and harmless off a TTY, so scripts can pass
+/// it unconditionally without having to know where their output is going.
+void testNoInteractiveStillRendersOneShot(const char* fixture)
+{
+    setenv("MRIV_TEST_RENDER", "1", 1);
+    Args args{"mriv", "--no-interactive", fixture};
+    std::istringstream in;
+    std::ostringstream out, err;
+
+    int rc = run(args.argc(), args.data(), in, out, err);
+    assert(rc == 0);
+    assert(countKittyImages(out.str()) == 1);
+
+    unsetenv("MRIV_TEST_RENDER");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -436,6 +547,13 @@ int main(int argc, char** argv)
     testAllFilesMissingFails();
     testNoPixelSupportReportsOnceForStrip(fixturePath, fixturePath2);
     testRequirePixelsExitsNonZeroWithoutPixelSupport(fixturePath);
+
+    testNoTtyDoesNotEnterInteractiveMode(fixturePath);
+    testExplicitInteractiveWithoutATtyIsRefused(fixturePath);
+    testExplicitInteractiveWithMultipleFilesIsRefused(fixturePath, fixturePath2);
+    testInteractiveWithInfoIsRefused(fixturePath);
+    testInteractiveAndNoInteractiveTogetherIsRefused(fixturePath);
+    testNoInteractiveStillRendersOneShot(fixturePath);
 
     return 0;
 }

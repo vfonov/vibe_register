@@ -7,11 +7,17 @@
 #include <ostream>
 #include <string>
 
+#include <unistd.h>
+
 #include "cli/ColourMapArg.hpp"
+#include "cli/InteractiveDecision.hpp"
 #include "cli/Options.hpp"
 #include "cli/SliceSelection.hpp"
 #include "cli/VolumeInfo.hpp"
 #include "render/PixelProtocol.hpp"
+#include "interactive/Screen.hpp"
+#include "interactive/Session.hpp"
+#include "interactive/StatusLine.hpp"
 #include "render/SliceGeometry.hpp"
 #include "render/SlicePipeline.hpp"
 #include "render/Terminal.hpp"
@@ -152,6 +158,112 @@ bool renderAndBlitVolume(const Volume& vol,
     return blitOk;
 }
 
+// Resolve the starting slice for `axis` from --slice.
+int resolveStartSlice(const Options& options, const Volume& vol, int viewIndex)
+{
+    int dimAlongAxis = sliceCountForView(viewIndex, vol.dimensions);
+    auto selection = parseSliceArg(options.sliceArg);
+    if (!selection.has_value())
+        return dimAlongAxis / 2; // parseArgs() validated this already.
+    return resolveSliceIndex(*selection, dimAlongAxis);
+}
+
+// Interactive mode: load the one volume, take over the terminal, and hand
+// the loop to runSession(). Everything decided here -- which slice, which
+// range, how the image is fitted -- goes through the same ViewState,
+// StatusLine and renderSliceForDisplay() the tests cover; Screen is only
+// the terminal glue.
+int runInteractive(const Options& options, std::ostream& err)
+{
+    const bool verbose = debugEnabled();
+    auto log = [&](const std::string& msg) {
+        if (verbose)
+            err << "[mriv debug] " << msg << "\n";
+    };
+
+    const std::string& path = options.files.front();
+
+    Volume vol;
+    try
+    {
+        vol.load(path);
+    }
+    catch (const std::exception& e)
+    {
+        err << "mriv: failed to load '" << path << "': " << e.what() << "\n";
+        return 1;
+    }
+    log("interactive: loaded " + path);
+
+    // The colour map, inversion and --scale are fixed for the session; the
+    // view, slice and range come from the ViewState on every frame.
+    SliceRequest base;
+    if (!applyDisplayOptions(options, vol, base, err))
+        return 1;
+    base.scale = options.scale;
+
+    int viewIndex = viewIndexForAxis(options.axis).value_or(0);
+    ViewState state(vol.dimensions,
+                    options.axis,
+                    resolveStartSlice(options, vol, viewIndex),
+                    base.valueMin,
+                    base.valueMax);
+
+    // Anything printed while the alternate screen is up is wiped when the
+    // terminal is restored, so a diagnostic has to wait for Screen to be
+    // destroyed. Hence the inner scope and the deferred message.
+    int status = 0;
+    std::string deferredError;
+    {
+        Screen screen;
+        if (!screen.init())
+            return 1;
+
+        if (!screen.hasPixelSupport())
+        {
+            deferredError = "mriv: this terminal has no pixel graphics protocol "
+                            "(Kitty, sixel, or iTerm2). Try Kitty, Ghostty, WezTerm, "
+                            "iTerm2, or Konsole.";
+            status = 1;
+        }
+        else
+        {
+            auto box = screen.pixelGeometry();
+            int maxW = static_cast<int>(box.width);
+            if (options.maxWidth.has_value())
+                maxW = std::min(maxW, *options.maxWidth);
+            int maxH = static_cast<int>(box.height);
+            log("interactive: display box " + std::to_string(maxW) + "x" + std::to_string(maxH));
+
+            auto draw = [&](const ViewState& current) {
+                SliceRequest request = base;
+                request.viewIndex  = current.viewIndex();
+                request.sliceIndex = current.sliceIndex();
+                request.valueMin   = current.rangeLow();
+                request.valueMax   = current.rangeHigh();
+                request.maxWidth   = maxW;
+                request.maxHeight  = maxH;
+
+                auto image = renderSliceForDisplay(vol, request);
+                if (image.width <= 0 || image.height <= 0)
+                    return false;
+
+                return screen.drawFrame(formatStatusLine(current, path),
+                                        image.pixels.data(), image.width, image.height);
+            };
+
+            auto keys = [&]() { return screen.readKey(); };
+
+            status = runSession(state, keys, draw);
+        }
+    }
+
+    if (!deferredError.empty())
+        err << deferredError << "\n";
+
+    return status;
+}
+
 } // namespace
 
 int run(int argc, char** argv, std::istream& /*in*/, std::ostream& out, std::ostream& err)
@@ -190,6 +302,22 @@ int run(int argc, char** argv, std::istream& /*in*/, std::ostream& out, std::ost
         err << "mriv: no input files given\n";
         printHelp(out);
         return 1;
+    }
+
+    // Interactive mode needs a terminal to read keys from and a single
+    // volume to navigate; see cli/InteractiveDecision.hpp for the rules.
+    // Decided before --info so that asking for both is refused rather than
+    // silently resolved.
+    auto interactiveDecision = decideInteractive(parsed.options, isatty(STDOUT_FILENO) != 0);
+    if (!interactiveDecision.refusal.empty())
+    {
+        err << "mriv: " << interactiveDecision.refusal << "\n";
+        return 1;
+    }
+    if (interactiveDecision.interactive)
+    {
+        log("entering interactive mode");
+        return runInteractive(parsed.options, err);
     }
 
     // An unreadable file is skipped rather than aborting the whole run, so

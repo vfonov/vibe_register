@@ -24,9 +24,12 @@ add_library(mriv_lib STATIC
     src/cli/SliceSelection.cpp
     src/cli/ColourMapArg.cpp
     src/cli/VolumeInfo.cpp
+    src/cli/InteractiveDecision.cpp
     src/cli/Run.cpp
     src/interactive/ViewState.cpp
+    src/interactive/Screen.cpp
     src/interactive/Session.cpp
+    src/interactive/StatusLine.cpp
     src/render/SliceGeometry.cpp
     src/render/Resample.cpp
     src/render/SlicePipeline.cpp

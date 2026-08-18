@@ -34,6 +34,9 @@ cxxopts::Options buildParser()
             cxxopts::value<std::string>())
         ("invert", "Invert the colour map")
         ("require-pixels", "Exit non-zero if the terminal has no pixel protocol")
+        ("interactive", "Navigate the volume with the keyboard (default when "
+            "stdout is a terminal and one file is given)")
+        ("no-interactive", "Print one slice and exit, even on a terminal")
         ("max-width", "Cap the rendered image width in pixels", cxxopts::value<int>())
         ("scale", "Integer pixel magnification factor (default: 1)",
             cxxopts::value<int>()->default_value("1"))
@@ -139,6 +142,8 @@ ParseResult parseArgs(int argc, char** argv, std::ostream& err)
 
         result.options.invert = parsed.count("invert") > 0;
         result.options.requirePixels = parsed.count("require-pixels") > 0;
+        result.options.interactive = parsed.count("interactive") > 0;
+        result.options.noInteractive = parsed.count("no-interactive") > 0;
 
         if (parsed.count("max-width"))
             result.options.maxWidth = parsed["max-width"].as<int>();
