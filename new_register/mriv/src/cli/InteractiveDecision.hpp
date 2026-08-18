@@ -22,11 +22,11 @@ struct InteractiveDecision
 };
 
 /// Decide whether to run interactively. Interactive mode needs a terminal
-/// to read keys from and a single volume to navigate, so it is
-/// auto-detected when stdout is a TTY and exactly one file was given
-/// (PLAN.md's CLI surface). --interactive forces the question to be asked
-/// out loud; --no-interactive is the escape hatch for a user at a TTY who
-/// wants the one-shot "cat for medical images" behaviour anyway.
+/// to read keys from, and that is the only requirement: several volumes
+/// become columns of one navigable grid rather than a reason to refuse.
+/// --interactive forces the question to be asked out loud; --no-interactive
+/// is the escape hatch for a user at a TTY who wants the one-shot "cat for
+/// medical images" behaviour anyway.
 InteractiveDecision decideInteractive(const Options& options, bool stdoutIsTty);
 
 } // namespace mriv::term

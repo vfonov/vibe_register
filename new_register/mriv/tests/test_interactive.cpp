@@ -53,20 +53,25 @@ Options makeOptions(int fileCount)
 
 // --- entry decision ------------------------------------------------------
 
-/// The auto-detected case from PLAN.md: a TTY and exactly one file.
-void testAutoDetectNeedsATtyAndOneFile()
+/// Interactive mode needs a terminal to read keys from, and nothing else.
+/// The file count no longer decides it: several volumes become columns of
+/// one navigable grid, which is more useful interactively than piped.
+void testAutoDetectNeedsATty()
 {
     auto onTtyOneFile = decideInteractive(makeOptions(1), true);
     assert(onTtyOneFile.interactive);
+
+    auto onTtyManyFiles = decideInteractive(makeOptions(3), true);
+    assert(onTtyManyFiles.interactive);
     assert(onTtyOneFile.refusal.empty());
 
     auto piped = decideInteractive(makeOptions(1), false);
     assert(!piped.interactive);
     assert(piped.refusal.empty());
 
-    auto strip = decideInteractive(makeOptions(3), true);
-    assert(!strip.interactive);
-    assert(strip.refusal.empty());
+    auto pipedMany = decideInteractive(makeOptions(3), false);
+    assert(!pipedMany.interactive);
+    assert(pipedMany.refusal.empty());
 }
 
 /// --info prints metadata and exits; there is nothing to navigate.
@@ -92,7 +97,7 @@ void testNoInteractiveForcesOneShot()
     assert(decision.refusal.empty());
 }
 
-void testExplicitInteractiveOnATtyWithOneFile()
+void testExplicitInteractiveOnATty()
 {
     Options options = makeOptions(1);
     options.interactive = true;
@@ -100,6 +105,14 @@ void testExplicitInteractiveOnATtyWithOneFile()
     auto decision = decideInteractive(options, true);
     assert(decision.interactive);
     assert(decision.refusal.empty());
+
+    // Several volumes are columns of one grid, not a reason to refuse.
+    Options many = makeOptions(4);
+    many.interactive = true;
+
+    auto manyDecision = decideInteractive(many, true);
+    assert(manyDecision.interactive);
+    assert(manyDecision.refusal.empty());
 }
 
 /// An explicit --interactive that cannot be honoured is refused with a
@@ -113,12 +126,6 @@ void testExplicitInteractiveIsRefusedWithAReason()
     auto pipedDecision = decideInteractive(piped, false);
     assert(!pipedDecision.interactive);
     assert(contains(pipedDecision.refusal, "terminal"));
-
-    Options strip = makeOptions(2);
-    strip.interactive = true;
-    auto stripDecision = decideInteractive(strip, true);
-    assert(!stripDecision.interactive);
-    assert(contains(stripDecision.refusal, "one file"));
 
     Options info = makeOptions(1);
     info.interactive = true;
@@ -347,10 +354,10 @@ void testCaptionNumbersEveryColumnInOrder()
 
 int main()
 {
-    testAutoDetectNeedsATtyAndOneFile();
+    testAutoDetectNeedsATty();
     testInfoIsNeverInteractive();
     testNoInteractiveForcesOneShot();
-    testExplicitInteractiveOnATtyWithOneFile();
+    testExplicitInteractiveOnATty();
     testExplicitInteractiveIsRefusedWithAReason();
     testInteractiveAndNoInteractiveTogetherIsRefused();
 

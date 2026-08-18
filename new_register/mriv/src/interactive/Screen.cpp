@@ -200,13 +200,26 @@ std::optional<char> Screen::readKey()
             continue;
         }
 
-        // Escape leaves, the same as 'q' -- it is the reflex for getting out
-        // of a full-screen terminal application.
+        // Escape is passed through as itself rather than translated to
+        // 'q' here: what it means depends on state this class deliberately
+        // does not have -- it closes the range prompt when one is open and
+        // quits otherwise -- so ViewState decides.
         if (id == 0x1b)
-            return 'q';
+            return '\x1b';
 
-        // Special keys (arrows, function keys, mouse) live beyond Unicode
-        // and have no binding; swallow them rather than passing junk on.
+        // notcurses reports Backspace as a synthetic key above the Unicode
+        // range, so it has to be translated before the filter below drops
+        // it; without this the range prompt could be typed into but never
+        // corrected.
+        if (id == NCKEY_BACKSPACE)
+            return '\b';
+
+        if (id == NCKEY_ENTER)
+            return '\r';
+
+        // Other special keys (arrows, function keys, mouse) live beyond
+        // Unicode and have no binding; swallow them rather than passing
+        // junk on.
         if (id > 0x7f)
             continue;
 

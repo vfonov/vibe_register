@@ -17,8 +17,6 @@ InteractiveDecision decideInteractive(const Options& options, bool stdoutIsTty)
     {
         if (options.info)
             decision.refusal = "--interactive cannot be combined with --info";
-        else if (options.files.size() != 1)
-            decision.refusal = "--interactive needs exactly one file to navigate";
         else if (!stdoutIsTty)
             decision.refusal = "--interactive needs a terminal on stdout";
         else
@@ -30,7 +28,10 @@ InteractiveDecision decideInteractive(const Options& options, bool stdoutIsTty)
     if (options.noInteractive || options.info)
         return decision;
 
-    decision.interactive = stdoutIsTty && options.files.size() == 1;
+    // The file count no longer decides this: several volumes become
+    // columns of one navigable grid, which is more use interactively than
+    // piped. A terminal on stdout is the only requirement.
+    decision.interactive = stdoutIsTty;
     return decision;
 }
 

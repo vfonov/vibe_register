@@ -526,7 +526,11 @@ void testExplicitInteractiveWithoutATtyIsRefused(const char* fixture)
     unsetenv("MRIV_TEST_RENDER");
 }
 
-void testExplicitInteractiveWithMultipleFilesIsRefused(const char* fixture, const char* fixture2)
+/// Several files are columns of one navigable grid, so --interactive with
+/// more than one is honoured now. Without a TTY it is still refused, and
+/// for the TTY reason -- not the file count.
+void testExplicitInteractiveWithMultipleFilesIsAboutTheTtyOnly(const char* fixture,
+                                                               const char* fixture2)
 {
     setenv("MRIV_TEST_RENDER", "1", 1);
     Args args{"mriv", "--interactive", fixture, fixture2};
@@ -535,7 +539,9 @@ void testExplicitInteractiveWithMultipleFilesIsRefused(const char* fixture, cons
 
     int rc = run(args.argc(), args.data(), in, out, err);
     assert(rc == 1);
-    assert(err.str().find("needs exactly one file") != std::string::npos);
+    assert(err.str().find("needs a terminal on stdout") != std::string::npos);
+    assert(err.str().find("one file") == std::string::npos);
+    assert(countKittyImages(out.str()) == 0);
 
     unsetenv("MRIV_TEST_RENDER");
 }
@@ -617,7 +623,7 @@ int main(int argc, char** argv)
 
     testNoTtyDoesNotEnterInteractiveMode(fixturePath);
     testExplicitInteractiveWithoutATtyIsRefused(fixturePath);
-    testExplicitInteractiveWithMultipleFilesIsRefused(fixturePath, fixturePath2);
+    testExplicitInteractiveWithMultipleFilesIsAboutTheTtyOnly(fixturePath, fixturePath2);
     testInteractiveWithInfoIsRefused(fixturePath);
     testInteractiveAndNoInteractiveTogetherIsRefused(fixturePath);
     testNoInteractiveStillRendersOneShot(fixturePath);
