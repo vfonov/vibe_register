@@ -12,11 +12,10 @@
 #include "cli/SliceSelection.hpp"
 #include "cli/VolumeInfo.hpp"
 #include "render/PixelProtocol.hpp"
-#include "render/Resample.hpp"
 #include "render/SliceGeometry.hpp"
+#include "render/SlicePipeline.hpp"
 #include "render/Terminal.hpp"
 
-#include "SliceRenderer.h"
 #include "Volume.h"
 
 namespace mriv::term
@@ -37,22 +36,23 @@ bool debugEnabled()
 constexpr double kAutoWindowLowQuantile  = 0.02;
 constexpr double kAutoWindowHighQuantile = 0.98;
 
-// Build VolumeRenderParams from parsed options, using either the explicit
-// --range pair or the percentile auto range.
-bool buildRenderParams(const Options& options,
-                       const Volume& vol,
-                       VolumeRenderParams& params,
-                       std::ostream& err)
+// Fill in a SliceRequest's intensity and colour-map fields from parsed
+// options, using either the explicit --range pair or the percentile auto
+// range.
+bool applyDisplayOptions(const Options& options,
+                         const Volume& vol,
+                         SliceRequest& request,
+                         std::ostream& err)
 {
     if (options.hasRange)
     {
-        params.valueMin = options.rangeLow;
-        params.valueMax = options.rangeHigh;
+        request.valueMin = options.rangeLow;
+        request.valueMax = options.rangeHigh;
     }
     else
     {
-        params.valueMin = vol.computeQuantile(kAutoWindowLowQuantile);
-        params.valueMax = vol.computeQuantile(kAutoWindowHighQuantile);
+        request.valueMin = vol.computeQuantile(kAutoWindowLowQuantile);
+        request.valueMax = vol.computeQuantile(kAutoWindowHighQuantile);
     }
 
     if (!options.colourMapArg.empty())
@@ -64,9 +64,9 @@ bool buildRenderParams(const Options& options,
             err << "mriv: internal error: invalid colourmap '" << options.colourMapArg << "'\n";
             return false;
         }
-        params.colourMap = *map;
+        request.colourMap = *map;
     }
-    params.invertColourMap = options.invert;
+    request.invertColourMap = options.invert;
     return true;
 }
 
@@ -112,48 +112,38 @@ bool renderAndBlitVolume(const Volume& vol,
         err << "mriv: internal error: invalid slice '" << options.sliceArg << "'\n";
         return false;
     }
-    int sliceIndex = resolveSliceIndex(*sliceSelection, dimAlongAxis);
-    log("sliceArg='" + options.sliceArg + "' -> sliceIndex=" + std::to_string(sliceIndex));
 
-    VolumeRenderParams params;
-    if (!buildRenderParams(options, vol, params, err))
+    SliceRequest request;
+    request.viewIndex  = viewIndex;
+    request.sliceIndex = resolveSliceIndex(*sliceSelection, dimAlongAxis);
+    request.scale      = options.scale;
+    log("sliceArg='" + options.sliceArg + "' -> sliceIndex=" + std::to_string(request.sliceIndex));
+
+    if (!applyDisplayOptions(options, vol, request, err))
         return false;
-    log("valueMin=" + std::to_string(params.valueMin) + " valueMax=" + std::to_string(params.valueMax));
-
-    log("calling renderSlice...");
-    RenderedSlice slice = renderSlice(vol, params, viewIndex, sliceIndex);
-    log("renderSlice returned " + std::to_string(slice.width) + "x" + std::to_string(slice.height));
-    if (slice.width <= 0 || slice.height <= 0)
-    {
-        err << "mriv: rendered slice is empty\n";
-        return false;
-    }
-
-    // Pixel-protocol support is checked once in run(), before any volume is
-    // loaded -- it is a property of the terminal, not of a file. Checking it
-    // here meant N identical error messages for an N-file strip, each one
-    // printed only after that volume had been loaded and rendered for
-    // nothing.
-    auto axes     = aspectAxesForView(viewIndex);
-    double aspect = vol.slicePixelAspect(axes.u, axes.v);
-    log("aspect axes u=" + std::to_string(axes.u) + " v=" + std::to_string(axes.v)
-        + " aspect=" + std::to_string(aspect));
+    log("valueMin=" + std::to_string(request.valueMin)
+        + " valueMax=" + std::to_string(request.valueMax));
 
     log("terminal pixel geometry width=" + std::to_string(box.width)
         + " height=" + std::to_string(box.height));
 
-    int maxW = static_cast<int>(box.width);
-    int maxH = static_cast<int>(box.height);
+    request.maxWidth  = static_cast<int>(box.width);
+    request.maxHeight = static_cast<int>(box.height);
     if (options.maxWidth.has_value())
     {
-        maxW = std::min(maxW, *options.maxWidth);
-        log("--max-width applied; maxW=" + std::to_string(maxW));
+        request.maxWidth = std::min(request.maxWidth, *options.maxWidth);
+        log("--max-width applied; maxW=" + std::to_string(request.maxWidth));
     }
 
-    log("calling resampleToDisplay with scale=" + std::to_string(options.scale) + "...");
-    auto display = resampleToDisplay(slice, aspect, maxW, maxH, options.scale);
-    log("resampled to " + std::to_string(display.width) + "x" + std::to_string(display.height)
+    log("calling renderSliceForDisplay with scale=" + std::to_string(request.scale) + "...");
+    auto display = renderSliceForDisplay(vol, request);
+    log("display image " + std::to_string(display.width) + "x" + std::to_string(display.height)
         + " pixel count=" + std::to_string(display.pixels.size()));
+    if (display.width <= 0 || display.height <= 0)
+    {
+        err << "mriv: rendered slice is empty\n";
+        return false;
+    }
 
     log("calling terminal.blit...");
     bool blitOk = terminal.blit(display.pixels.data(), display.width, display.height);

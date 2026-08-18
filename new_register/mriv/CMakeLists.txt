@@ -29,6 +29,7 @@ add_library(mriv_lib STATIC
     src/interactive/Session.cpp
     src/render/SliceGeometry.cpp
     src/render/Resample.cpp
+    src/render/SlicePipeline.cpp
     src/render/Terminal.cpp
     src/render/Encode.cpp
     src/util/Base64.cpp
