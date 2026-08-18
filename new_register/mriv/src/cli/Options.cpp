@@ -52,7 +52,8 @@ cxxopts::Options buildParser()
         ("h,help", "Show this help message")
         ("version", "Show version")
         ("i,info", "Print volume metadata and exit (no rendering)")
-        ("a,axis", "Axis to slice along: x|y|z (default: z / axial)",
+        ("a,axis", "Axis that --slice positions and the keyboard moves: "
+            "x|y|z (default: z / axial)",
             cxxopts::value<std::string>()->default_value("z"))
         ("s,slice", "Slice index, percentage, or \"mid\" (default: mid)",
             cxxopts::value<std::string>()->default_value("mid"))
@@ -67,9 +68,9 @@ cxxopts::Options buildParser()
             "rest). See ColourMap.h.", cxxopts::value<std::string>())
         ("invert", "Invert the colour map")
         ("require-pixels", "Exit non-zero if the terminal has no pixel protocol")
-        ("interactive", "Navigate the volume with the keyboard (default when "
-            "stdout is a terminal and one file is given)")
-        ("no-interactive", "Print one slice and exit, even on a terminal")
+        ("interactive", "Navigate the volumes with the keyboard (default when "
+            "stdout is a terminal)")
+        ("no-interactive", "Print one frame and exit, even on a terminal")
         ("max-width", "Cap the rendered image width in pixels", cxxopts::value<int>())
         ("scale", "Integer pixel magnification factor (default: 1)",
             cxxopts::value<int>()->default_value("1"))
