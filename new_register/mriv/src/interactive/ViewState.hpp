@@ -25,6 +25,17 @@ enum class KeyResult
     Quit,
 };
 
+/// The arrow keys, carried through the session as the control codes
+/// readline binds to the same movements (Ctrl-P/N/B/F). Screen translates
+/// notcurses' synthetic key ids into these, so ViewState, Session and the
+/// tests can all stay on plain chars instead of gaining a key type for
+/// four bindings. Nothing else in the key map uses the control range, and
+/// a user who types Ctrl-B on purpose gets the movement it names anyway.
+constexpr char kKeyUp    = '\x10';
+constexpr char kKeyDown  = '\x0e';
+constexpr char kKeyLeft  = '\x02';
+constexpr char kKeyRight = '\x06';
+
 /// How one volume's intensities are mapped. Per volume, not per session:
 /// the reason to put two volumes side by side is usually that they need
 /// different ranges and different colour maps.
@@ -66,8 +77,9 @@ public:
               const glm::ivec3& cursor,
               std::vector<VolumeDisplay> displays);
 
-    /// Apply one keypress: j/k slice, x/y/z axis, Tab and 1-9 active
-    /// volume, c/C colour map, r range prompt, q or Esc quit. There is no
+    /// Apply one keypress: j/k slice, x/y/z or up/down axis, Tab, 1-9 and
+    /// left/right active volume, c/C colour map, r range prompt, q or Esc
+    /// quit. There is no
     /// h/l -- the parent has no time dimension (PLAN.md, deferred work).
     ///
     /// While the range prompt is open every key belongs to it, including
@@ -85,6 +97,11 @@ public:
     /// The viewIndex of the active axis -- what j/k moves, not the only
     /// thing on screen.
     int viewIndex() const { return viewIndex_; }
+
+    /// The active view's position in views() -- its row in the grid. The
+    /// marker drawn beside it is placed by row, and --views can put the
+    /// rows in any order, so a viewIndex is not enough.
+    int activeViewRow() const;
 
     /// The displayed views, in row order.
     const std::vector<int>& views() const { return views_; }
@@ -111,6 +128,7 @@ private:
 
     KeyResult moveSlice(int delta);
     KeyResult selectAxis(char axis);
+    KeyResult selectViewRow(int delta);
     KeyResult selectVolume(int volume);
     KeyResult cycleColourMap(int delta);
     KeyResult beginRangeEdit();

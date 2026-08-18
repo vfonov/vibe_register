@@ -126,6 +126,26 @@ KeyResult ViewState::selectAxis(char axis)
     return KeyResult::Changed;
 }
 
+int ViewState::activeViewRow() const
+{
+    auto found = std::find(views_.begin(), views_.end(), viewIndex_);
+    return found == views_.end() ? 0 : static_cast<int>(found - views_.begin());
+}
+
+KeyResult ViewState::selectViewRow(int delta)
+{
+    int rows = static_cast<int>(views_.size());
+    if (rows < 2)
+        return KeyResult::Ignored;
+
+    // A ring in both directions: stopping dead at the end of a three-row
+    // grid is more annoying than coming back round.
+    int row = ((activeViewRow() + delta) % rows + rows) % rows;
+    viewIndex_ = views_[static_cast<size_t>(row)];
+    axis_ = axisForViewIndex(viewIndex_);
+    return KeyResult::Changed;
+}
+
 KeyResult ViewState::selectVolume(int volume)
 {
     if (volume < 0 || volume >= volumeCount() || volume == activeVolume_)
@@ -193,6 +213,17 @@ KeyResult ViewState::handleKey(char key)
         case 'y':
         case 'z': return selectAxis(key);
         case '\t': return selectVolume((activeVolume_ + 1) % std::max(1, volumeCount()));
+        // The arrows do what the letters and Tab do, for a user who has not
+        // read the legend: vertical picks the view, horizontal the column.
+        case kKeyUp:   return selectViewRow(-1);
+        case kKeyDown: return selectViewRow(1);
+        case kKeyLeft:
+        case kKeyRight:
+        {
+            int count = std::max(1, volumeCount());
+            int delta = (key == kKeyRight) ? 1 : count - 1;
+            return selectVolume((activeVolume_ + delta) % count);
+        }
         case 'c': return cycleColourMap(1);
         case 'C': return cycleColourMap(-1);
         case 'r': return beginRangeEdit();

@@ -330,6 +330,90 @@ void testSingleSliceAxisCannotMove()
     assert(state.sliceIndex() == 0);
 }
 
+/// The active view as a row number, which is what the on-screen marker
+/// needs: the grid draws views in --views order, not in viewIndex order.
+void testActiveViewRowIsAnIndexIntoTheDisplayedViews()
+{
+    glm::ivec3 dims(64, 128, 96);
+    ViewState state({dims}, {2, 0}, 'y', glm::ivec3(32, 64, 48), displaysFor(1));
+
+    assert(state.activeViewRow() == 0); // coronal is listed first
+    assert(state.handleKey('z') == KeyResult::Changed);
+    assert(state.activeViewRow() == 1);
+}
+
+/// Up and down walk the displayed views. They are an alternative to x/y/z,
+/// not a replacement: the letters jump straight to a plane, the arrows step
+/// through whatever --views actually put on screen.
+void testVerticalArrowsWalkTheDisplayedViews()
+{
+    auto state = makeState(); // views {0, 1, 2}, axial active
+    assert(state.handleKey(kKeyDown) == KeyResult::Changed);
+    assert(state.activeViewRow() == 1);
+    assert(state.axis() == 'x');
+
+    assert(state.handleKey(kKeyUp) == KeyResult::Changed);
+    assert(state.activeViewRow() == 0);
+    assert(state.axis() == 'z');
+}
+
+/// Both directions wrap: the rows are a ring, and stopping dead at the end
+/// of a three-row grid is more annoying than coming back round.
+void testVerticalArrowsWrap()
+{
+    auto state = makeState();
+    assert(state.handleKey(kKeyUp) == KeyResult::Changed);
+    assert(state.activeViewRow() == 2);
+    assert(state.handleKey(kKeyDown) == KeyResult::Changed);
+    assert(state.activeViewRow() == 0);
+}
+
+/// With one view on screen there is nowhere to step, so the arrows change
+/// nothing rather than repainting an identical frame.
+void testVerticalArrowsWithOneViewAreIgnored()
+{
+    glm::ivec3 dims(64, 128, 96);
+    ViewState state({dims}, {0}, 'z', glm::ivec3(32, 64, 48), displaysFor(1));
+    assert(state.handleKey(kKeyDown) == KeyResult::Ignored);
+    assert(state.handleKey(kKeyUp) == KeyResult::Ignored);
+}
+
+/// Left and right select the column, the same as Tab and the digits.
+void testHorizontalArrowsSelectTheVolume()
+{
+    auto state = makeTwoVolumeState();
+    assert(state.handleKey(kKeyRight) == KeyResult::Changed);
+    assert(state.activeVolume() == 1);
+
+    assert(state.handleKey(kKeyLeft) == KeyResult::Changed);
+    assert(state.activeVolume() == 0);
+
+    // Wrapping, like Tab.
+    assert(state.handleKey(kKeyLeft) == KeyResult::Changed);
+    assert(state.activeVolume() == 1);
+}
+
+void testHorizontalArrowsWithOneVolumeAreIgnored()
+{
+    auto state = makeState();
+    assert(state.handleKey(kKeyRight) == KeyResult::Ignored);
+    assert(state.handleKey(kKeyLeft) == KeyResult::Ignored);
+}
+
+/// The prompt owns every key while it is open, arrows included: they must
+/// not move the grid underneath what is being typed.
+void testArrowsDoNotEscapeTheRangePrompt()
+{
+    auto state = makeTwoVolumeState();
+    state.handleKey('r');
+    state.handleKey(kKeyRight);
+    state.handleKey(kKeyDown);
+
+    assert(state.isEditing());
+    assert(state.activeVolume() == 0);
+    assert(state.activeViewRow() == 0);
+}
+
 void testConstructorClampsTheCursor()
 {
     glm::ivec3 dims(4, 4, 4);
@@ -367,5 +451,12 @@ int main()
     testQuitAndUnknownKeys();
     testSingleSliceAxisCannotMove();
     testConstructorClampsTheCursor();
+    testActiveViewRowIsAnIndexIntoTheDisplayedViews();
+    testVerticalArrowsWalkTheDisplayedViews();
+    testVerticalArrowsWrap();
+    testVerticalArrowsWithOneViewAreIgnored();
+    testHorizontalArrowsSelectTheVolume();
+    testHorizontalArrowsWithOneVolumeAreIgnored();
+    testArrowsDoNotEscapeTheRangePrompt();
     return 0;
 }

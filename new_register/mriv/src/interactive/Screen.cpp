@@ -5,6 +5,8 @@
 
 #include <notcurses/notcurses.h>
 
+#include "interactive/ViewState.hpp"
+
 namespace mriv::term
 {
 
@@ -217,9 +219,23 @@ std::optional<char> Screen::readKey()
         if (id == NCKEY_ENTER)
             return '\r';
 
-        // Other special keys (arrows, function keys, mouse) live beyond
-        // Unicode and have no binding; swallow them rather than passing
-        // junk on.
+        // The arrows are the other half of the x/y/z and Tab bindings, and
+        // notcurses reports them above the Unicode range like Backspace, so
+        // they need translating before the filter below drops them. The
+        // control codes they map to are ViewState's, not this class's
+        // invention (interactive/ViewState.hpp).
+        if (id == NCKEY_UP)
+            return kKeyUp;
+        if (id == NCKEY_DOWN)
+            return kKeyDown;
+        if (id == NCKEY_LEFT)
+            return kKeyLeft;
+        if (id == NCKEY_RIGHT)
+            return kKeyRight;
+
+        // The remaining special keys (function keys, page up/down, mouse)
+        // live beyond Unicode and have no binding; swallow them rather than
+        // passing junk on.
         if (id > 0x7f)
             continue;
 
