@@ -19,6 +19,17 @@ std::optional<int> viewIndexForAxis(char axis);
 /// aspectAxesForView()'s treatment of an out-of-range viewIndex.
 int sliceCountForView(int viewIndex, const glm::ivec3& dimensions);
 
+/// Map a slice index from one volume's axis to another's, for the
+/// synchronised cursor a multi-volume display shares. `index` is a position
+/// in an axis of `fromCount` slices; the result is the proportionally
+/// equivalent position in an axis of `toCount`, clamped to a valid index.
+///
+/// Equal counts give an exact identity, which is what makes the common case
+/// -- the same subject in two modalities -- behave the way a user expects:
+/// "the same slice" means the same index, not one rounded off by a pixel.
+/// A count of zero yields 0 rather than dividing by it.
+int mapSliceIndex(int index, int fromCount, int toCount);
+
 /// The two in-plane Volume axes (axisU, axisV) to pass to
 /// Volume::slicePixelAspect() for a given viewIndex. Not derivable from
 /// viewIndex by a simple formula -- verified against

@@ -37,6 +37,48 @@ void testSliceCountForView()
     assert(sliceCountForView(2, dims) == 229);
 }
 
+/// Cross-volume slice synchronisation. The cursor lives in the first
+/// volume's index space; every other volume tracks it proportionally.
+/// Equal counts must be an exact identity -- the common case is the same
+/// subject in two modalities, where "the same slice" has to mean the same
+/// index, not one rounded off by a pixel.
+void testMapSliceIndexIsIdentityForEqualCounts()
+{
+    for (int i = 0; i < 96; ++i)
+        assert(mapSliceIndex(i, 96, 96) == i);
+}
+
+void testMapSliceIndexScalesProportionally()
+{
+    // Half the slices: index 50 of 100 lands mid-stack in a 50-slice volume.
+    assert(mapSliceIndex(50, 100, 50) == 25);
+    assert(mapSliceIndex(0, 100, 50) == 0);
+    // Twice the slices. Note 51, not 50: the scaling is by last index, so
+    // index 25 of 0..49 is 51% of the way up and lands at 51 of 0..99.
+    // That is the cost of aligning the two ends exactly, which matters more
+    // than a half-slice at the middle -- see testMapSliceIndexClampsAtBothEnds.
+    assert(mapSliceIndex(25, 50, 100) == 51);
+}
+
+/// The last slice of the source must map to the last slice of the target,
+/// not one past it: a cursor parked at the end of the reference volume
+/// still has to address a real slice in a shorter one.
+void testMapSliceIndexClampsAtBothEnds()
+{
+    assert(mapSliceIndex(99, 100, 50) == 49);
+    assert(mapSliceIndex(49, 50, 100) == 99);
+    assert(mapSliceIndex(1000, 100, 50) == 49);
+    assert(mapSliceIndex(-5, 100, 50) == 0);
+}
+
+/// Degenerate counts must not divide by zero or return a negative index.
+void testMapSliceIndexHandlesEmptyCounts()
+{
+    assert(mapSliceIndex(5, 0, 10) == 0);
+    assert(mapSliceIndex(5, 10, 0) == 0);
+    assert(mapSliceIndex(0, 1, 1) == 0);
+}
+
 void testAspectAxesTable()
 {
     auto axial = aspectAxesForView(0);
@@ -83,6 +125,10 @@ int main(int argc, char** argv)
 
     testAxisToViewIndex();
     testSliceCountForView();
+    testMapSliceIndexIsIdentityForEqualCounts();
+    testMapSliceIndexScalesProportionally();
+    testMapSliceIndexClampsAtBothEnds();
+    testMapSliceIndexHandlesEmptyCounts();
     testAspectAxesTable();
     testAspectAxesAgainstThickSlicesVolume(path);
 
