@@ -52,6 +52,7 @@ set_property(TEST mriv_test_slice_geometry
     "MRIV_THICK_SLICES_FIXTURE=${MRIV_TEST_DATA_DIR}/mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc"
 )
 add_mriv_test(test_view_state)
+add_mriv_test(test_session)
 add_mriv_test(test_resample)
 add_mriv_test(test_terminal LINKS PkgConfig::NOTCURSES)
 
