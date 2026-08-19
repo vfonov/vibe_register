@@ -343,11 +343,12 @@ several volumes become columns of one navigable grid, which is more use interact
 |-----|--------|
 | `j` / `k` | Move the cursor ±1 along the active axis — every column moves together |
 | `x` / `y` / `z` | Choose the axis `j`/`k` moves. Does **not** change which views are shown |
-| `Tab`, `1`–`9` | Select the active column |
+| `↑` / `↓` | Step the active row through the displayed views, wrapping — an alternative to `x`/`y`/`z` for whatever `--views` put on screen |
+| `Tab`, `1`–`9`, `←` / `→` | Select the active column, wrapping |
 | `c` / `C` | Cycle the active column's colour map forward / back |
 | `r` | Open the range prompt for the active column |
 | `q`, `Esc` | Quit |
-| *in prompt* | printable → append, Backspace → delete, Enter → apply, `Esc` → cancel |
+| *in prompt* | printable → append, Backspace → delete, Enter → apply, `Esc` → cancel (arrows and letters are swallowed by the prompt, not acted on) |
 
 There is no `h`/`l` time navigation — see [Deferred work](#deferred-work--blocked-on-the-parent).
 
@@ -357,6 +358,13 @@ showing columns side by side; equal slice counts map index-for-index, and mismat
 proportionally. Each axis keeps its own component, so leaving an axis and returning to it lands
 exactly where you left off — the three are geometrically independent and there is no meaningful way
 to carry a position between them.
+
+The loaded volumes' names are printed above the grid, one per line, followed by the status row
+(`interactive/StatusLine.hpp`). Which pane the keys act on is shown physically rather than in text: a
+`*` in the left gutter marks the row `j`/`k` moves, and a `*` on the line below the image marks the
+column `c`/`r` change. `interactive/Overlay.hpp` turns the header lines and `buildFrame()`'s reported
+pane geometry into those marker positions; `Screen::pixelGeometry()` reserves the rows and gutter
+column they need before the grid is fitted, so the image box and the overlay always agree.
 
 Ranges are **typed, not scaled**: `r` prompts for `low high` (or `low,high`) on the status row, for
 the active column only. On real data the numbers you want are known, and hunting for them by

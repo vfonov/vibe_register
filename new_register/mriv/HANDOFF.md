@@ -626,3 +626,68 @@ One test-design trap hit while adding `test_cli.cpp`'s `--range` coverage: `sq1.
   **Verified:** `ctest` green 46/46 (27 parent + 19 mriv; `test_view_list`, `test_layout`, `test_compose`, `test_frame_builder`, `test_range_editor` added, `test_view_state` and `test_interactive` largely rewritten). Headless end-to-end through `MRIV_TEST_RENDER=1`: a three-view single volume of the anisotropic fixture composes to 192x429, exactly the per-pane aspect-corrected sizes stacked with two 4px gutters; `--views z` gives one row; two files widen the frame and produce one image with one caption naming both; `--max-width` binds and divides between columns; `--scale 2` doubles both dimensions including the gutter.
 
   **Unverified, and it is the same list as M5 plus the new panes:** everything from `Screen::init()` onward. Whether the grid's proportions read correctly on a real terminal, whether the status row sits where it should above a taller image, whether the range prompt is usable, and — new — whether the frame re-blitted after `notcurses_stop()` actually survives on Kitty/Ghostty/WezTerm/iTerm2. **That is still the visual check to ask a human for before M6.**
+
+### 2026-08-19 — active-pane markers, per-volume header lines, and arrow-key navigation
+
+Continuation of the multi-view/multi-volume grid work committed earlier (`cb4683d`–`413d574`). The grid
+is one bitmap, so nothing inside it can say which row or column the keys act on; this session added the
+terminal text drawn around it to answer that, plus a second way to move the selection.
+
+**`buildFrame()` now optionally reports where the panes landed (`FrameTracks*` out-parameter).** The
+layout starts from per-cell budgets and shrinks to what `renderSliceForDisplay()`'s fit actually
+produced, so only `buildFrame()` knows the final column/row offsets and sizes — `computeGrid()`'s
+budgets are not them. Passing `nullptr` (the default) costs nothing extra; existing callers are
+unaffected. `test_frame_builder.cpp` gained two cases pinning the reported geometry and confirming a
+degenerate request leaves the tracks empty rather than stale.
+
+**New `interactive/Overlay.{hpp,cpp}` turns tracks into terminal text.** `planOverlay()` is a pure
+function: given the header lines (volume names + status row), the frame's `FrameTracks`, which row/column
+is active, the frame's pixel height, and the terminal's cell size, it returns a `FrameOverlay` — a list of
+`(row, col, text)` cells plus where the image itself starts. The row marker is centred on the active
+view's vertical midpoint (not its top edge, which would read as belonging to the row above); the column
+marker sits on the first whole terminal row below the image, centred on the active column. Both are
+dropped, not guessed, when the cell size is unknown or the requested index has no track — a wrong marker
+would confidently point at the wrong volume, which is worse than none. Mutation-tested (removed the
+centring, and the ceiling-division for the footer row) to confirm `test_overlay.cpp` actually kills both.
+
+**`ViewState` gained `activeViewRow()`, and the arrow keys.** `--views` can list the rows in any order
+(`--views y,z` is legal), so the row a marker belongs at is not the same number as `viewIndex()` — it's
+the position in `views()`. Up/down step `activeViewRow()` through the displayed views and wrap; left/right
+do what Tab and the digits already did for the column, also wrapping. Both pairs are carried through
+`Session`/`ViewState` as the same control-code convention readline uses for the equivalent motions
+(`kKeyUp = 0x10`, `kKeyDown = 0x0e`, `kKeyLeft = 0x02`, `kKeyRight = 0x06`) rather than inventing a key
+variant type for four bindings; `Screen::readKey()` translates notcurses' `NCKEY_UP/DOWN/LEFT/RIGHT`
+(reported above the Unicode range, like Backspace already was) into these before the `id > 0x7f` filter
+would otherwise drop them. Both pairs are swallowed whole by the range prompt while it's open, same as
+every other key — `testArrowsDoNotEscapeTheRangePrompt` pins that.
+
+**`Screen`'s frame-drawing contract changed shape.** `drawFrame()` used to take one status string, printed
+on a hardcoded row 0, with the image always at row 1. It now takes a `FrameOverlay` and draws every text
+cell at its planned position before blitting the image at `overlay.imageRow`/`imageColumn`.
+`pixelGeometry()` takes a `headerRows` count and reserves that many rows on top plus `Overlay`'s marker
+row below and marker columns to the left, so the box handed to `buildFrame()` and the space `Overlay`
+assumes always agree — there is exactly one place (`Run.cpp`) that decides `headerRows`, from
+`formatVolumeNameLines(paths).size() + 1`, and both calls use it.
+
+**`StatusLine` lost the inline volume-name-plus-star list.** `formatSummaryLine`/`formatStatusLine` used
+to print every column's basename with a trailing `*` on the active one, on the single status row. That
+information is now the header lines above the image and the physical column marker below it, so the
+status row went back to just plane/slice/range/colour-map/legend. New `formatVolumeNameLines()` returns
+one plain basename per line — no star; the marker is what says which one is active, not the text.
+`test_interactive.cpp` updated to match: the removed assertions moved to two new
+`formatVolumeNameLines()`-specific tests rather than being deleted outright.
+
+**`Run.cpp::runInteractive()`** builds the header once per session (`nameLines` is fixed; only the trailing
+status line changes per frame), gets a `FrameTracks` back from `buildFrame()`, and feeds both plus the
+active row/column into `planOverlay()` before calling `screen.drawFrame()`. The "leave the last frame on
+exit" path now re-prints every header line (not just one summary line) through `Terminal::printLine()`
+before re-blitting — `Terminal` already supports being called multiple times, one call per line, so no
+new capability was needed there.
+
+`ctest` green 47/47 (`test_overlay` added at 7 cases; `test_frame_builder` and `test_view_state` each
+gained cases; `test_interactive` net-neutral). **Still needs the same real-terminal check the M5 entry
+above asked for, now covering more surface**: whether the header lines and both markers land where this
+session predicts, whether the row marker's vertical centring reads right against a real image, and
+whether the re-printed multi-line header survives `notcurses_stop()` the same way the single summary line
+was shown to. Nothing about the marker geometry can be confirmed without eyes on a real Kitty/Ghostty/
+WezTerm/iTerm2 session — `Screen` remains the one file in this area no test here can reach.
