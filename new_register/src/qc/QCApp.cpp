@@ -6,8 +6,12 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+// No GLFW on macOS: the Metal/Cocoa path (main_macos.mm + initWithBackend())
+// never creates a GLFW window, and GLFW is not linked into new_qc on Apple.
+#ifndef __APPLE__
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#endif
 
 #include "imgui.h"
 #include "WaylandTouchInput.h"
@@ -22,6 +26,7 @@ QCApp::~QCApp()
     shutdown();
 }
 
+#ifndef __APPLE__
 bool QCApp::init(const std::string& inputFile, const std::string& outputFile,
                  const std::optional<float>& scaleFactor, BackendType backendType)
 {
@@ -69,6 +74,7 @@ bool QCApp::init(const std::string& inputFile, const std::string& outputFile,
         std::cerr << "  xvfb-run ./new_qc input.csv output.csv" << std::endl;
         return false;
     }
+    usingGlfw_ = true;
 
     // Set backend-specific window hints
     backend_->setWindowHints();
@@ -109,7 +115,6 @@ bool QCApp::init(const std::string& inputFile, const std::string& outputFile,
 
     // Set up application GLFW callbacks BEFORE backend initImGui so ImGui chains them
     glfwSetWindowUserPointer(window_, this);
-    glfwSetKeyCallback(window_, glfwKeyCallback);
     glfwSetWindowSizeCallback(window_, glfwWindowSizeCallback);
     glfwSetWindowCloseCallback(window_, glfwCloseCallback);
 
@@ -166,33 +171,93 @@ bool QCApp::init(const std::string& inputFile, const std::string& outputFile,
     running_ = true;
     return true;
 }
+#endif // !__APPLE__
 
+bool QCApp::initWithBackend(std::unique_ptr<Backend> backend,
+                             const std::string& inputFile, const std::string& outputFile,
+                             const std::optional<float>& scaleFactor)
+{
+    outputFile_ = outputFile;
+
+    if (!csvHandler_.loadOutputCSV(outputFile))
+    {
+        if (!csvHandler_.loadInputCSV(inputFile))
+            return false;
+    }
+
+    if (csvHandler_.getRecordCount() == 0)
+    {
+        std::cerr << "Error: No records to process" << std::endl;
+        return false;
+    }
+
+    // The caller already constructed and initialize()'d the backend against
+    // its own native window/view (no GLFW window on this path).
+    backend_ = std::move(backend);
+
+    if (scaleFactor.has_value())
+        backend_->setContentScale(scaleFactor.value());
+
+    currentScale_ = backend_->imguiScale();
+
+    backend_->initImGui(nullptr);
+
+    loadImage(csvHandler_.getRecords()[currentIndex_].picture_path);
+
+    if (csvHandler_.getRecordCount() > 1)
+        os_prefetch_file(csvHandler_.getRecords()[1].picture_path);
+    if (csvHandler_.getRecordCount() > 2)
+        os_prefetch_file(csvHandler_.getRecords()[2].picture_path);
+
+    running_ = true;
+    return true;
+}
+
+#ifndef __APPLE__
 void QCApp::run()
 {
     while (running_)
     {
         glfwPollEvents();
+        renderFrame();
+    }
+}
+#endif // !__APPLE__
 
-        // Handle swapchain rebuild (Vulkan resize)
-        if (backend_->needsSwapchainRebuild())
+void QCApp::renderFrame()
+{
+    // Handle swapchain rebuild.
+    if (backend_->needsSwapchainRebuild())
+    {
+#ifdef __APPLE__
+        // MTKView manages its own drawable size; rebuildSwapchain() on the
+        // Metal backend just resets the flag and ignores its arguments.
+        backend_->rebuildSwapchain(0, 0);
+#else
+        if (window_)
         {
             int w, h;
             glfwGetFramebufferSize(window_, &w, &h);
             if (w > 0 && h > 0)
                 backend_->rebuildSwapchain(w, h);
         }
-
-        backend_->beginFrame();
-
-        backend_->imguiNewFrame();
-        ImGui::NewFrame();
-
-        renderUI();
-
-        ImGui::Render();
-
-        backend_->imguiRenderDrawData();
+#endif
     }
+
+    backend_->beginFrame();
+
+    backend_->imguiNewFrame();
+    ImGui::NewFrame();
+
+    // Poll hotkeys after ImGui::NewFrame() so this frame's key state is
+    // populated, regardless of which platform backend fed it to ImGui.
+    handleKeyboard();
+
+    renderUI();
+
+    ImGui::Render();
+
+    backend_->imguiRenderDrawData();
 }
 
 void QCApp::shutdown()
@@ -225,13 +290,17 @@ void QCApp::shutdown()
     WaylandTouch::shutdown();
 #endif
 
+#ifndef __APPLE__
     if (window_)
     {
         glfwDestroyWindow(window_);
         window_ = nullptr;
     }
 
-    glfwTerminate();
+    // Only the GLFW path (init(), not initWithBackend()) ever calls glfwInit().
+    if (usingGlfw_)
+        glfwTerminate();
+#endif
 }
 
 void QCApp::loadImage(const std::string& path)
@@ -530,32 +599,29 @@ void QCApp::saveProgress()
     csvHandler_.saveOutputCSV(outputFile_);
 }
 
-void QCApp::handleKeyboard(int key, int scancode, int action, int mods)
+void QCApp::handleKeyboard()
 {
-    if (action != GLFW_PRESS && action != GLFW_REPEAT)
+    // Same idiom as Interface.cpp's hotkey handling: poll ImGui's per-frame
+    // key state rather than a GLFW callback, so this works unmodified under
+    // both imgui_impl_glfw and imgui_impl_osx.
+    if (ImGui::GetIO().WantTextInput)
         return;
 
-    switch (key)
-    {
-        case GLFW_KEY_P:         markAsPass(); break;
-        case GLFW_KEY_F:         markAsFail(); break;
-        case GLFW_KEY_LEFT:
-        case GLFW_KEY_PAGE_UP:   navigatePrevious(); break;
-        case GLFW_KEY_RIGHT:
-        case GLFW_KEY_PAGE_DOWN: navigateNext(); break;
-        case GLFW_KEY_S:
-            if (mods & GLFW_MOD_CONTROL) saveProgress();
-            break;
-        case GLFW_KEY_ESCAPE:    running_ = false; break;
-    }
+    if (ImGui::IsKeyPressed(ImGuiKey_P))
+        markAsPass();
+    if (ImGui::IsKeyPressed(ImGuiKey_F))
+        markAsFail();
+    if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) || ImGui::IsKeyPressed(ImGuiKey_PageUp))
+        navigatePrevious();
+    if (ImGui::IsKeyPressed(ImGuiKey_RightArrow) || ImGui::IsKeyPressed(ImGuiKey_PageDown))
+        navigateNext();
+    if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S))
+        saveProgress();
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape))
+        running_ = false;
 }
 
-void QCApp::glfwKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
-{
-    QCApp* app = reinterpret_cast<QCApp*>(glfwGetWindowUserPointer(window));
-    if (app) app->handleKeyboard(key, scancode, action, mods);
-}
-
+#ifndef __APPLE__
 void QCApp::glfwWindowSizeCallback(GLFWwindow* /*window*/, int /*width*/, int /*height*/)
 {
     // Handled by needsSwapchainRebuild / rebuildSwapchain in run()
@@ -566,5 +632,6 @@ void QCApp::glfwCloseCallback(GLFWwindow* window)
     QCApp* app = reinterpret_cast<QCApp*>(glfwGetWindowUserPointer(window));
     if (app) app->running_ = false;
 }
+#endif // !__APPLE__
 
 } // namespace QC

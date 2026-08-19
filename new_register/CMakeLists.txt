@@ -16,7 +16,7 @@ if(APPLE)
     set(_DEFAULT_ENABLE_OPENGL2 OFF)
     set(_DEFAULT_ENABLE_METAL   ON)
     set(_DEFAULT_ENABLE_TESTS   OFF)   # headless tests need OSMesa, unavailable on macOS
-    set(_DEFAULT_BUILD_NEW_QC   OFF)   # new_qc has no Metal path yet (see plan Phase 5)
+    set(_DEFAULT_BUILD_NEW_QC   ON)
 else()
     set(_DEFAULT_ENABLE_VULKAN  ON)
     set(_DEFAULT_ENABLE_OPENGL2 ON)
@@ -805,12 +805,17 @@ if(BUILD_NEW_QC OR BUILD_QC_ONLY)
     set(IMGUI_DIR ${imgui_SOURCE_DIR})
 
     set(QC_SOURCES
-        src/qc/main.cpp
         src/qc/QCApp.cpp
         src/qc/CSVHandler.cpp
         src/qc/BackendFactory.cpp
-        src/qc/OpenGL2Backend.cpp
     )
+
+    # Entry point + windowing: native Cocoa on macOS, GLFW elsewhere
+    if(APPLE)
+        list(APPEND QC_SOURCES src/qc/main_macos.mm)
+    else()
+        list(APPEND QC_SOURCES src/qc/main.cpp src/qc/OpenGL2Backend.cpp)
+    endif()
 
     # Wayland direct touch input (optional)
     if(WAYLAND_CLIENT_FOUND)
@@ -824,19 +829,36 @@ if(BUILD_NEW_QC OR BUILD_QC_ONLY)
             src/qc/VulkanBackend.cpp
         )
     endif()
+    if(ENABLE_METAL)
+        list(APPEND QC_SOURCES src/qc/MetalBackend.mm)
+    endif()
 
-    # ImGui platform backend
-    list(APPEND QC_SOURCES
-        ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
-    )
+    # ImGui platform backend: native Cocoa (imgui_impl_osx) on macOS, GLFW elsewhere
+    if(APPLE)
+        list(APPEND QC_SOURCES ${IMGUI_DIR}/backends/imgui_impl_osx.mm)
+    else()
+        list(APPEND QC_SOURCES ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp)
+    endif()
     if(ENABLE_VULKAN AND Vulkan_FOUND)
         list(APPEND QC_SOURCES ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp)
     endif()
     if(ENABLE_OPENGL2)
         list(APPEND QC_SOURCES ${IMGUI_DIR}/backends/imgui_impl_opengl2.cpp)
     endif()
+    if(ENABLE_METAL)
+        list(APPEND QC_SOURCES ${IMGUI_DIR}/backends/imgui_impl_metal.mm)
+    endif()
 
     add_executable(new_qc ${QC_SOURCES})
+
+    # Our Objective-C++ sources use ARC (__bridge casts, automatic lifetime).
+    if(APPLE)
+        set_source_files_properties(
+            src/qc/MetalBackend.mm
+            src/qc/main_macos.mm
+            PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
+        )
+    endif()
 
     target_include_directories(new_qc PRIVATE
         ${IMGUI_DIR}
@@ -853,6 +875,9 @@ if(BUILD_NEW_QC OR BUILD_QC_ONLY)
     if(ENABLE_OPENGL2)
         target_compile_definitions(new_qc PRIVATE HAS_OPENGL2=1)
     endif()
+    if(ENABLE_METAL)
+        target_compile_definitions(new_qc PRIVATE HAS_METAL=1)
+    endif()
     if(WAYLAND_CLIENT_FOUND)
         target_compile_definitions(new_qc PRIVATE HAS_WAYLAND_TOUCH=1)
         target_include_directories(new_qc PRIVATE ${WAYLAND_CLIENT_INCLUDE_DIRS})
@@ -860,15 +885,27 @@ if(BUILD_NEW_QC OR BUILD_QC_ONLY)
 
     target_link_libraries(new_qc PRIVATE
         imgui
-        glfw
         nlohmann_json::nlohmann_json
         ${CMAKE_DL_LIBS}
     )
+    if(NOT APPLE)
+        target_link_libraries(new_qc PRIVATE glfw)
+    endif()
     if(ENABLE_VULKAN AND Vulkan_FOUND)
         target_link_libraries(new_qc PRIVATE Vulkan::Vulkan)
     endif()
     if(ENABLE_OPENGL2)
         target_link_libraries(new_qc PRIVATE OpenGL::GL)
+    endif()
+    if(APPLE)
+        target_link_libraries(new_qc PRIVATE
+            "-framework Metal"
+            "-framework MetalKit"
+            "-framework QuartzCore"
+            "-framework AppKit"
+            "-framework Foundation"
+            "-framework GameController"
+        )
     endif()
     if(WAYLAND_CLIENT_FOUND)
         target_link_libraries(new_qc PRIVATE ${WAYLAND_CLIENT_LIBRARIES})

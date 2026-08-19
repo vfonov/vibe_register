@@ -18,6 +18,7 @@ enum class BackendType
 {
     Vulkan,
     OpenGL2,
+    Metal,
 };
 
 /// Backend-agnostic texture handle.

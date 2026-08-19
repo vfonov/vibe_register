@@ -10,6 +10,9 @@
 #ifdef HAS_OPENGL2
 #include "OpenGL2Backend.h"
 #endif
+#ifdef HAS_METAL
+#include "MetalBackend.h"
+#endif
 
 std::unique_ptr<Backend> Backend::create(BackendType type)
 {
@@ -22,6 +25,10 @@ std::unique_ptr<Backend> Backend::create(BackendType type)
 #ifdef HAS_OPENGL2
     case BackendType::OpenGL2:
         return std::make_unique<OpenGL2Backend>();
+#endif
+#ifdef HAS_METAL
+    case BackendType::Metal:
+        return std::make_unique<MetalBackend>();
 #endif
     default:
         throw std::runtime_error(
@@ -61,6 +68,7 @@ const char* Backend::backendName(BackendType type)
     {
     case BackendType::Vulkan:  return "vulkan";
     case BackendType::OpenGL2: return "opengl2";
+    case BackendType::Metal:   return "metal";
     }
     return "unknown";
 }
@@ -74,5 +82,6 @@ std::optional<BackendType> Backend::parseBackendName(const std::string& name)
     if (lower == "vulkan" || lower == "vk")    return BackendType::Vulkan;
     if (lower == "opengl2" || lower == "gl2"
         || lower == "opengl" || lower == "gl") return BackendType::OpenGL2;
+    if (lower == "metal" || lower == "mtl")    return BackendType::Metal;
     return std::nullopt;
 }
