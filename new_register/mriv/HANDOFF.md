@@ -691,3 +691,50 @@ session predicts, whether the row marker's vertical centring reads right against
 whether the re-printed multi-line header survives `notcurses_stop()` the same way the single summary line
 was shown to. Nothing about the marker geometry can be confirmed without eyes on a real Kitty/Ghostty/
 WezTerm/iTerm2 session — `Screen` remains the one file in this area no test here can reach.
+
+### 2026-08-19 (later) — mlterm/sixel image-not-updating bug: one fix tried and reverted, still open
+
+Follow-up to the previous entry's active-pane-markers work. The user tested the resulting build on
+two real terminals:
+
+- **Real mlterm (sixel):** slice navigation updates the status text but never the image. Confirmed the
+  bug is on the pixel/blit side, not in `ViewState`/`Session`/key handling, since the status row (driven
+  by the same `handleKey()` → `runSession()` → `drawFrame()` call) does update.
+- **Real Ghostty (Kitty graphics protocol):** unaffected at the time of the first report.
+
+**First attempt (reverted): force `notcurses_refresh()` after every frame.** Hypothesis was that
+`notcurses_render()`'s damage-tracked optimization was eliding the sprixel re-emission — plausible since
+`ncstats` exposes exactly this (`sprixelemissions` vs `sprixelelisions` counters) and Kitty's protocol has
+an explicit image id/delete model that sidesteps the ambiguity a raster-only protocol like sixel doesn't
+have. `notcurses_refresh()` is documented to force a full non-optimized repaint, so it was added
+unconditionally after `notcurses_render()` in `Screen::drawFrame()`, plus `MRIV_DEBUG` logging of the
+`ncstats` counters to confirm or rule out the theory.
+
+**This broke Ghostty.** Retested there and the image was not shown *at all* during the interactive
+session — only the post-quit one-shot re-blit (`render/Terminal`, `ncdirect`) showed anything.
+`notcurses_refresh()`'s own doc comment says it "clears the screen" before repainting, and clearing the
+screen is exactly the operation that deletes a terminal's placed Kitty graphics protocol image along with
+the text — so the fix likely traded "stale but visible" on sixel for "never visible" on Kitty. Reverted
+in full (`3ac21b6`); the `MRIV_DEBUG` counter logging was kept since it's diagnostic-only and still useful
+for the next attempt. **Retested on Ghostty after the revert: confirmed working again** — the base
+interactive path (full notcurses, `ncplane`/`ncvisual_blit`/`notcurses_render`, no forced refresh) is
+solid on Kitty-protocol terminals as-is.
+
+**Lesson for the next attempt:** this is the second time in this file a fix aimed at one pixel protocol
+regressed another (the first was the round-1/2/3 one-shot-path rewrite from `notcurses` to `ncdirect`,
+which was protocol-neutral by construction and didn't have this problem). `notcurses.h`'s own doc comment
+on `NCPIXEL_*` says "informative only; don't special-case based off any of this information" — read
+together with this incident, that should be taken as "any fix must be verified not to regress the other
+protocol family", not as "never write protocol-specific code": a real per-protocol difference (Kitty's
+image-id model vs sixel's raster-only one) may need a per-protocol code path, and `notcurses_check_pixel_support()`'s
+return value is right there for exactly that if it comes to it. **Do not land another fix here without
+testing on both a sixel terminal (mlterm) and a Kitty-protocol one (Ghostty or real Kitty) first** — this
+sandbox has neither (HANDOFF sec 3.9), so that verification has to happen in the same round-trip with the
+user, not be assumed.
+
+**Next step, not yet taken:** get `MRIV_DEBUG=1` output from an mlterm session (stderr redirected to a
+file, since stdout carries the terminal protocol bytes) showing the `sprixelemissions`/`sprixelelisions`/
+`renders`/`raster_bytes` counters across a few keypresses, to confirm or rule out the elision theory with
+data before writing another candidate fix. `ctest` green 47/47, unaffected by either the addition or the
+revert (`Screen` has no unit coverage — this whole bug and its fix/revert cycle happened outside anything
+this sandbox's test suite can see).
