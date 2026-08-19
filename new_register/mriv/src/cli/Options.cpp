@@ -55,7 +55,9 @@ cxxopts::Options buildParser()
         ("a,axis", "Axis that --slice positions and the keyboard moves: "
             "x|y|z (default: z / axial)",
             cxxopts::value<std::string>()->default_value("z"))
-        ("s,slice", "Slice index, percentage, or \"mid\" (default: mid)",
+        ("s,slice", "Slice index, percentage, or \"mid\" for the --axis plane "
+            "(default: mid); or a per-axis list \"x=<n|p%|mid>,y=...,z=...\" "
+            "to position more than one plane at once",
             cxxopts::value<std::string>()->default_value("mid"))
         ("R,range", "Intensity range \"low,high\" for mapping: low maps to the "
             "darkest colour, high to the brightest", cxxopts::value<std::vector<double>>())
@@ -67,7 +69,6 @@ cxxopts::Options buildParser()
             "commas (default: Spectral for the first volume, Gray for the "
             "rest). See ColourMap.h.", cxxopts::value<std::string>())
         ("invert", "Invert the colour map")
-        ("require-pixels", "Exit non-zero if the terminal has no pixel protocol")
         ("interactive", "Navigate the volumes with the keyboard (default when "
             "stdout is a terminal)")
         ("no-interactive", "Print one frame and exit, even on a terminal")
@@ -123,10 +124,11 @@ ParseResult parseArgs(int argc, char** argv, std::ostream& err)
         result.options.axis = axisArg[0];
 
         std::string sliceArg = parsed["slice"].as<std::string>();
-        if (!parseSliceArg(sliceArg).has_value())
+        if (!parseSliceSpec(sliceArg).has_value())
         {
             err << "mriv: invalid --slice '" << sliceArg
-                       << "' (expected an index, a percentage like '50%', or 'mid')\n";
+                       << "' (expected an index, a percentage like '50%', or 'mid'; "
+                          "or a per-axis list like 'x=10,y=50%,z=mid')\n";
             result.ok = false;
             return result;
         }
@@ -201,7 +203,6 @@ ParseResult parseArgs(int argc, char** argv, std::ostream& err)
         }
 
         result.options.invert = parsed.count("invert") > 0;
-        result.options.requirePixels = parsed.count("require-pixels") > 0;
         result.options.interactive = parsed.count("interactive") > 0;
         result.options.noInteractive = parsed.count("no-interactive") > 0;
 

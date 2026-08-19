@@ -38,10 +38,11 @@ constexpr int kMarkerRows = 1;
 
 /// Lay out the text that surrounds one frame.
 ///
-/// `header` is drawn one line per row from the top -- the loaded volumes
-/// and then the status row. `tracks` is the pane geometry buildFrame()
-/// reported for the image, `activeRow` indexes its rows (the view j/k
-/// moves) and `activeColumn` its columns (the volume c and r change).
+/// `header` is drawn one line per row from the top -- the loaded volumes,
+/// then the status row, then the hotkey row. `tracks` is the pane geometry
+/// buildFrame() reported for the image, `activeRow` indexes its rows (the
+/// view j/k moves) and `activeColumn` its columns (the volume c and r
+/// change).
 /// `cellWidth` and `cellHeight` are the terminal's pixels per cell, which
 /// is what converts pane pixels into marker positions.
 ///

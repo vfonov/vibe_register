@@ -15,21 +15,31 @@ namespace mriv::term
 /// the image is even on screen.
 std::vector<std::string> formatVolumeNameLines(const std::vector<std::string>& paths);
 
-/// The single reserved row below the volume names: where the cursor is,
-/// how the active volume is mapped, and which keys do what.
+/// The reserved row below the volume names: where the cursor is and how
+/// the active volume is mapped -- a plain summary while idle, or the
+/// range-edit prompt while one is open (the row is shared between the two
+/// because they never need to be on screen at once).
 ///
-/// The key legend is not decoration. Interactive mode has no help panel, so
-/// this line is the only thing that makes the bindings discoverable. The
-/// result never contains a newline -- it occupies exactly one terminal row,
-/// and wrapping it would push the image down and corrupt the layout.
+/// The result never contains a newline -- it occupies exactly one terminal
+/// row, and wrapping it would push the image down and corrupt the layout.
 ///
 /// `paths` is only used to name the active volume in the range prompt;
 /// which file that is otherwise comes from the '*' beneath its column, not
 /// from this line.
 std::string formatStatusLine(const ViewState& state, const std::vector<std::string>& paths);
 
-/// The same line without the key legend: where the cursor is and how the
-/// active volume is mapped, and nothing about keys.
+/// The reserved row below the status line: which keys do what.
+///
+/// The key legend is not decoration. Interactive mode has no help panel, so
+/// this line is the only thing that makes the bindings discoverable. It is
+/// its own row (rather than appended to formatStatusLine(), as it used to
+/// be) so the legend stays visible even while the status row is showing the
+/// range-edit prompt instead of the summary. Never contains a newline, for
+/// the same reason formatStatusLine() does not.
+std::string formatHotkeyLine(const ViewState& state);
+
+/// The same as formatStatusLine() while idle: where the cursor is and how
+/// the active volume is mapped, and nothing about keys.
 ///
 /// Printed above the frame that is left on the terminal after interactive
 /// mode exits. The keys are gone by then, but what the picture shows still

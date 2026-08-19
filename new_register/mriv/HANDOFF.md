@@ -1185,3 +1185,142 @@ no pixel-capable terminal in this sandbox (§3.9). Confirm on a real terminal th
 right voxel in every pane simultaneously, that a piped/scripted `mriv a.mnc > out.png` still
 produces a plain image with no crosshair in it, and that multi-volume grids with mismatched
 dimensions keep the mark aligned on the same anatomy across columns rather than drifting.
+
+### 2026-08-19 (again) — split the status row's key legend into its own hotkey row
+
+UI request: the header should read file names, then status, then hotkeys, then the image — the
+key legend was previously appended to the end of the status row (`formatStatusLine()`), which meant
+long file names or a wide status summary could push it toward the right edge, and the range-edit
+prompt replaced it outright while a value was being typed (the row was shared, and `CLAUDE.md`'s
+"one reserved line" note explains why: "the prompt and the summary cannot both be on screen").
+
+`interactive/StatusLine.hpp/.cpp`: pulled the legend out into its own `formatHotkeyLine(const
+ViewState&)`, identical text to what `formatStatusLine()` used to append (`j/k slice  x/y/z axis`,
+conditionally `Tab volume`, then `c map  r range  q quit`). `formatStatusLine()` now just returns
+`formatSummaryLine()`'s text while idle, or the range-edit prompt while editing — nothing else
+changed about either branch. One consequence worth noting: `formatStatusLine()` and
+`formatSummaryLine()` are now identical while idle (`testStatusLineEqualsSummaryLineWhenNotEditing`,
+replacing the old "status is summary-plus-legend" test) — the two still exist separately because
+`formatSummaryLine()` is also called on its own for the exit-time reprint, where there is no editing
+state to consider at all.
+
+`cli/Run.cpp`'s `runInteractive()`: `headerRows` is now `nameLines.size() + 2` (status row *and*
+hotkey row, not just one), and `draw()` pushes `formatHotkeyLine(current)` onto `header` right after
+the status-or-screenshot-message line, before calling `planOverlay()`. The hotkey row is unconditional
+— it's drawn every frame regardless of whether the status row is showing the idle summary, the
+range-edit prompt, or the one-shot screenshot-saved message, since none of those states change which
+keys exist. The exit-time reprint (`lastHeader`) is untouched: it stays file names + `formatSummaryLine()`
+only, no hotkey row, since the keys genuinely stop existing once the session has ended.
+
+Test changes in `test_interactive.cpp`: renamed `testStatusLineListsTheKeys` /
+`testStatusLineListsColumnKeysOnlyWhenThereAreColumns` to `testHotkeyLine...` and pointed them at
+the new function (confirmed red first — undeclared-identifier compile errors from the rename, then
+green once `formatHotkeyLine()` existed), added `testHotkeyLineIsASingleLine`, and replaced
+`testStatusLineIsTheSummaryPlusTheLegend` with `testStatusLineEqualsSummaryLineWhenNotEditing`.
+Full rebuild + `ctest -R "^mriv_"`: 23/23 green; full `ctest`: 50/50 green.
+
+**Needs real-terminal confirmation**: no TTY / no pixel-capable terminal in this sandbox (§3.9).
+Confirm the header reads file name(s), then the status line, then the hotkey line, then the image,
+with no row overlapping the next, both while idle and while the range-edit prompt is open (the
+hotkey row should stay put and readable underneath the prompt).
+
+### 2026-08-19 (once more) — `s` screenshot was missing from the hotkey row
+
+The new hotkey row above listed `j/k slice  x/y/z axis  [Tab volume]  c map  r range  q quit` but
+left out `s` (`ViewState.cpp:256`, screenshot -- documented in `PLAN.md`'s hotkey table already, just
+never in this string). Added `s screenshot` to `formatHotkeyLine()` between `r range` and `q quit`,
+matching where `s` sits in `PLAN.md`'s table. Test-first: extended `testHotkeyLineListsTheKeys` with
+`assert(contains(line, "s screenshot"))`, confirmed red as a wrong-value assertion (not a compile
+error -- the function already existed), then green after the one-line change. Full rebuild +
+`ctest -R "^mriv_"`: 23/23 green; full `ctest`: 50/50 green.
+
+### 2026-08-19 (still more) — `--slice` can now position x, y, and z independently
+
+Request: `--slice` only ever positioned whichever single axis `--axis` named (default `z`), so
+starting on, say, a specific axial slice *and* a specific sagittal slice in one invocation meant
+picking one via `--slice`/`--axis` and then navigating the other by hand after launch. There was
+no way to say "start here" for more than one plane at once.
+
+`cli/SliceSelection.hpp/.cpp`: added `SliceSpec` (`std::optional<SliceSelection> active, x, y, z`)
+and `parseSliceSpec()`, which tells apart two mutually exclusive shapes of the same `--slice`
+string. The original bare grammar ("n", "p%", "mid") is unchanged in every respect — it still
+populates `active` for the caller to resolve against `--axis`, exactly as before this feature
+existed. A second shape, `"x=<sel>,y=<sel>,z=<sel>"` (any subset, any order, each `<sel>` in the
+same "n|p%|mid" grammar), populates `x`/`y`/`z` directly, positioning each axis independently of
+`--axis` and of each other. The two shapes never mix within one argument; `parseSliceSpec()`
+rejects a malformed selection, an axis letter other than x/y/z, a duplicate axis, or mixing bare
+and `axis=` forms in the same string by returning `std::nullopt`, the same failure signal
+`parseSliceArg()` already used.
+
+`cli/Options.cpp`: switched the `--slice` validation from `parseSliceArg()` to `parseSliceSpec()`
+and updated both the cxxopts help text and `Options.hpp`'s `sliceArg` doc comment to describe the
+per-axis form. `Options.sliceArg` itself is still just the raw string — parsing happens twice (once
+here to validate, once in `Run.cpp` to apply) the same way the bare form always worked.
+
+`cli/Run.cpp`'s `resolveStartCursor()`: rewritten around a small `place()` lambda that resolves one
+`SliceSelection` against one axis's dimension size and writes it into the starting cursor. When
+`spec->active` is set (bare form), `place()` is called once, against whatever axis `--axis` names —
+byte-for-byte the same behavior as before this feature. When `x`/`y`/`z` are set instead, `place()`
+is called once per axis that was given, each independently, leaving any axis that wasn't mentioned
+at its default (mid). This is the same three-independent-components cursor model `mapSliceIndex()`
+already assumes for navigation (`PLAN.md`'s cursor-model paragraph) — `--slice` just gets to set
+more than one component before the interactive loop starts.
+
+Tests, all red-confirmed for the right reason before the corresponding code existed (missing
+`parseSliceSpec`/`SliceSpec` members for the new unit tests; a wrong-value `result.ok`/cursor
+assertion for the option-validation and integration tests): 10 new cases in
+`test_slice_selection.cpp` covering both shapes and every rejection path; 2 new cases in
+`test_options.cpp` (`testPerAxisSliceFlagAccepted`, `testInvalidPerAxisSliceRejected`); one new
+integration test in `test_cli.cpp` (`testPerAxisSliceFlagPositionsEachAxisIndependently`), which
+renders with `--views x,z` and checks that `"mid"`, `"x=0"`, and `"x=0,z=0"` each produce pairwise
+different output. `PLAN.md`'s CLI surface table and cursor-model paragraph updated to describe the
+new grammar. Full rebuild + `ctest -R "^mriv_"`: 23/23 green; full `ctest`: 50/50 green.
+
+Pure CLI-parsing and cursor-positioning change — no new rendering-visible surface beyond what
+existing tests already cover (the integration test compares rendered *pixels* directly rather than
+relying on a human looking at a terminal), so this one doesn't carry the usual "needs real-terminal
+confirmation" caveat.
+
+### 2026-08-19 (yet still more) — removed `--require-pixels`; one-shot mode never requires pixels
+
+Request: drop the `--require-pixels` flag. Interactive mode was already unconditional here —
+`runInteractive()` never read the flag at all, and always errors out on no pixel support, since
+there is no way to run a session without pixels (`Run.cpp:262-272`). The flag only ever gated
+*one-shot* mode's behaviour (`Run.cpp:391-465`, `runOneShot()`): without it, no pixel support meant
+"print a hint, exit 0, draw nothing"; with it, the same message but exit 1. The ask was to make the
+no-flag behaviour the *only* behaviour for one-shot mode — piping `mriv a.mnc` somewhere without
+pixel support is not a user error and should never fail a script by default — while keeping a way to
+get the old hard-failure behaviour for scripts/CI that specifically want it, moved off the CLI and
+onto a debug-only env var (`CLAUDE.md`'s "no exceptions" TDD rule applied as normal; this is a
+removal + a small behavioural change, not a bugfix, but still went test-first per section below).
+
+`cli/Options.hpp`: deleted the `requirePixels` field. `cli/Options.cpp`: deleted the `--require-
+pixels` cxxopts registration and its `parsed.count(...)` assignment — passing `--require-pixels` now
+fails the same way any other unrecognised flag does (cxxopts throws, caught in `parseArgs()`'s
+`catch`, `ok=false`), no special-casing needed.
+
+`cli/Run.cpp`: added `requirePixelsEnabled()` next to the existing `debugEnabled()`, same shape —
+`std::getenv("MRIV_REQUIRE_PIXELS")`, true on any non-empty value. `runOneShot()`'s
+`return options.requirePixels ? 1 : 0;` became `return requirePixelsEnabled() ? 1 : 0;`. Chosen as
+an env var rather than a flag specifically because the debug/CI use case is the *only* remaining use
+case — everyone else gets exit 0 unconditionally now — and this codebase already has a matching
+convention for debug-only knobs (`MRIV_DEBUG`, checked identically in `Run.cpp`, `Screen.cpp`, and
+`Terminal.cpp`) rather than plumbing them through `Options`.
+
+Tests, red-confirmed first (compile errors — `requirePixels` no longer a member — for the
+production-code side; a wrong-value `rc`/`.ok` assertion for the two rewritten test_cli.cpp cases):
+`test_options.cpp`'s `testRequirePixelsFlag` (which asserted the field got set) replaced by
+`testRequirePixelsFlagIsRejected` (asserts `!result.ok`); the `assert(!result.options.requirePixels)`
+line in `testDefaults` deleted outright, nothing left to default. `test_cli.cpp`'s
+`testRequirePixelsExitsNonZeroWithoutPixelSupport` (which passed `--require-pixels` on the argv)
+replaced by two cases: `testRequirePixelsEnvVarExitsNonZeroWithoutPixelSupport` (sets
+`MRIV_REQUIRE_PIXELS=1` instead of the old flag, same assertions as before) and
+`testRequirePixelsFlagIsRejected` (passing the now-dead flag through `run()` end-to-end returns
+non-zero). `PLAN.md`'s CLI surface table (`--require-pixels` row deleted), rendering-layer notes, and
+`PLAN_TESTING.md`'s Layer A items 6-7 updated to match — the latter also had a stale claim about a
+block-character (`NCBLIT_2x2`) fallback on no pixel support that was never actually implemented;
+corrected while touching the same sentence rather than left to mislead the next reader. Full rebuild
++ `ctest -R "^mriv_"`: 23/23 green; full `ctest`: 50/50 green.
+
+No real-terminal confirmation needed: this only changes exit-code plumbing already covered by the
+`MRIV_TEST_RENDER=none` test seam, not anything drawn on screen.

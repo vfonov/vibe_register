@@ -21,7 +21,9 @@ struct Options
     /// render/SliceGeometry.hpp for the axis -> viewIndex mapping.
     char axis = 'z';
 
-    /// Raw --slice argument ("n", "p%", or "mid"); validated by
+    /// Raw --slice argument: either "n", "p%", or "mid" (applies to
+    /// `axis`), or a per-axis list like "x=10,y=50%,z=mid" (any subset of
+    /// x/y/z, positioned independently of `axis`); validated by
     /// parseArgs() but resolved against a volume's dimensions later
     /// (see cli/SliceSelection.hpp).
     std::string sliceArg = "mid";
@@ -54,8 +56,6 @@ struct Options
     /// Distinct from `axis`, which picks the *active* axis that interactive
     /// slice navigation moves.
     std::vector<int> views{0, 1, 2};
-
-    bool requirePixels = false;
 
     /// --interactive / --no-interactive. Interactive mode is otherwise
     /// auto-detected (a TTY plus a single file); these force the question

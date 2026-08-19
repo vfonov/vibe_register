@@ -99,6 +99,87 @@ void testResolvePercentClamped()
     assert(resolveSliceIndex(under, 96) == 0);
 }
 
+// --- per-axis --slice spec ------------------------------------------------
+
+void testSpecBareFormSetsActiveOnly()
+{
+    auto spec = parseSliceSpec("42");
+    assert(spec.has_value());
+    assert(spec->active.has_value());
+    assert(spec->active->kind == SliceSelectionKind::Absolute);
+    assert(spec->active->value == 42.0);
+    assert(!spec->x.has_value());
+    assert(!spec->y.has_value());
+    assert(!spec->z.has_value());
+}
+
+void testSpecBareMidAndPercentStillWork()
+{
+    assert(parseSliceSpec("mid")->active->kind == SliceSelectionKind::Mid);
+    assert(parseSliceSpec("50%")->active->kind == SliceSelectionKind::Percent);
+}
+
+void testSpecSingleAxisSetsOnlyThatAxis()
+{
+    auto spec = parseSliceSpec("x=10");
+    assert(spec.has_value());
+    assert(!spec->active.has_value());
+    assert(spec->x.has_value());
+    assert(spec->x->kind == SliceSelectionKind::Absolute);
+    assert(spec->x->value == 10.0);
+    assert(!spec->y.has_value());
+    assert(!spec->z.has_value());
+}
+
+void testSpecAllThreeAxesInAnyOrder()
+{
+    auto spec = parseSliceSpec("z=30%,x=10,y=mid");
+    assert(spec.has_value());
+    assert(!spec->active.has_value());
+    assert(spec->x.has_value() && spec->x->kind == SliceSelectionKind::Absolute
+           && spec->x->value == 10.0);
+    assert(spec->y.has_value() && spec->y->kind == SliceSelectionKind::Mid);
+    assert(spec->z.has_value() && spec->z->kind == SliceSelectionKind::Percent
+           && spec->z->value == 30.0);
+}
+
+void testSpecSubsetOfAxesLeavesOthersUnset()
+{
+    auto spec = parseSliceSpec("y=5");
+    assert(spec.has_value());
+    assert(spec->y.has_value());
+    assert(!spec->x.has_value());
+    assert(!spec->z.has_value());
+}
+
+void testSpecRejectsUnknownAxisLetter()
+{
+    assert(!parseSliceSpec("w=10").has_value());
+}
+
+void testSpecRejectsDuplicateAxis()
+{
+    assert(!parseSliceSpec("x=10,x=20").has_value());
+}
+
+void testSpecRejectsMixingBareAndAxisForms()
+{
+    assert(!parseSliceSpec("10,x=20").has_value());
+    assert(!parseSliceSpec("x=20,10").has_value());
+}
+
+void testSpecRejectsMalformedAxisValue()
+{
+    assert(!parseSliceSpec("x=abc").has_value());
+    assert(!parseSliceSpec("x=").has_value());
+    assert(!parseSliceSpec("=10").has_value());
+}
+
+void testSpecRejectsEmpty()
+{
+    assert(!parseSliceSpec("").has_value());
+}
+
 } // namespace
 
 int main()
@@ -114,5 +195,16 @@ int main()
     testResolveAbsoluteClamped();
     testResolvePercent();
     testResolvePercentClamped();
+
+    testSpecBareFormSetsActiveOnly();
+    testSpecBareMidAndPercentStillWork();
+    testSpecSingleAxisSetsOnlyThatAxis();
+    testSpecAllThreeAxesInAnyOrder();
+    testSpecSubsetOfAxesLeavesOthersUnset();
+    testSpecRejectsUnknownAxisLetter();
+    testSpecRejectsDuplicateAxis();
+    testSpecRejectsMixingBareAndAxisForms();
+    testSpecRejectsMalformedAxisValue();
+    testSpecRejectsEmpty();
     return 0;
 }

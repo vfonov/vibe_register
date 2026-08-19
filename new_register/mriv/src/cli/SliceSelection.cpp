@@ -4,6 +4,8 @@
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <string>
+#include <vector>
 
 namespace mriv::term
 {
@@ -50,6 +52,82 @@ std::optional<SliceSelection> parseSliceArg(const std::string& arg)
         return SliceSelection{SliceSelectionKind::Percent, value};
 
     return SliceSelection{SliceSelectionKind::Absolute, value};
+}
+
+namespace
+{
+
+// Split on commas, no trimming -- --slice specs have no reason to carry
+// embedded spaces the way --colourmap's display names do.
+std::vector<std::string> splitOnCommas(const std::string& arg)
+{
+    std::vector<std::string> parts;
+    size_t pos = 0;
+    for (;;)
+    {
+        size_t comma = arg.find(',', pos);
+        parts.push_back(arg.substr(pos, comma == std::string::npos
+                                            ? std::string::npos
+                                            : comma - pos));
+        if (comma == std::string::npos)
+            break;
+        pos = comma + 1;
+    }
+    return parts;
+}
+
+} // namespace
+
+std::optional<SliceSpec> parseSliceSpec(const std::string& arg)
+{
+    if (arg.empty())
+        return std::nullopt;
+
+    // No "=" anywhere: the classic single-axis form, resolved by the
+    // caller against --axis.
+    if (arg.find('=') == std::string::npos)
+    {
+        auto selection = parseSliceArg(arg);
+        if (!selection.has_value())
+            return std::nullopt;
+        SliceSpec spec;
+        spec.active = selection;
+        return spec;
+    }
+
+    // Otherwise every comma-separated part must be "x=...", "y=..." or
+    // "z=..." -- mixing in a bare part is rejected rather than guessing
+    // which axis it meant.
+    SliceSpec spec;
+    for (const std::string& part : splitOnCommas(arg))
+    {
+        size_t eq = part.find('=');
+        // Exactly one character before "=": rejects a bare part mixed in
+        // ("10"), a missing axis letter ("=10"), and a multi-char one.
+        if (eq != 1)
+            return std::nullopt;
+
+        char axis = part[0];
+        auto selection = parseSliceArg(part.substr(eq + 1));
+        if (!selection.has_value())
+            return std::nullopt;
+
+        std::optional<SliceSelection>* slot = nullptr;
+        switch (axis)
+        {
+            case 'x': slot = &spec.x; break;
+            case 'y': slot = &spec.y; break;
+            case 'z': slot = &spec.z; break;
+            default:  return std::nullopt;
+        }
+
+        if (slot->has_value())
+            return std::nullopt; // duplicate axis
+
+        *slot = selection;
+    }
+
+    return spec;
 }
 
 int resolveSliceIndex(const SliceSelection& selection, int dimSize)

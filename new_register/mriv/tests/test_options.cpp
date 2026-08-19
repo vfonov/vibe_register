@@ -74,7 +74,6 @@ void testDefaults()
     assert(result.options.views[1] == 1);
     assert(result.options.views[2] == 2);
     assert(!result.options.invert);
-    assert(!result.options.requirePixels);
     assert(!result.options.maxWidth.has_value());
     assert(result.options.scale == 1);
     assert(!result.options.info);
@@ -105,6 +104,21 @@ void testInvalidSliceRejected()
 {
     auto result = parse({"mriv", "--slice", "not-a-slice", "a.mnc"});
     assert(!result.ok);
+}
+
+void testPerAxisSliceFlagAccepted()
+{
+    auto result = parse({"mriv", "--slice", "x=10,y=20,z=30%", "a.mnc"});
+    assert(result.ok);
+    assert(result.options.sliceArg == "x=10,y=20,z=30%");
+}
+
+void testInvalidPerAxisSliceRejected()
+{
+    assert(!parse({"mriv", "--slice", "w=10", "a.mnc"}).ok);
+    assert(!parse({"mriv", "--slice", "x=10,x=20", "a.mnc"}).ok);
+    assert(!parse({"mriv", "--slice", "10,x=20", "a.mnc"}).ok);
+    assert(!parse({"mriv", "--slice", "x=nope", "a.mnc"}).ok);
 }
 
 void testRangeFlag()
@@ -220,9 +234,14 @@ void testInvertFlag()
     assert(parse({"mriv", "--invert", "a.mnc"}).options.invert);
 }
 
-void testRequirePixelsFlag()
+// --require-pixels was removed: one-shot mode's no-pixel-support handling is
+// no longer configurable from the command line (cli/Run.cpp's
+// MRIV_REQUIRE_PIXELS is a debug-only env var instead). The flag must now be
+// rejected the same as any other unrecognised option.
+void testRequirePixelsFlagIsRejected()
 {
-    assert(parse({"mriv", "--require-pixels", "a.mnc"}).options.requirePixels);
+    auto result = parse({"mriv", "--require-pixels", "a.mnc"});
+    assert(!result.ok);
 }
 
 void testMaxWidthFlag()
@@ -283,6 +302,8 @@ int main()
     testInvalidAxisRejected();
     testSliceFlag();
     testInvalidSliceRejected();
+    testPerAxisSliceFlagAccepted();
+    testInvalidPerAxisSliceRejected();
     testRangeFlag();
     testRangeLongFlag();
     testRangeWrongCountRejected();
@@ -298,7 +319,7 @@ int main()
     testSingleViewFlag();
     testInvalidViewsRejected();
     testInvertFlag();
-    testRequirePixelsFlag();
+    testRequirePixelsFlagIsRejected();
     testMaxWidthFlag();
     testScaleFlag();
     testScaleDefaultIsOne();

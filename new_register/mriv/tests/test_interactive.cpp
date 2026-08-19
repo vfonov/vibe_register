@@ -214,29 +214,40 @@ void testStatusLineSliceNumberIsOneBased()
     assert(contains(formatStatusLine(last, {"v.mnc"}), "96/96"));
 }
 
-/// The key legend is part of the line: this mode has no help panel, so if
-/// the legend goes missing the keys become undiscoverable.
-void testStatusLineListsTheKeys()
+/// The key legend has its own row: this mode has no help panel, so if it
+/// goes missing the keys become undiscoverable.
+void testHotkeyLineListsTheKeys()
 {
     ViewState state = makeViewState(kDims, 'z', 0, 0.0, 1.0);
-    std::string line = formatStatusLine(state, {"v.mnc"});
+    std::string line = formatHotkeyLine(state);
 
     assert(contains(line, "j/k"));
     assert(contains(line, "x/y/z"));
+    assert(contains(line, "s screenshot"));
     assert(contains(line, "q"));
 }
 
 /// With more than one column the legend has to cover the keys that only
 /// mean something there, and the single-volume case must not carry them --
 /// a legend offering Tab when there is nothing to switch to is noise.
-void testStatusLineListsColumnKeysOnlyWhenThereAreColumns()
+void testHotkeyLineListsColumnKeysOnlyWhenThereAreColumns()
 {
     ViewState one = makeViewState(kDims, 'z', 0, 0.0, 1.0);
-    assert(!contains(formatStatusLine(one, {"v.mnc"}), "Tab"));
+    assert(!contains(formatHotkeyLine(one), "Tab"));
 
     ViewState two = makeTwoVolumeState();
-    std::string line = formatStatusLine(two, {"a.mnc", "b.mnc"});
+    std::string line = formatHotkeyLine(two);
     assert(contains(line, "Tab"));
+}
+
+/// One line, always -- like formatStatusLine(), it occupies a single
+/// reserved terminal row.
+void testHotkeyLineIsASingleLine()
+{
+    ViewState state = makeTwoVolumeState();
+    std::string line = formatHotkeyLine(state);
+    assert(line.find('\n') == std::string::npos);
+    assert(line.find('\r') == std::string::npos);
 }
 
 /// The range and colour map shown are the active volume's: they are what
@@ -345,16 +356,17 @@ void testSummaryLineKeepsThePositionAndDropsTheLegend()
     assert(summary.find('\n') == std::string::npos);
 }
 
-/// The live status row is the summary plus the legend, so the two can never
-/// disagree about what is on screen.
-void testStatusLineIsTheSummaryPlusTheLegend()
+/// While idle, the status row and the exit-time summary say exactly the
+/// same thing -- the legend used to be appended to one and not the other,
+/// but now that it is its own row there is nothing left to distinguish
+/// them.
+void testStatusLineEqualsSummaryLineWhenNotEditing()
 {
     ViewState state = makeTwoVolumeState();
     std::string summary = formatSummaryLine(state, {"a.mnc", "b.mnc"});
     std::string status  = formatStatusLine(state, {"a.mnc", "b.mnc"});
 
-    assert(status.compare(0, summary.size(), summary) == 0);
-    assert(status.size() > summary.size());
+    assert(status == summary);
 }
 
 // --- one-shot caption ----------------------------------------------------
@@ -384,8 +396,9 @@ int main()
     testStatusLineNamesThePlaneSliceAndRange();
     testStatusLineNamesEachPlane();
     testStatusLineSliceNumberIsOneBased();
-    testStatusLineListsTheKeys();
-    testStatusLineListsColumnKeysOnlyWhenThereAreColumns();
+    testHotkeyLineListsTheKeys();
+    testHotkeyLineListsColumnKeysOnlyWhenThereAreColumns();
+    testHotkeyLineIsASingleLine();
     testStatusLineShowsTheActiveVolumesDisplay();
     testVolumeNameLinesShowBaseNamesOnly();
     testVolumeNameLinesNameEachColumnInOrderWithNoMarker();
@@ -395,7 +408,7 @@ int main()
     testPromptShowsTheRangeBeingReplaced();
     testPromptReportsABadEntry();
     testSummaryLineKeepsThePositionAndDropsTheLegend();
-    testStatusLineIsTheSummaryPlusTheLegend();
+    testStatusLineEqualsSummaryLineWhenNotEditing();
     testCaptionNumbersEveryColumnInOrder();
 
     return 0;

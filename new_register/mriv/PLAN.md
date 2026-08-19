@@ -255,7 +255,7 @@ Thin wrapper around the notcurses **C API** in `src/render/terminal.{hpp,cpp}`:
 
 - Initialize with `notcurses_init()`; RAII-wrap in a `Terminal` class so `notcurses_stop()` runs on destruction.
 - Call `notcurses_check_pixel_support()` to confirm image capability.
-- On no pixel support: emit a clear message to `std::cerr` suggesting Kitty, Ghostty, WezTerm, iTerm2, or Konsole, and either fall back to Unicode-block rendering (`NCBLIT_2x1` / `NCBLIT_2x2`) or exit non-zero, per `--require-pixels`.
+- On no pixel support: emit a clear message to `std::cerr` suggesting Kitty, Ghostty, WezTerm, iTerm2, or Konsole. Interactive mode always exits non-zero (there is no way to run a session without pixels). One-shot mode exits `0` with nothing drawn -- it is not an error for `mriv a.mnc > out.png` to be piped somewhere without pixel support -- unless the debug-only `MRIV_REQUIRE_PIXELS` env var is set, which forces a non-zero exit for scripts/CI that want a hard failure.
 - Do NOT hardcode a pixel protocol. Let notcurses auto-detect. Respect the user's `NCPIXEL_IMPL` override.
 - Feed the resampled RGBA buffer straight to `ncvisual_from_rgba()` → `ncvisual_blit()` with `NCBLIT_PIXEL`. No pixel-format conversion is needed; see the note on `0xAABBGGRR` above.
 
@@ -288,9 +288,13 @@ Slice selection:
   -v, --views <list>      Planes to show, stacked top to bottom: a comma-
                           separated subset of x,y,z (default: z,x,y -- all
                           three).
-  -a, --axis <x|y|z>      The axis --slice positions and the keyboard moves
-                          (default: z / axial).
-  -s, --slice <n|p%|mid>  Slice index, percentage, or "mid" (default: mid).
+  -a, --axis <x|y|z>      The axis the bare form of --slice positions, and
+                          the keyboard moves (default: z / axial).
+  -s, --slice <spec>      Slice index, percentage, or "mid" for the --axis
+                          plane (default: mid); or a per-axis list
+                          "x=<n|p%|mid>,y=...,z=..." (any subset, any
+                          order) to position more than one plane at once,
+                          independent of --axis.
 
 Display:
   -R, --range <low,hi>    Intensity range for mapping: low maps to the
@@ -300,7 +304,6 @@ Display:
                           commas (default: Spectral for the first volume,
                           Gray for the rest). See ColourMap.h.
       --invert            Invert the colour map.
-      --require-pixels    Exit non-zero if the terminal has no pixel protocol.
       --max-width <px>    Cap the rendered image width in pixels.
       --scale <n>         Integer pixel magnification factor (default: 1).
 
@@ -408,6 +411,14 @@ proportionally. Each axis keeps its own component, so leaving an axis and return
 exactly where you left off — the three are geometrically independent and there is no meaningful way
 to carry a position between them.
 
+`--slice` sets that cursor's starting position, in one of two shapes `cli/SliceSelection.hpp`'s
+`parseSliceSpec()` tells apart: the bare "n"/"p%"/"mid" form positions whichever single axis
+`--axis` names (`Run.cpp`'s `resolveStartCursor()` resolving it no differently than before this
+form existed), while "x=...,y=...,z=..." positions each axis named directly, independent of
+`--axis` and of one another — the same three-independent-components model `mapSliceIndex()`
+already assumes, just set from the command line instead of by navigating there. The two shapes
+are mutually exclusive within one `--slice`; mixing them (e.g. "10,x=20") is a parse error.
+
 The interactive loop marks that cursor's position inside every pane, the terminal-side analog of
 `new_register`'s `ImDrawList` crosshair overlay (`Interface.cpp`): a translucent yellow one-pixel
 column and row, no gap at the intersection, baked directly into each cell's `ResampledImage` before
@@ -421,8 +432,12 @@ came from. `planFrame()` only fills `FramePane::crosshairs` when its `showCrossh
 true; the one-shot path leaves it at the default `false` so scripted, piped output stays exactly the
 clean image it always was, and only the interactive call site in `cli/Run.cpp` opts in.
 
-The loaded volumes' names are printed above the grid, one per line, followed by the status row
-(`interactive/StatusLine.hpp`). Which pane the keys act on is shown physically rather than in text: a
+The loaded volumes' names are printed above the grid, one per line, followed by the status row and
+then the hotkey row (`interactive/StatusLine.hpp`): `formatStatusLine()` gives the summary-or-prompt
+row, `formatHotkeyLine()` the key legend below it. They used to be one line (the legend appended to
+the summary), but that meant the legend vanished behind the range-edit prompt, since the two shared
+a single reserved row; splitting them into two fixed rows keeps the keys visible no matter what the
+status row is currently showing. Which pane the keys act on is shown physically rather than in text: a
 `*` in the left gutter marks the row `j`/`k` moves, and a `*` on the line below the image marks the
 column `c`/`r` change. `interactive/Overlay.hpp` turns the header lines and `buildFrame()`'s reported
 pane geometry into those marker positions; `Screen::pixelGeometry()` reserves the rows and gutter
@@ -448,9 +463,10 @@ calls a separate `ScreenshotSink` and loops back for the next key without touchi
 `render/Screenshot.cpp` does the actual PNG encoding, reusing the `stb_image_write.h` copy already
 vendored for the Kitty graphics protocol's PNG payload (`render/Encode.cpp`) — no new dependency.
 The status row briefly shows "Screenshot saved: `<filename>`" (or a failure message) in place of the
-usual summary and key legend, for the one `draw()` call `cli/Run.cpp` issues right after saving —
-there is no separate notification row, since the status row is a single reserved line
-(`interactive/StatusLine.hpp`) that already swaps its content wholesale for the range prompt.
+usual summary, for the one `draw()` call `cli/Run.cpp` issues right after saving — there is no
+separate notification row, since the status row is a single reserved line (`interactive/StatusLine.hpp`)
+that already swaps its content wholesale for the range prompt. The hotkey row underneath is
+unaffected either way, since it never depended on what the status row was showing.
 
 `--no-interactive` is the escape hatch for a user sitting at a terminal who wants the one-shot
 behaviour anyway; scripts can pass it unconditionally. An explicit `--interactive` that cannot be

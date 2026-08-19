@@ -151,8 +151,8 @@ Each test forces a specific pixel protocol via env var or the test constructor, 
 3. **Image dimensions match `--max-width` cap.** With `--max-width=200` on a 512×512 slice, the parsed Kitty `s` param equals 200 (or the aspect-preserving computed height/width).
 4. **One image per input file in strip mode.** `mriv a.nii b.nii c.nii` produces exactly three image events. Also assert that cursor-move events separate them (structure of the strip layout).
 5. **`--info` produces no image events.** Only text on stdout; parsed event list contains zero image events of any kind.
-6. **`--require-pixels` on no-pixel-support exits nonzero and emits no image.** Simulate by forcing `NCPIXEL_IMPL=none` (or the equivalent notcurses knob); assert exit code and empty image event list.
-7. **No pixel support without `--require-pixels` falls back to blocks.** Same forcing, without the flag; assert no image events but stderr contains a hint message.
+6. **`MRIV_REQUIRE_PIXELS` on no-pixel-support exits nonzero.** Simulate by forcing `NCPIXEL_IMPL=none` (or the equivalent notcurses knob) with the debug env var set; assert exit code and empty image event list.
+7. **No pixel support in one-shot mode without `MRIV_REQUIRE_PIXELS` exits zero with nothing drawn.** Same forcing, without the env var; assert no image events but stderr contains a hint message. (No block-character fallback exists -- this was aspirational and was never implemented.)
 8. **Empty payload never happens.** For every image event, `payload_size > 0`. Catches "we shipped a header with no data" bugs.
 9. **All escape sequences are terminated.** The parser reports no dangling introducer without a matching terminator. Catches truncation bugs.
 10. **Multiple slices from `--interactive` sequence.** Feed a scripted key sequence (`j`, `j`, `q`) via the injected stdin; assert three image events, one per slice change.

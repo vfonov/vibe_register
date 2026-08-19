@@ -255,6 +255,38 @@ void testAxisSelectsWhatSliceAppliesTo(const char* fixturePath)
     unsetenv("MRIV_TEST_RENDER");
 }
 
+void testPerAxisSliceFlagPositionsEachAxisIndependently(const char* fixturePath)
+{
+    // "x=...,z=..." positions both planes in one --slice, independent of
+    // --axis. Shown with both views so a change to either one shows up.
+    setenv("MRIV_TEST_RENDER", "1", 1);
+
+    auto render = [&](const char* sliceArg) -> std::string {
+        std::istringstream in;
+        std::ostringstream out, err;
+        int rc = run(Args{"mriv", "--views", "x,z", "--slice", sliceArg, fixturePath}.argc(),
+                     Args{"mriv", "--views", "x,z", "--slice", sliceArg, fixturePath}.data(),
+                     in, out, err);
+        assert(rc == 0);
+        return out.str();
+    };
+
+    std::string defaultBoth = render("mid");
+    std::string xOnly       = render("x=0");
+    std::string bothMoved   = render("x=0,z=0");
+
+    // x=0 alone changes the x row relative to the default (both at
+    // midpoint).
+    assert(xOnly != defaultBoth);
+    // Adding z=0 on top changes the z row too, on top of x already having
+    // moved -- proof the two axes were positioned independently of one
+    // another and of --axis (left at its default, z).
+    assert(bothMoved != xOnly);
+    assert(bothMoved != defaultBoth);
+
+    unsetenv("MRIV_TEST_RENDER");
+}
+
 void testMultipleFilesProduceOneCaptionedGrid(const char* fixtureA, const char* fixtureB)
 {
     // Multiple positional files become columns of one grid, blitted once,
@@ -437,7 +469,7 @@ void testNoPixelSupportReportsOnceForStrip(const char* fixtureA, const char* fix
     std::ostringstream out, err;
     int rc = run(Args{"mriv", fixtureA, fixtureB, fixtureA}.argc(),
                  Args{"mriv", fixtureA, fixtureB, fixtureA}.data(), in, out, err);
-    assert(rc == 0); // no --require-pixels: not an error, just nothing drawn
+    assert(rc == 0); // one-shot mode never requires pixels by default
 
     const std::string& e = err.str();
     std::size_t first = e.find("no pixel graphics protocol");
@@ -451,14 +483,18 @@ void testNoPixelSupportReportsOnceForStrip(const char* fixtureA, const char* fix
     unsetenv("MRIV_TEST_RENDER");
 }
 
-void testRequirePixelsExitsNonZeroWithoutPixelSupport(const char* fixturePath)
+// --require-pixels was removed as a CLI flag; MRIV_REQUIRE_PIXELS is its
+// debug-only replacement for scripts/CI that want a hard failure instead of
+// one-shot mode's default "nothing to draw, exit 0" behaviour.
+void testRequirePixelsEnvVarExitsNonZeroWithoutPixelSupport(const char* fixturePath)
 {
     setenv("MRIV_TEST_RENDER", "none", 1);
+    setenv("MRIV_REQUIRE_PIXELS", "1", 1);
 
     std::istringstream in;
     std::ostringstream out, err;
-    int rc = run(Args{"mriv", "--require-pixels", fixturePath}.argc(),
-                 Args{"mriv", "--require-pixels", fixturePath}.data(), in, out, err);
+    int rc = run(Args{"mriv", fixturePath}.argc(),
+                 Args{"mriv", fixturePath}.data(), in, out, err);
     assert(rc != 0);
     assert(err.str().find("no pixel graphics protocol") != std::string::npos);
 
@@ -466,7 +502,20 @@ void testRequirePixelsExitsNonZeroWithoutPixelSupport(const char* fixturePath)
     for (const auto& ev : events)
         assert(ev.kind != EventKind::KittyGraphics);
 
+    unsetenv("MRIV_REQUIRE_PIXELS");
     unsetenv("MRIV_TEST_RENDER");
+}
+
+// The removed flag must now be rejected like any other unknown option,
+// before anything is loaded or drawn.
+void testRequirePixelsFlagIsRejected(const char* fixturePath)
+{
+    Args args{"mriv", "--require-pixels", fixturePath};
+    std::istringstream in;
+    std::ostringstream out, err;
+
+    int rc = run(args.argc(), args.data(), in, out, err);
+    assert(rc != 0);
 }
 
 // --- interactive mode ----------------------------------------------------
@@ -612,6 +661,7 @@ int main(int argc, char** argv)
     testScaleFlagMagnifiesImage(fixturePath);
     testViewsChangeImage(fixturePath);
     testAxisSelectsWhatSliceAppliesTo(fixturePath);
+    testPerAxisSliceFlagPositionsEachAxisIndependently(fixturePath);
     testMultipleFilesProduceOneCaptionedGrid(fixturePath, fixturePath2);
     testMultipleFilesWidenTheFrame(fixturePath, fixturePath2);
     testSingleFileIsNotLabelled(fixturePath);
@@ -619,7 +669,8 @@ int main(int argc, char** argv)
     testOneMissingFileIsSkippedNotFatal(fixturePath);
     testAllFilesMissingFails();
     testNoPixelSupportReportsOnceForStrip(fixturePath, fixturePath2);
-    testRequirePixelsExitsNonZeroWithoutPixelSupport(fixturePath);
+    testRequirePixelsEnvVarExitsNonZeroWithoutPixelSupport(fixturePath);
+    testRequirePixelsFlagIsRejected(fixturePath);
 
     testNoTtyDoesNotEnterInteractiveMode(fixturePath);
     testExplicitInteractiveWithoutATtyIsRefused(fixturePath);

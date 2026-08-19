@@ -90,17 +90,20 @@ std::string formatStatusLine(const ViewState& state, const std::vector<std::stri
         return prompt.str();
     }
 
-    // The live row is the summary plus the legend, so the two can never
-    // disagree about what is on screen.
+    return formatSummaryLine(state, paths);
+}
+
+std::string formatHotkeyLine(const ViewState& state)
+{
     std::ostringstream out;
-    out << formatSummaryLine(state, paths) << "  |  j/k slice  x/y/z axis";
+    out << "j/k slice  x/y/z axis";
 
     // Keys that only mean something with more than one column. Offering Tab
     // when there is nothing to switch to is noise, not discoverability.
     if (state.volumeCount() > 1)
         out << "  Tab volume";
 
-    out << "  c map  r range  q quit";
+    out << "  c map  r range  s screenshot  q quit";
 
     return out.str();
 }

@@ -41,6 +41,16 @@ bool debugEnabled()
     return v && v[0] != '\0';
 }
 
+// Debug-only override for scripting/CI: one-shot mode normally treats a
+// missing pixel protocol as "nothing to draw," not an error (see
+// runOneShot() below) -- interactive mode always errors regardless of this
+// variable, since there is no way to run a session without pixels at all.
+bool requirePixelsEnabled()
+{
+    const char* v = std::getenv("MRIV_REQUIRE_PIXELS");
+    return v && v[0] != '\0';
+}
+
 // Percentile range for the default intensity window. Named per
 // mriv/HANDOFF.md sec 6: there is no parent default to inherit, and
 // 2%/98% is a sane choice for MRI. Used unless --range overrides it.
@@ -139,25 +149,43 @@ bool buildDisplays(const Options& options,
     return true;
 }
 
-// The starting cursor: --slice positions the requested axis, the other two
-// start at their midpoint. Resolved against the first volume, whose index
-// space the shared cursor lives in.
+// The starting cursor: --slice positions one or more axes, any axis it
+// doesn't touch starts at its midpoint. Resolved against the first volume,
+// whose index space the shared cursor lives in.
 glm::ivec3 resolveStartCursor(const Options& options, const Volume& vol)
 {
     glm::ivec3 cursor(vol.dimensions.x / 2, vol.dimensions.y / 2, vol.dimensions.z / 2);
 
-    int viewIndex = viewIndexForAxis(options.axis).value_or(0);
-    auto selection = parseSliceArg(options.sliceArg);
-    if (!selection.has_value())
+    auto spec = parseSliceSpec(options.sliceArg);
+    if (!spec.has_value())
         return cursor; // parseArgs() validated this already.
 
-    int slice = resolveSliceIndex(*selection, sliceCountForView(viewIndex, vol.dimensions));
-    switch (viewIndex)
+    auto place = [&](int viewIndex, const SliceSelection& selection) {
+        int slice = resolveSliceIndex(selection, sliceCountForView(viewIndex, vol.dimensions));
+        switch (viewIndex)
+        {
+            case 1:  cursor.x = slice; break;
+            case 2:  cursor.y = slice; break;
+            default: cursor.z = slice; break;
+        }
+    };
+
+    // Bare form ("n", "p%", "mid"): positions whichever axis --axis names,
+    // exactly as before this axis/y/z spelling existed.
+    if (spec->active.has_value())
     {
-        case 1:  cursor.x = slice; break;
-        case 2:  cursor.y = slice; break;
-        default: cursor.z = slice; break;
+        place(viewIndexForAxis(options.axis).value_or(0), *spec->active);
+        return cursor;
     }
+
+    // "x=...,y=...,z=..." form: each axis given is positioned independently
+    // of --axis, so one --slice can move more than one plane at once.
+    if (spec->x.has_value())
+        place(*viewIndexForAxis('x'), *spec->x);
+    if (spec->y.has_value())
+        place(*viewIndexForAxis('y'), *spec->y);
+    if (spec->z.has_value())
+        place(*viewIndexForAxis('z'), *spec->z);
     return cursor;
 }
 
@@ -255,16 +283,17 @@ int runInteractive(const Options& options, std::ostream& err)
         else
         {
             auto nameLines = formatVolumeNameLines(paths);
-            // One row per volume plus the status row below them -- fixed
-            // for the whole session, so the image box does not shift
-            // underneath the header while navigating.
-            int headerRows = static_cast<int>(nameLines.size()) + 1;
+            // One row per volume plus the status row and the hotkey row
+            // below them -- fixed for the whole session, so the image box
+            // does not shift underneath the header while navigating.
+            int headerRows = static_cast<int>(nameLines.size()) + 2;
 
             // Set by takeScreenshot() below, shown in place of the status
-            // line's usual summary+legend for exactly one draw() call, then
+            // line's usual summary for exactly one draw() call, then
             // cleared -- the status row is one reserved line (StatusLine.hpp),
             // so this replaces it rather than adding a row the way the range
-            // prompt already does for editing.
+            // prompt already does for editing. The hotkey row underneath is
+            // untouched either way.
             std::string screenshotMessage;
 
             auto draw = [&](const ViewState& current) {
@@ -298,6 +327,7 @@ int runInteractive(const Options& options, std::ostream& err)
                     header.push_back(screenshotMessage);
                     screenshotMessage.clear();
                 }
+                header.push_back(formatHotkeyLine(current));
                 auto overlay = planOverlay(header, tracks, current.activeViewRow(),
                                           current.activeVolume(), frame.height,
                                           static_cast<int>(box.cellWidth),
@@ -381,9 +411,9 @@ int runOneShot(const Options& options, std::ostream& out, std::ostream& err)
     if (const char* testRender = std::getenv("MRIV_TEST_RENDER"))
     {
         // MRIV_TEST_RENDER=none forces a pixel-less test terminal so the
-        // no-pixel-support and --require-pixels branches are reachable from
-        // Layer C. Any other non-empty value keeps the Kitty behaviour every
-        // existing test relies on.
+        // no-pixel-support branch is reachable from Layer C. Any other
+        // non-empty value keeps the Kitty behaviour every existing test
+        // relies on.
         bool none = std::string(testRender) == "none";
         log("MRIV_TEST_RENDER set -> test-mode terminal, protocol="
             + std::string(none ? "None" : "Kitty"));
@@ -410,7 +440,13 @@ int runOneShot(const Options& options, std::ostream& out, std::ostream& err)
         err << "mriv: this terminal has no pixel graphics protocol "
                "(Kitty, sixel, or iTerm2). Try Kitty, Ghostty, WezTerm, iTerm2, or "
                "Konsole.\n";
-        return options.requirePixels ? 1 : 0;
+        // One-shot mode is "cat for medical images": piping into a
+        // non-pixel-capable destination (a log file, a non-graphical
+        // terminal) is not a user error, so this is not one either -- unlike
+        // interactive mode above, which always fails, there is no session to
+        // refuse to start. MRIV_REQUIRE_PIXELS is a debug-only escape hatch
+        // for scripts/CI that want a hard failure instead.
+        return requirePixelsEnabled() ? 1 : 0;
     }
     log("hasPixelSupport=true");
 

@@ -37,4 +37,30 @@ std::optional<SliceSelection> parseSliceArg(const std::string& arg);
 /// see mriv/HANDOFF.md sec 6).
 int resolveSliceIndex(const SliceSelection& selection, int dimSize);
 
+/// A full `--slice` argument, in one of two mutually exclusive shapes:
+///
+///  - the classic bare form ("n", "p%", "mid") -- stored in `active`,
+///    which the caller resolves against whatever axis `--axis` names, the
+///    same as it always has.
+///  - "x=<sel>,y=<sel>,z=<sel>" -- any subset of the three, any order, each
+///    `<sel>` in the same "n|p%|mid" grammar -- stored directly in `x`/
+///    `y`/`z`, positioning each axis independently of `--axis`.
+///
+/// Exactly one of `active` or at least one of `x`/`y`/`z` is set; the two
+/// forms never mix.
+struct SliceSpec
+{
+    std::optional<SliceSelection> active;
+    std::optional<SliceSelection> x;
+    std::optional<SliceSelection> y;
+    std::optional<SliceSelection> z;
+};
+
+/// Parse a `--slice` argument into a SliceSpec. Returns std::nullopt for
+/// anything that fails to match either shape above: a malformed selection,
+/// an axis letter other than x/y/z, a repeated axis, or a mix of the bare
+/// and "axis=" forms in the same argument -- so the CLI layer can report a
+/// clean error.
+std::optional<SliceSpec> parseSliceSpec(const std::string& arg);
+
 } // namespace mriv::term
