@@ -181,6 +181,39 @@ bool Screen::drawFrame(const FrameOverlay& overlay, const uint32_t* rgba, int w,
         return false;
     }
 
+    // notcurses_render() above is an *optimized* redraw: it may elide bytes
+    // for a plane it believes the terminal already displays unchanged.
+    // That damage tracking is keyed loosely enough that a freshly created
+    // plane at the same screen position as the one just destroyed can be
+    // mistaken for "nothing to do" on some pixel backends -- observed on
+    // real mlterm/sixel as slice navigation updating the status text but
+    // never the image, while the identical code path is fine on Kitty
+    // (mriv/HANDOFF.md; Kitty's protocol has an explicit image id/delete
+    // model that sidesteps the ambiguity sixel's raster-only protocol
+    // doesn't have). notcurses_refresh() forces a full, non-optimized
+    // repaint of exactly what was just rendered, so it costs a visible
+    // clear+redraw rather than an in-place update -- acceptable here since
+    // frames are keypress-driven, not animated.
+    if (notcurses_refresh(nc_, nullptr, nullptr) < 0)
+        debugLog("notcurses_refresh failed after a successful render");
+
+    if (debugEnabled())
+    {
+        // sprixelemissions vs sprixelelisions tells us whether notcurses
+        // actually sent fresh bitmap data this frame or decided the
+        // terminal already had it -- the question that matters when a
+        // redraw is visually silent on a sixel terminal but not on Kitty.
+        ncstats stats{};
+        notcurses_stats(nc_, &stats);
+        debugLog("after render: renders=" + std::to_string(stats.renders)
+                 + " writeouts=" + std::to_string(stats.writeouts)
+                 + " sprixelemissions=" + std::to_string(stats.sprixelemissions)
+                 + " sprixelelisions=" + std::to_string(stats.sprixelelisions)
+                 + " sprixelbytes=" + std::to_string(stats.sprixelbytes)
+                 + " raster_bytes=" + std::to_string(stats.raster_bytes)
+                 + " planes=" + std::to_string(stats.planes));
+    }
+
     return true;
 }
 
