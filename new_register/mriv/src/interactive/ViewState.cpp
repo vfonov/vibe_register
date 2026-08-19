@@ -234,6 +234,7 @@ KeyResult ViewState::handleKey(char key)
         case 'c': return cycleColourMap(1);
         case 'C': return cycleColourMap(-1);
         case 'r': return beginRangeEdit();
+        case 's': return KeyResult::Screenshot;
         // Esc quits, the same as 'q' -- it is the reflex for getting out of
         // a full-screen terminal application.
         case 'q':

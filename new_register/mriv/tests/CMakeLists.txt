@@ -62,7 +62,8 @@ add_mriv_test(test_overlay)
 add_mriv_test(test_layout)
 add_mriv_test(test_compose)
 add_mriv_test(test_resample)
-add_mriv_test(test_terminal LINKS PkgConfig::NOTCURSES)
+add_mriv_test(test_terminal LINKS mriv_notcurses)
+add_mriv_test(test_screenshot)
 
 # Layer A: escape-sequence structure tests.
 add_mriv_test(test_structure)

@@ -193,6 +193,51 @@ void testFailedFrameEndsTheSessionNonZero()
     assert(keys.calls == 2);
 }
 
+/// 's' must call the screenshot sink, not the frame sink -- nothing about
+/// the view changed, so a repaint would be wasted work.
+void testScreenshotKeyCallsTheScreenshotSinkNotTheFrameSink()
+{
+    ViewState state = makeState();
+    ScriptedKeys keys{"sq"};
+    RecordingSink sink;
+    int screenshots = 0;
+
+    assert(runSession(state, std::ref(keys), std::ref(sink),
+                      [&]() { ++screenshots; }) == 0);
+    assert(screenshots == 1);
+    // Initial frame only -- 's' did not trigger a second draw.
+    assert(sink.frames.size() == 1);
+}
+
+/// The session keeps going after a screenshot: it is a side effect, not an
+/// exit.
+void testSessionContinuesAfterAScreenshot()
+{
+    ViewState state = makeState();
+    ScriptedKeys keys{"sjq"};
+    RecordingSink sink;
+    int screenshots = 0;
+
+    assert(runSession(state, std::ref(keys), std::ref(sink),
+                      [&]() { ++screenshots; }) == 0);
+    assert(screenshots == 1);
+    // Initial frame + one for 'j'; 's' and 'q' draw nothing.
+    assert(sink.frames.size() == 2);
+    assert(sink.frames.back().sliceIndex == 49);
+}
+
+/// A caller that does not pass a screenshot sink (most tests, and any
+/// future caller that genuinely has nothing to save) must not crash on
+/// 's' -- the default is a no-op, not an unset std::function call.
+void testScreenshotKeyWithNoSinkDoesNotCrash()
+{
+    ViewState state = makeState();
+    ScriptedKeys keys{"sq"};
+    RecordingSink sink;
+
+    assert(runSession(state, std::ref(keys), std::ref(sink)) == 0);
+}
+
 void testFailedInitialFrameReadsNoKeys()
 {
     ViewState state = makeState();
@@ -217,6 +262,9 @@ int main()
     testFramesFollowTheKeySequence();
     testDisplayKeysReachTheSink();
     testFailedFrameEndsTheSessionNonZero();
+    testScreenshotKeyCallsTheScreenshotSinkNotTheFrameSink();
+    testSessionContinuesAfterAScreenshot();
+    testScreenshotKeyWithNoSinkDoesNotCrash();
     testFailedInitialFrameReadsNoKeys();
 
     return 0;

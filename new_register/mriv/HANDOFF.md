@@ -992,3 +992,132 @@ asserts the `"\x1b[H"` marker precedes `blit()`'s encoded bytes in a test-mode `
 stream. `ctest` green 47/47. **Needs the user to confirm on a real terminal, at both `--scale 1` and
 `--scale 2`/`3`**, that quitting leaves exactly one picture on screen with no leftover image or text
 overlapping it.
+
+### 2026-08-19 — opt-in from-source, statically-linked notcurses build
+
+New `-DMRIV_BUILD_NOTCURSES=ON` option (default `OFF`), for hosts with no system notcurses package,
+or to produce a fully self-contained `mriv` binary regardless. Implemented in the new
+`mriv/cmake/BuildNotcurses.cmake`, included from `mriv/CMakeLists.txt` only when the option is set —
+the default configure path (system notcurses via `pkg-config`) is untouched.
+
+Downloads and statically builds notcurses (`v3.0.17`) and libunistring (`1.4.2`) from source via
+`ExternalProject_Add`. libunistring is itself a contained `ExternalProject` (GNU autotools,
+`--disable-shared --enable-static --with-pic`) rather than a required system package — it's a hard,
+non-optional notcurses build dependency with no upstream disable flag, and was absent from this
+sandbox. notcurses is configured with every optional feature off (`USE_MULTIMEDIA=none`,
+`USE_CXX=OFF`, `USE_DEFLATE=OFF`, `USE_QRCODEGEN=OFF`, `USE_GPM=OFF`, docs/tests/executables off),
+needing nothing beyond tinfo and zlib (both left as ordinary system deps) plus the two builds above.
+
+Two build-system pitfalls surfaced and got fixed along the way:
+
+- **`notcurses_init()`/`ncdirect_init()` are not in `notcurses-core`.** Initial assumption (from
+  reading upstream's `CMakeLists.txt` source-file globs) was that mriv's two entry-point families —
+  `ncdirect_*` and `ncvisual_from_rgba()` — live entirely in the `notcurses-core` target
+  (`src/lib/*.c`), so only that archive needed linking. Linking against it alone produced `undefined
+  reference to notcurses_init` / `ncdirect_init`. `nm` on the built `libnotcurses-core.a` confirmed
+  both symbols absent despite `notcurses.c.o`/`direct.c.o` being present as archive members; grepping
+  the actual notcurses source tree found both defined in `src/media/shim.c` instead — which upstream's
+  `CMakeLists.txt` globs (`file(GLOB NCSRCS ... src/media/*.c ...)`) into the *`notcurses`* (full,
+  "multimedia") target, not `notcurses-core`. Fix: build and link `notcurses-static` too (a second
+  `IMPORTED STATIC GLOBAL` target, `INTERFACE_LINK_LIBRARIES notcurses_core_static` so CMake orders
+  the final link line correctly). With `USE_MULTIMEDIA=none` this only pulls in a harmless stub
+  backend (`none.c`), not real ffmpeg/OpenImageIO decoding code — the "no extra dependencies" property
+  from the original design holds.
+- **`find_library(m)`/`find_library(rt)` silently picked up glibc's *static* archives.** The parent
+  project globally prefers `.a` over `.so` in `CMAKE_FIND_LIBRARY_SUFFIXES` (for libminc's own static
+  deps), and that setting is inherited into this file's directory scope. Left as-is, `find_library(m)`
+  resolved to `/usr/lib/x86_64-linux-gnu/libm.a` instead of the shared library, producing `undefined
+  reference to __frexp/__ldexp/_dl_x86_cpu_features` and a `DT_TEXTREL in a PIE` warning at the final
+  `mriv` link (glibc's static libm/libc archives are tightly version-coupled and don't mix cleanly with
+  a dynamically-linked libc). Same root cause silently affected `pkg_check_modules(... tinfo)`'s
+  resolved library file. Fix: override `CMAKE_FIND_LIBRARY_SUFFIXES` back to `.so`-first, in this
+  file's directory scope only, before any of these three lookups — matching the pattern
+  `mriv/CMakeLists.txt`'s system-package branch already used for the same reason. Only notcurses and
+  libunistring are meant to be static here; base-OS runtime libraries stay dynamic like any other
+  Linux binary.
+
+Verified end-to-end in `new_register/build`: both `unistring_external` and `notcurses_external` build
+successfully with zero ffmpeg/OpenImageIO/qrcodegen/libdeflate/pandoc artifacts in their install logs;
+`mriv` links clean (`readelf -d` shows no `notcurses`/`unistring` `NEEDED` entries — confirmed fully
+static — and no `TEXTREL`); `nm` confirms `notcurses_init`/`ncdirect_init` present in the final binary;
+`ctest -R "^mriv_"` green 20/20. Reset back to the documented default (`MRIV_BUILD_NOTCURSES=OFF`)
+afterward and re-confirmed the system-package path still builds and passes all 20 tests unchanged.
+Separately re-confirmed (fresh scratch build directory) that `-DBUILD_TERMINAL_VIEWER=OFF` still
+builds and tests the rest of `new_register` (`new_register`, `new_mincpik`, `new_qc`, all 27 parent
+tests) cleanly, with zero exposure to notcurses, cxxopts, or libunistring — mriv's dependencies stay
+fully opt-in.
+
+No real-terminal step needed for this change — it's build-system only, no rendering-path code
+touched.
+
+### 2026-08-19 (later) — `s` saves a screenshot, matching `new_register`'s naming convention
+
+New interactive-mode key: `s` writes the frame currently on screen to `screenshotNNNNNN.png` in the
+current directory. Deliberately mirrors `new_register`'s own `P` key bit for bit
+(`Interface::saveScreenshot()`, `new_register/src/Interface.cpp`): 1-based index, zero-padded to six
+digits, always continuing past the highest existing file rather than filling a gap left by a deleted
+one — so a script or habit built around one viewer's screenshots works unchanged against the other.
+
+Threaded through the same layers as every other key:
+
+- `ViewState::handleKey()` gained a fourth `KeyResult` value, `Screenshot`, returned for `'s'` outside
+  the range-edit prompt (inside the prompt it's swallowed as ordinary text, same as any other letter).
+  Deliberately not `Changed`: nothing in `ViewState` is touched, so a redraw would cost a full slice
+  render and bitmap upload to show the exact same pixels.
+- `Session::runSession()` gained a fourth parameter, `ScreenshotSink` (`std::function<void()>`,
+  defaulted to a no-op so existing callers and tests are unaffected). On `KeyResult::Screenshot` it
+  calls the sink and loops straight back for the next key, skipping `FrameSink` entirely.
+- `cli/Run.cpp`'s `runInteractive()` supplies the sink: a lambda closing over the same `lastFrame`
+  already kept around for the exit-time reprint (mriv/HANDOFF.md, the two entries above), passed to
+  the new `render/Screenshot.{hpp,cpp}` module.
+- `render/Screenshot.cpp` does the filename search (`nextScreenshotFilename()`) and the actual PNG
+  write (`saveScreenshot()`), reusing the `stb_image_write.h` copy already vendored in
+  `third_party/stb/` for the Kitty graphics protocol's PNG payload (`render/Encode.cpp`) — no new
+  dependency, and the same `reinterpret_cast<const uint8_t*>` from packed `0xAABBGGRR` that
+  `Encode.cpp` and `Terminal::blit()` already rely on.
+
+Filename search takes a `dir` parameter (defaulting to `"."`, used as-is by `Run.cpp`) purely so
+`tests/test_screenshot.cpp` can point it at an isolated `std::filesystem::temp_directory_path()`
+scratch directory instead of the repo tree or the ctest working directory — parallel and repeated
+`ctest` runs would otherwise collide on leftover `screenshotNNNNNN.png` files.
+
+New tests: `tests/test_screenshot.cpp` (filename numbering, gap-skipping, actual PNG write, failure
+on an empty frame), plus additions to `tests/test_view_state.cpp` (`'s'` reports `Screenshot` without
+changing any state; swallowed as text inside the range prompt) and `tests/test_session.cpp` (the
+screenshot sink fires instead of a redraw, the session continues afterward, and a caller that omits
+the sink does not crash). `ctest -R "^mriv_"` green, 21/21 (one more than the previous entry's 20 —
+the new `test_screenshot` suite).
+
+No real-terminal step needed here either — `render/Screenshot.cpp` never touches notcurses, and the
+key-routing logic is fully covered by `test_view_state`/`test_session` without one.
+
+### 2026-08-19 (later still) — screenshot saves were silent; show a confirmation on the status line
+
+Follow-up: saving worked, but nothing on screen said so, so a save looked indistinguishable from a
+dead key. `cli/Run.cpp`'s `takeScreenshot` sink now builds a message ("Screenshot saved:
+`<filename>`", or a failure message if `saveScreenshot()` returned empty) and calls `draw(state)`
+once right after saving. `draw()`'s header construction shows that message on the status row instead
+of the usual `formatStatusLine()` summary+legend for that one call, then clears it — the row is a
+single reserved line (`interactive/StatusLine.hpp` says as much: "the result never contains a
+newline"), so this replaces its content for one frame the same way `state.isEditing()` already
+swaps the whole row over to the range prompt, rather than adding a second row and shifting the image
+box.
+
+Deliberately not threaded through `ViewState`/`StatusLine.cpp`: the message only exists because of a
+side effect (a file got written) that those modules have no business knowing about, and `Run.cpp`'s
+`draw` lambda already builds the header, so overriding one line there is the smallest change that
+works. `ViewState` stays exactly as pure as before.
+
+Calling `draw(state)` here does cost a full slice re-render for pixels that are already on screen
+unchanged -- accepted deliberately, the same tradeoff `c`/`r` already make on every keystroke: `s`
+is a deliberate one-off action, not something held down like `j`, so it doesn't need the
+no-redundant-repaint discipline `Session::runSession()` enforces for navigation.
+
+No test changes: this only touches `cli/Run.cpp`'s already-untested interactive wiring (the same
+scope `runInteractive()`'s resize/exit-reprint logic lives in, covered by `test_view_state.cpp`/
+`test_session.cpp` one layer down, not directly). `ctest -R "^mriv_"` stays green, 21/21.
+
+**Needs real-terminal confirmation** (unlike the previous entry): this changes what actually
+appears on screen. Confirm that pressing `s` shows "Screenshot saved: screenshotNNNNNN.png" on the
+status row, that the file lands in the working directory with that exact name, and that the message
+is gone again on the next navigation key rather than lingering.

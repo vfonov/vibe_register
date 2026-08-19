@@ -23,6 +23,11 @@ enum class KeyResult
     Changed,
     /// The user asked to leave interactive mode.
     Quit,
+    /// The user asked to save the frame already on screen. Deliberately
+    /// distinct from Changed: nothing in ViewState changed, so redrawing
+    /// would cost a slice render and a bitmap upload for no visible
+    /// difference. The caller saves whatever it last drew instead.
+    Screenshot,
 };
 
 /// The arrow keys, carried through the session as the control codes
@@ -91,8 +96,8 @@ public:
               std::vector<VolumeDisplay> displays);
 
     /// Apply one keypress: j/k slice, x/y/z or up/down axis, Tab, 1-9 and
-    /// left/right active volume, c/C colour map, r range prompt, q or Esc
-    /// quit. There is no
+    /// left/right active volume, c/C colour map, r range prompt, s
+    /// screenshot, q or Esc quit. There is no
     /// h/l -- the parent has no time dimension (PLAN.md, deferred work).
     ///
     /// While the range prompt is open every key belongs to it, including

@@ -130,7 +130,7 @@ Never fork the parent's format-handling code into this subproject. That is the f
 
 This subproject adds exactly two things on top of `nr_core`:
 
-- **[notcurses](https://github.com/dankamongmen/notcurses)** — terminal rendering, **C API only**. Non-negotiable; do not add alternative TUI libraries. Version 3.0.7 is installed on the dev host, headers at `/usr/include/notcurses/`.
+- **[notcurses](https://github.com/dankamongmen/notcurses)** — terminal rendering, **C API only**. Non-negotiable; do not add alternative TUI libraries. Version 3.0.7 is installed on the dev host, headers at `/usr/include/notcurses/`. By default this is a system package found via `pkg-config`. For hosts with no system notcurses (or to produce a fully self-contained static binary), `-DMRIV_BUILD_NOTCURSES=ON` downloads, builds, and statically links notcurses from source instead, via `ExternalProject_Add` — see `cmake/BuildNotcurses.cmake` and the "From-source notcurses" subsection below.
 - **[cxxopts](https://github.com/jarro2783/cxxopts)** — command-line parsing. Header-only, fetched via CMake `FetchContent`.
 
 > **Deliberate divergence — do not "fix" this.** The parent used to use cxxopts and removed it; `new_register/src/main.cpp:49` reads `// CLI argument parsing (replaces cxxopts)`, and `src/mincpik/mincpik_cli.{h,cpp}` is a hand-rolled argv walker. This subproject uses cxxopts anyway, by explicit decision. An agent that notices the inconsistency and "aligns with the parent" is undoing a deliberate choice.
@@ -164,9 +164,42 @@ This subproject's `CMakeLists.txt`:
 
 - Defines a single executable target, `mriv`.
 - Links `nr_core` (which carries its include dirs and transitive deps as `PUBLIC`).
-- Links `notcurses` (via `pkg-config` / `find_package`).
+- Links `notcurses` (via `pkg-config` by default, or a self-built static copy — see below).
 - Fetches and links `cxxopts`.
 - Registers tests with `mriv_`-prefixed CTest names so they are selectable from the parent's `ctest`.
+
+### From-source notcurses (`-DMRIV_BUILD_NOTCURSES=ON`)
+
+Opt-in alternative to the default system-package (`pkg-config`) notcurses lookup, for hosts
+with no system-provided notcurses, or to get a fully self-contained `mriv` binary regardless.
+Implemented in `cmake/BuildNotcurses.cmake`, included from `mriv/CMakeLists.txt` only when the
+option is set; the default configure never touches it.
+
+- Downloads and builds notcurses (`v3.0.17`, pinned) and libunistring (`1.4.2`, pinned,
+  sha256-verified tarball) from source via `ExternalProject_Add`, both statically linked.
+  libunistring is built as its own contained `ExternalProject` (GNU autotools, static-only,
+  `--with-pic`) rather than required as a system package — unlike tinfo/zlib, it's a hard,
+  non-optional notcurses build dependency with no `USE_UNISTRING=OFF` escape hatch upstream,
+  and is frequently absent even on otherwise well-provisioned hosts.
+- notcurses is configured with every optional feature off (`USE_MULTIMEDIA=none`,
+  `USE_CXX=OFF`, `USE_DEFLATE=OFF`, `USE_QRCODEGEN=OFF`, `USE_GPM=OFF`, docs/tests/executables
+  off) — mriv only calls `ncdirect_*` and `ncvisual_from_rgba()`, so this build needs neither
+  ffmpeg, OpenImageIO, qrcodegen, nor pandoc/doctest.
+- Both notcurses static archives are linked: `notcurses-core-static` (the bulk of the C API,
+  `src/lib/*.c`) **and** `notcurses-static` (`src/media/*.c`) — `notcurses_init()` and
+  `ncdirect_init()` themselves are defined in `src/media/shim.c`, which upstream's CMakeLists
+  glob places in the *multimedia* target, not core. With `USE_MULTIMEDIA=none` this only pulls
+  in a harmless stub backend, not real media-decoding code.
+- Base-OS runtime libraries (`libm`, `librt`, `tinfo`) stay dynamic, same as any other Linux
+  binary — only notcurses and libunistring are statically linked. The parent project globally
+  prefers `.a` over `.so` in `find_library()` resolution (for libminc's own deps); this file
+  overrides that back to `.so`-first in its own directory scope before resolving those three,
+  to avoid accidentally linking glibc's static `libm.a`/`librt.a` (which pulls in surprising
+  extra undefined symbols and produces `DT_TEXTREL` in a PIE binary).
+- `-DBUILD_TERMINAL_VIEWER=OFF` (the pre-existing option gating `add_subdirectory(mriv)` in the
+  parent's `CMakeLists.txt`) skips this subproject — and therefore notcurses, cxxopts, and
+  libunistring — entirely; the rest of `new_register` builds and tests with zero exposure to
+  any of mriv's dependencies either way.
 
 ### Standalone build (optional)
 
@@ -347,6 +380,7 @@ several volumes become columns of one navigable grid, which is more use interact
 | `Tab`, `1`–`9`, `←` / `→` | Select the active column, wrapping |
 | `c` / `C` | Cycle the active column's colour map forward / back |
 | `r` | Open the range prompt for the active column |
+| `s` | Save the frame currently on screen as a PNG (`screenshotNNNNNN.png`, same naming as `new_register`'s `P`) |
 | `q`, `Esc` | Quit |
 | `Ctrl-L` | Redraw — also fires automatically on a terminal resize |
 | *in prompt* | printable → append, Backspace → delete, Enter → apply, `Esc` → cancel (arrows and letters are swallowed by the prompt, not acted on) |
@@ -390,6 +424,20 @@ navigation letters and `Esc` — typing a number must not also move a slice.
 Colour maps default to Spectral for the first volume and grayscale for the rest: the first is
 usually the one being judged and the others are references it is compared against. `--colourmap`
 overrides, with one name for all of them or one per file.
+
+`s` saves whatever `draw()` last put on screen to `screenshotNNNNNN.png` in the current directory
+— the exact naming convention `new_register`'s own `P` key uses (`Interface::saveScreenshot()`,
+`new_register/src/Interface.cpp`): 1-based, zero-padded to six digits, continuing past any
+existing file rather than filling a gap left by a deleted one. `ViewState::handleKey()` reports it
+as `KeyResult::Screenshot`, a value distinct from `Changed`, since nothing in `ViewState` changes —
+there is nothing new to render, only the frame already drawn to write out — so `Session::runSession()`
+calls a separate `ScreenshotSink` and loops back for the next key without touching `FrameSink`.
+`render/Screenshot.cpp` does the actual PNG encoding, reusing the `stb_image_write.h` copy already
+vendored for the Kitty graphics protocol's PNG payload (`render/Encode.cpp`) — no new dependency.
+The status row briefly shows "Screenshot saved: `<filename>`" (or a failure message) in place of the
+usual summary and key legend, for the one `draw()` call `cli/Run.cpp` issues right after saving —
+there is no separate notification row, since the status row is a single reserved line
+(`interactive/StatusLine.hpp`) that already swaps its content wholesale for the range prompt.
 
 `--no-interactive` is the escape hatch for a user sitting at a terminal who wants the one-shot
 behaviour anyway; scripts can pass it unconditionally. An explicit `--interactive` that cannot be
@@ -457,6 +505,8 @@ sudo apt install -y libnotcurses-dev
 ```
 
 Install `libnotcurses-dev`, **not** `libnotcurses++-dev` — we use the C API only, and the C++ bindings package exists solely to provide `ncpp::`, which is banned here. `cxxopts` is fetched via CMake.
+
+No `libnotcurses-dev`? Configure with `-DMRIV_BUILD_NOTCURSES=ON` instead — it downloads and statically builds notcurses (and its libunistring dependency) from source, with no system notcurses package required. See "From-source notcurses" under [Build integration](#build-integration).
 
 For visual testing on the dev host, a pixel-capable terminal: `kitty`, `wezterm`, or Ghostty.
 

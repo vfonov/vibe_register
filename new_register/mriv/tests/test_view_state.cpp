@@ -321,6 +321,34 @@ void testQuitAndUnknownKeys()
     assert(state.handleKey('-') == KeyResult::Ignored);
 }
 
+/// 's' asks the caller to save a screenshot of the frame already on
+/// screen; it must not touch cursor, axis, volume or display state, only
+/// report the request via a distinct KeyResult so the caller does not
+/// mistake it for a Changed that needs a redraw.
+void testScreenshotKeyDoesNotChangeState()
+{
+    auto state = makeState();
+    char axisBefore = state.axis();
+    int sliceBefore = state.sliceIndex();
+    int volumeBefore = state.activeVolume();
+
+    assert(state.handleKey('s') == KeyResult::Screenshot);
+
+    assert(state.axis() == axisBefore);
+    assert(state.sliceIndex() == sliceBefore);
+    assert(state.activeVolume() == volumeBefore);
+}
+
+/// While the range prompt is open, 's' is text like any other printable
+/// character -- it must not be hijacked into a screenshot mid-edit.
+void testScreenshotKeyIsSwallowedByThePrompt()
+{
+    auto state = makeState();
+    state.handleKey('r');
+    assert(state.handleKey('s') == KeyResult::Changed);
+    assert(state.editor().text() == "s");
+}
+
 void testSingleSliceAxisCannotMove()
 {
     auto state = makeState(glm::ivec3(4, 4, 1));
@@ -487,6 +515,8 @@ int main()
     testBadRangeKeepsThePromptOpen();
     testPromptStartsFromTheVolumesCurrentRange();
     testQuitAndUnknownKeys();
+    testScreenshotKeyDoesNotChangeState();
+    testScreenshotKeyIsSwallowedByThePrompt();
     testSingleSliceAxisCannotMove();
     testConstructorClampsTheCursor();
     testActiveViewRowIsAnIndexIntoTheDisplayedViews();

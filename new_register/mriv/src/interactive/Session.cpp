@@ -3,7 +3,8 @@
 namespace mriv::term
 {
 
-int runSession(ViewState& state, const KeySource& nextKey, const FrameSink& draw)
+int runSession(ViewState& state, const KeySource& nextKey, const FrameSink& draw,
+              const ScreenshotSink& screenshot)
 {
     if (!draw(state))
         return 1;
@@ -17,6 +18,12 @@ int runSession(ViewState& state, const KeySource& nextKey, const FrameSink& draw
         KeyResult result = state.handleKey(*key);
         if (result == KeyResult::Quit)
             return 0;
+        if (result == KeyResult::Screenshot)
+        {
+            if (screenshot)
+                screenshot();
+            continue;
+        }
         if (result == KeyResult::Ignored)
             continue;
 

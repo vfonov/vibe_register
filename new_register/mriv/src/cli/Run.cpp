@@ -23,6 +23,7 @@
 #include "interactive/ViewState.hpp"
 #include "render/FrameBuilder.hpp"
 #include "render/PixelProtocol.hpp"
+#include "render/Screenshot.hpp"
 #include "render/SliceGeometry.hpp"
 #include "render/Terminal.hpp"
 
@@ -259,6 +260,13 @@ int runInteractive(const Options& options, std::ostream& err)
             // underneath the header while navigating.
             int headerRows = static_cast<int>(nameLines.size()) + 1;
 
+            // Set by takeScreenshot() below, shown in place of the status
+            // line's usual summary+legend for exactly one draw() call, then
+            // cleared -- the status row is one reserved line (StatusLine.hpp),
+            // so this replaces it rather than adding a row the way the range
+            // prompt already does for editing.
+            std::string screenshotMessage;
+
             auto draw = [&](const ViewState& current) {
                 // Queried fresh on every frame, not once before the loop:
                 // the terminal can be resized mid-session (kKeyResize,
@@ -280,7 +288,15 @@ int runInteractive(const Options& options, std::ostream& err)
                     return false;
 
                 auto header = nameLines;
-                header.push_back(formatStatusLine(current, paths));
+                if (screenshotMessage.empty())
+                {
+                    header.push_back(formatStatusLine(current, paths));
+                }
+                else
+                {
+                    header.push_back(screenshotMessage);
+                    screenshotMessage.clear();
+                }
                 auto overlay = planOverlay(header, tracks, current.activeViewRow(),
                                           current.activeVolume(), frame.height,
                                           static_cast<int>(box.cellWidth),
@@ -297,7 +313,26 @@ int runInteractive(const Options& options, std::ostream& err)
 
             auto keys = [&]() { return screen.readKey(); };
 
-            status = runSession(state, keys, draw);
+            // Saves whatever draw() last put on screen -- KeyResult::Screenshot
+            // never touches ViewState, so there is no new frame to render,
+            // only the last one to write out (mriv/PLAN.md, Interactive mode).
+            // draw() is still called once afterward, not to re-render the
+            // picture (identical pixels either way) but to put the result on
+            // the status line -- otherwise a save with no on-screen
+            // confirmation looks like the key did nothing.
+            auto takeScreenshot = [&]() {
+                if (lastFrame.width <= 0 || lastFrame.height <= 0)
+                    return;
+                std::string path = saveScreenshot(lastFrame.pixels.data(),
+                                                  lastFrame.width, lastFrame.height);
+                screenshotMessage = path.empty()
+                    ? std::string("Screenshot failed -- see stderr")
+                    : ("Screenshot saved: " + path);
+                log(screenshotMessage);
+                draw(state);
+            };
+
+            status = runSession(state, keys, draw, takeScreenshot);
         }
     }
 
