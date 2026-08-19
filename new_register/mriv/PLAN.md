@@ -408,6 +408,19 @@ proportionally. Each axis keeps its own component, so leaving an axis and return
 exactly where you left off — the three are geometrically independent and there is no meaningful way
 to carry a position between them.
 
+The interactive loop marks that cursor's position inside every pane, the terminal-side analog of
+`new_register`'s `ImDrawList` crosshair overlay (`Interface.cpp`): a translucent yellow one-pixel
+column and row, no gap at the intersection, baked directly into each cell's `ResampledImage` before
+`composeGrid()` runs rather than drawn on top of a texture. `ViewState::crosshairFor(volume,
+viewIndex)` gives the cursor's two in-plane voxel coordinates for that pane, mirroring how
+`sliceIndexFor()` already maps the out-of-plane one — identical for volume 0, proportional via
+`mapSliceIndex()` for the rest. `render/Crosshair.hpp`'s `drawCrosshair()` places the mark with
+`mapNativeToDisplay()` (`render/Resample.hpp`), the inverse of `resamplePixelsNearest()`'s
+centre-of-source-pixel sampling, so it lands on the same display pixel the resampled slice itself
+came from. `planFrame()` only fills `FramePane::crosshairs` when its `showCrosshair` parameter is
+true; the one-shot path leaves it at the default `false` so scripted, piped output stays exactly the
+clean image it always was, and only the interactive call site in `cli/Run.cpp` opts in.
+
 The loaded volumes' names are printed above the grid, one per line, followed by the status row
 (`interactive/StatusLine.hpp`). Which pane the keys act on is shown physically rather than in text: a
 `*` in the left gutter marks the row `j`/`k` moves, and a `*` on the line below the image marks the

@@ -45,4 +45,11 @@ struct ResampledImage
 ResampledImage resampleToDisplay(
     const RenderedSlice& slice, double aspect, int maxW, int maxH, int scale = 1);
 
+/// Where a native (pre-resample) coordinate along one axis lands after
+/// resamplePixelsNearest() scales `nativeSize` pixels to `displaySize`
+/// pixels -- the centre-of-source-pixel convention resamplePixelsNearest()
+/// uses to pick a source pixel, inverted to pick a destination pixel.
+/// Clamped to the last display pixel; a non-positive size returns 0.
+int mapNativeToDisplay(int nativeCoord, int nativeSize, int displaySize);
+
 } // namespace mriv::term

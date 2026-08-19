@@ -161,6 +161,42 @@ void testSliceCountComesFromTheFirstVolume()
     assert(state.sliceCountFor(1, 0) == 48);
 }
 
+/// Volume 0's crosshair is the shared cursor's own axes, unmapped -- volume
+/// 0's index space *is* the cursor's space. aspectAxesForView() picks which
+/// two cursor components are "in plane" for each view.
+void testCrosshairForMatchesCursorInFirstVolume()
+{
+    auto state = makeTwoVolumeState(); // cursor (32, 64, 48)
+
+    auto axial = state.crosshairFor(0, 0); // axes x, y
+    assert(axial.u == 32 && axial.v == 64);
+
+    auto sagittal = state.crosshairFor(0, 1); // axes y, z
+    assert(sagittal.u == 64 && sagittal.v == 48);
+
+    auto coronal = state.crosshairFor(0, 2); // axes x, z
+    assert(coronal.u == 32 && coronal.v == 48);
+}
+
+/// Other volumes track the cursor proportionally on the in-plane axes too,
+/// the same way sliceIndexFor() already does for the out-of-plane one --
+/// mismatched dimensions must not misplace the mark. makeTwoVolumeState()'s
+/// two volumes share X and Y but differ in Z (96 vs 48), so the shared axis
+/// must come through as an identity and the mismatched one through
+/// mapSliceIndex().
+void testCrosshairForMapsProportionallyAcrossVolumes()
+{
+    auto state = makeTwoVolumeState();
+
+    auto sagittal = state.crosshairFor(1, 1); // axes y, z
+    assert(sagittal.u == 64);
+    assert(sagittal.v == mapSliceIndex(48, 96, 48));
+
+    auto coronal = state.crosshairFor(1, 2); // axes x, z
+    assert(coronal.u == 32);
+    assert(coronal.v == mapSliceIndex(48, 96, 48));
+}
+
 void testTabCyclesTheActiveVolume()
 {
     auto state = makeTwoVolumeState();
@@ -503,6 +539,8 @@ int main()
     testActiveAxisFallsBackToADisplayedView();
     testSliceNavigationIsSynchronisedAcrossVolumes();
     testSliceCountComesFromTheFirstVolume();
+    testCrosshairForMatchesCursorInFirstVolume();
+    testCrosshairForMapsProportionallyAcrossVolumes();
     testTabCyclesTheActiveVolume();
     testTabWithOneVolumeIsIgnored();
     testDigitsSelectAVolumeDirectly();

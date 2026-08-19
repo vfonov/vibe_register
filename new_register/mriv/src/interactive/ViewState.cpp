@@ -88,6 +88,25 @@ int ViewState::sliceIndexFor(int volume, int viewIndex) const
     return mapSliceIndex(index, sliceCountFor(0, viewIndex), sliceCountFor(volume, viewIndex));
 }
 
+ViewState::CrosshairVoxel ViewState::crosshairFor(int volume, int viewIndex) const
+{
+    if (volume < 0 || volume >= volumeCount())
+        return {0, 0};
+
+    AspectAxes axes = aspectAxesForView(viewIndex);
+    int u = cursor_[axes.u];
+    int v = cursor_[axes.v];
+
+    if (volume == 0)
+        return {u, v};
+
+    const glm::ivec3& firstDims = dimensions_[0];
+    const glm::ivec3& dims = dimensions_[static_cast<size_t>(volume)];
+
+    return {mapSliceIndex(u, firstDims[axes.u], dims[axes.u]),
+            mapSliceIndex(v, firstDims[axes.v], dims[axes.v])};
+}
+
 int ViewState::sliceIndex() const
 {
     return cursorComponent(viewIndex_);

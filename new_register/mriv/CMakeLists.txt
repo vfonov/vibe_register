@@ -59,6 +59,7 @@ add_library(mriv_lib STATIC
     src/interactive/StatusLine.cpp
     src/render/SliceGeometry.cpp
     src/render/Resample.cpp
+    src/render/Crosshair.cpp
     src/render/Compose.cpp
     src/render/FrameBuilder.cpp
     src/render/Layout.cpp

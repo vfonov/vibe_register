@@ -157,6 +157,44 @@ void testResampleToDisplay_scaleRespectsBox()
     assert(out.height % 4 == 0);
 }
 
+// mapNativeToDisplay(): the crosshair overlay (render/Crosshair.hpp) needs
+// to place a mark at the pixel a native (pre-resample) coordinate ends up
+// at after resamplePixelsNearest()'s scaling, without threading the
+// two-stage fit-then-magnify internals of resampleToDisplay() through the
+// caller. It is the same centre-of-source-pixel convention, inverted.
+
+void testMapNativeToDisplay_identity()
+{
+    assert(mapNativeToDisplay(0, 4, 4) == 0);
+    assert(mapNativeToDisplay(3, 4, 4) == 3);
+}
+
+void testMapNativeToDisplay_upsample()
+{
+    // 2 -> 4: native pixel 0 covers display pixels [0,1], pixel 1 covers [2,3].
+    assert(mapNativeToDisplay(0, 2, 4) == 1);
+    assert(mapNativeToDisplay(1, 2, 4) == 3);
+}
+
+void testMapNativeToDisplay_downsample()
+{
+    // 4 -> 2: native pixels 0,1 land on display pixel 0; 2,3 on pixel 1.
+    assert(mapNativeToDisplay(0, 4, 2) == 0);
+    assert(mapNativeToDisplay(3, 4, 2) == 1);
+}
+
+void testMapNativeToDisplay_clampsToTheLastPixel()
+{
+    assert(mapNativeToDisplay(9, 10, 10) == 9);
+    assert(mapNativeToDisplay(999, 10, 10) == 9);
+}
+
+void testMapNativeToDisplay_degenerateSizesReturnZero()
+{
+    assert(mapNativeToDisplay(5, 0, 10) == 0);
+    assert(mapNativeToDisplay(5, 10, 0) == 0);
+}
+
 } // namespace
 
 int main()
@@ -172,5 +210,10 @@ int main()
     testResampleToDisplay_scaleOneIsUnchanged();
     testResampleToDisplay_scaleMagnifiesByReplication();
     testResampleToDisplay_scaleRespectsBox();
+    testMapNativeToDisplay_identity();
+    testMapNativeToDisplay_upsample();
+    testMapNativeToDisplay_downsample();
+    testMapNativeToDisplay_clampsToTheLastPixel();
+    testMapNativeToDisplay_degenerateSizesReturnZero();
     return 0;
 }

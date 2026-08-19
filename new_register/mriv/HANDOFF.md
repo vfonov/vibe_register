@@ -1121,3 +1121,67 @@ scope `runInteractive()`'s resize/exit-reprint logic lives in, covered by `test_
 appears on screen. Confirm that pressing `s` shows "Screenshot saved: screenshotNNNNNN.png" on the
 status row, that the file lands in the working directory with that exact name, and that the message
 is gone again on the next navigation key rather than lingering.
+
+### 2026-08-19 (yet again) — visual crosshair marking the shared cursor's position, like `new_register`
+
+New feature: interactive mode now draws a translucent crosshair into every pane at the shared
+cursor's in-plane position, the terminal-side counterpart of `new_register`'s `ImDrawList`
+overlay (`Interface.cpp:1950-1992`, `IM_COL32(255,255,0,100)`, no gap at the intersection).
+Verified the parent's actual pixel layout first (`SliceRenderer.cpp:237-286`, not just its header
+doc comment): for a given `viewIndex`, pixel column is voxel component `axisU` and pixel row is
+`nativeHeight - 1 - voxel component axisV` — a bottom-up flip `aspectAxesForView()`
+(`render/SliceGeometry.hpp`, pre-existing) already picks the right `axisU`/`axisV` for.
+
+Four pieces, each added test-first (red confirmed via an actual failed build before any production
+code, per `CLAUDE.md`):
+
+- `ViewState::crosshairFor(volume, viewIndex)` (`interactive/ViewState.hpp/.cpp`) — the cursor's
+  two in-plane voxel coordinates for a pane, mirroring `sliceIndexFor()`'s existing pattern:
+  identical for volume 0 (the cursor's own space), proportional via `mapSliceIndex()` for every
+  other volume, on *both* in-plane axes rather than the single out-of-plane one `sliceIndexFor()`
+  handles.
+- `mapNativeToDisplay(nativeCoord, nativeSize, displaySize)` (`render/Resample.hpp/.cpp`) — inverts
+  `resamplePixelsNearest()`'s centre-of-source-pixel sampling (`srcX = floor((dx+0.5)*w/outW)`) to
+  answer "which display pixel does this native one land on", without threading
+  `resampleToDisplay()`'s two-stage fit-then-magnify internals through the caller. Formula:
+  `clamp(floor((nativeCoord+0.5)*displaySize/nativeSize), 0, displaySize-1)`; a non-positive size
+  returns 0.
+- `render/Crosshair.hpp/.cpp` (new files, added to `mriv_lib`'s sources) — `CrosshairMark{u, v,
+  nativeW, nativeH}` plus `drawCrosshair(ResampledImage&, const CrosshairMark&)`, which blends a
+  full-height column and full-width row (same yellow, same ~39% alpha as the parent, RGB channels
+  only — the pixel's own alpha is left exactly as opaque as it already was) into the image at the
+  position `mapNativeToDisplay()` gives for `u`/`v` and the flipped `v`. A no-op on a degenerate
+  image or a degenerate native size; `mapNativeToDisplay()`'s own clamp means an out-of-range `u`/
+  `v` cannot index outside the buffer, so no extra guard was needed there.
+- `FramePane::crosshairs` (`render/FrameBuilder.hpp`) — a `std::vector<glm::ivec2>` parallel to
+  `sliceIndices`, one entry per displayed view row. `FrameBuilder.cpp` draws into each cell's
+  `ResampledImage` right after `renderSliceForDisplay()` produces it and before `composeGrid()`
+  runs — sidestepping the need to account for `composeGrid()`'s per-cell centering offset, since
+  the mark is already baked in by the time compositing happens.
+
+Threaded through deliberately opt-in, not automatic: `planFrame()` gained a `showCrosshair`
+parameter (`interactive/FramePlan.hpp/.cpp`), defaulting to `false`, which only fills
+`FramePane::crosshairs` when true. The one-shot render path (`cli/Run.cpp`'s `runOneShot()`, line
+~430) calls `planFrame()` with the default left alone, so scripted/piped output stays exactly the
+clean, unannotated image it always was — the "cat for medical images" philosophy `PLAN.md` leads
+with. Only the interactive call site (`cli/Run.cpp`'s `runInteractive()`, ~line 285) passes
+`/*showCrosshair=*/true`. No hotkey to toggle it, matching `new_register`, which also has no
+hotkey for its own crosshair toggle (UI checkbox only).
+
+Five new test files/additions, all red-confirmed by an actual failed build before the corresponding
+production code existed: `test_crosshair.cpp` (new — 5 tests on `drawCrosshair()`/
+`mapNativeToDisplay()` directly), 5 new cases in `test_resample.cpp` (`mapNativeToDisplay()`), 2 new
+cases in `test_view_state.cpp` (`crosshairFor()`, both the volume-0 identity case and the
+proportional-mapping case across two volumes with matching X/Y but mismatched Z), 2 new cases in
+`test_frame_builder.cpp` (a marked pane differs pixel-for-pixel from an identical unmarked one; an
+empty `crosshairs` vector is byte-identical to never touching the field), and `test_frame_plan.cpp`
+(new — `showCrosshair` defaults to no crosshairs at all; `true` wires `FramePane::crosshairs` from
+`state.crosshairFor()` exactly). Full rebuild + `ctest -R "^mriv_"`: 23/23 green; full `ctest`
+(includes the parent's own 27): 50/50 green.
+
+**Needs real-terminal confirmation**, same as every rendering-visible change this session: no TTY /
+no pixel-capable terminal in this sandbox (§3.9). Confirm on a real terminal that moving the cursor
+(`j`/`k`, axis switches, `Tab`/arrows/`1`-`9` between volumes) shows a yellow crosshair tracking the
+right voxel in every pane simultaneously, that a piped/scripted `mriv a.mnc > out.png` still
+produces a plain image with no crosshair in it, and that multi-volume grids with mismatched
+dimensions keep the mark aligned on the same anatomy across columns rather than drifting.

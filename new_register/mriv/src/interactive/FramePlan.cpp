@@ -7,7 +7,8 @@ FrameRequest planFrame(const ViewState& state,
                        const std::vector<const Volume*>& volumes,
                        int boxWidth,
                        int boxHeight,
-                       int scale)
+                       int scale,
+                       bool showCrosshair)
 {
     FrameRequest request;
     request.views     = state.views();
@@ -33,6 +34,16 @@ FrameRequest planFrame(const ViewState& state,
         pane.sliceIndices.reserve(state.views().size());
         for (int viewIndex : state.views())
             pane.sliceIndices.push_back(state.sliceIndexFor(volume, viewIndex));
+
+        if (showCrosshair)
+        {
+            pane.crosshairs.reserve(state.views().size());
+            for (int viewIndex : state.views())
+            {
+                auto voxel = state.crosshairFor(volume, viewIndex);
+                pane.crosshairs.push_back(glm::ivec2(voxel.u, voxel.v));
+            }
+        }
 
         request.panes.push_back(std::move(pane));
     }

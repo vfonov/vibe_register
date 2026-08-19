@@ -282,7 +282,8 @@ int runInteractive(const Options& options, std::ostream& err)
                     + std::to_string(maxH));
 
                 FrameTracks tracks;
-                auto frame = buildFrame(planFrame(current, pointers, maxW, maxH, options.scale),
+                auto frame = buildFrame(planFrame(current, pointers, maxW, maxH, options.scale,
+                                                  /*showCrosshair=*/true),
                                         &tracks);
                 if (frame.width <= 0 || frame.height <= 0)
                     return false;

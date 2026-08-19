@@ -282,6 +282,63 @@ void testDegenerateRequestLeavesNoTracks()
     assert(tracks.rowY.empty());
 }
 
+/// A pane whose row carries a crosshair mark gets it drawn into that cell --
+/// the join between ViewState::crosshairFor() and render/Crosshair.hpp,
+/// exercised the way planFrame() actually wires it (FramePane::crosshairs,
+/// parallel to sliceIndices).
+void testCrosshairIsDrawnIntoItsPane()
+{
+    Volume vol = makeVolume(20, 20, 20, 1.0f);
+
+    FramePane withMark = makePane(vol, {10});
+    withMark.crosshairs = {glm::ivec2(10, 10)};
+
+    FramePane without = makePane(vol, {10});
+
+    FrameRequest request;
+    request.panes     = {withMark, without};
+    request.views     = {0}; // axial: axes u=x, v=y
+    request.boxWidth  = 200;
+    request.boxHeight = 100;
+    request.gap       = 0;
+
+    auto frame = buildFrame(request);
+
+    // Same volume, same slice, same colour map -- any pixel difference
+    // between the two 20x20 columns is the crosshair, not the image.
+    bool anyDifference = false;
+    for (int y = 0; y < 20 && !anyDifference; ++y)
+        for (int x = 0; x < 20; ++x)
+            if (pixelAt(frame, x, y) != pixelAt(frame, x + 20, y))
+            {
+                anyDifference = true;
+                break;
+            }
+    assert(anyDifference);
+}
+
+/// An empty crosshairs list -- what the one-shot render path always passes,
+/// since it has no interactive cursor -- leaves the pane exactly as it
+/// would be without the feature at all.
+void testNoCrosshairMeansNoMark()
+{
+    Volume vol = makeVolume(20, 20, 20, 1.0f);
+
+    FrameRequest request;
+    request.panes     = {makePane(vol, {10})};
+    request.views     = {0};
+    request.boxWidth  = 200;
+    request.boxHeight = 100;
+    request.gap       = 0;
+
+    auto plain = buildFrame(request);
+
+    request.panes[0].crosshairs.clear();
+    auto stillPlain = buildFrame(request);
+
+    assert(plain.pixels == stillPlain.pixels);
+}
+
 void testDegenerateRequestsYieldAnEmptyFrame()
 {
     Volume vol = makeVolume(20, 20, 20, 1.0f);

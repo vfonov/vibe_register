@@ -3,8 +3,12 @@
 #include <algorithm>
 
 #include "render/Compose.hpp"
+#include "render/Crosshair.hpp"
 #include "render/Layout.hpp"
+#include "render/SliceGeometry.hpp"
 #include "render/SlicePipeline.hpp"
+
+#include "Volume.h"
 
 namespace mriv::term
 {
@@ -96,6 +100,16 @@ ResampledImage buildFrame(const FrameRequest& request, FrameTracks* tracks)
                 slice.scale           = request.scale;
 
                 images[cell] = renderSliceForDisplay(*pane.volume, slice);
+
+                if (static_cast<size_t>(row) < pane.crosshairs.size())
+                {
+                    AspectAxes axes = aspectAxesForView(slice.viewIndex);
+                    const glm::ivec2& voxel = pane.crosshairs[static_cast<size_t>(row)];
+                    CrosshairMark mark{voxel.x, voxel.y,
+                                       pane.volume->dimensions[axes.u],
+                                       pane.volume->dimensions[axes.v]};
+                    drawCrosshair(images[cell], mark);
+                }
             }
 
             columnWidths[static_cast<size_t>(col)] =

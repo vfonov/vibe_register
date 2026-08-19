@@ -68,4 +68,13 @@ ResampledImage resampleToDisplay(
     return result;
 }
 
+int mapNativeToDisplay(int nativeCoord, int nativeSize, int displaySize)
+{
+    if (nativeSize <= 0 || displaySize <= 0)
+        return 0;
+
+    int mapped = static_cast<int>((nativeCoord + 0.5) * displaySize / nativeSize);
+    return std::clamp(mapped, 0, displaySize - 1);
+}
+
 } // namespace mriv::term

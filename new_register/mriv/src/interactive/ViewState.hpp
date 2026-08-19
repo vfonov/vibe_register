@@ -131,6 +131,19 @@ public:
     int sliceIndexFor(int volume, int viewIndex) const;
     int sliceCountFor(int volume, int viewIndex) const;
 
+    /// The cursor's two in-plane voxel coordinates for `viewIndex`, in
+    /// `volume`'s own index space -- what render/Crosshair.hpp needs to mark
+    /// where the shared cursor sits within a rendered slice. Volume 0 reads
+    /// straight off the cursor; every other volume tracks it proportionally
+    /// on both in-plane axes, the same way sliceIndexFor() already does for
+    /// the (single) out-of-plane one.
+    struct CrosshairVoxel
+    {
+        int u;
+        int v;
+    };
+    CrosshairVoxel crosshairFor(int volume, int viewIndex) const;
+
     /// The cursor's position along the active axis in the first volume --
     /// the index space navigation happens in.
     int sliceIndex() const;

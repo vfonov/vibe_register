@@ -2,6 +2,8 @@
 
 #include <vector>
 
+#include <glm/glm.hpp>
+
 #include "render/Resample.hpp"
 
 #include "ColourMap.h"
@@ -25,6 +27,16 @@ struct FramePane
     /// by mapSliceIndex() (render/SliceGeometry.hpp), and the status line
     /// needs the same numbers, so they are computed once by the caller.
     std::vector<int> sliceIndices;
+
+    /// The interactive cursor's in-plane voxel position for each entry of
+    /// FrameRequest::views, in the same order and parallel to
+    /// sliceIndices -- ViewState::crosshairFor(volume, viewIndex), one per
+    /// row. Left empty by the one-shot render path, which has no
+    /// interactive cursor and must stay a clean, unannotated image for
+    /// scripting (PLAN.md); a row past the end of this vector is drawn
+    /// without a mark, the same way a missing sliceIndices entry leaves a
+    /// cell blank.
+    std::vector<glm::ivec2> crosshairs;
 
     double valueMin = 0.0;
     double valueMax = 1.0;
