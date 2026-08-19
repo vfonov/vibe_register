@@ -181,21 +181,16 @@ bool Screen::drawFrame(const FrameOverlay& overlay, const uint32_t* rgba, int w,
         return false;
     }
 
-    // notcurses_render() above is an *optimized* redraw: it may elide bytes
-    // for a plane it believes the terminal already displays unchanged.
-    // That damage tracking is keyed loosely enough that a freshly created
-    // plane at the same screen position as the one just destroyed can be
-    // mistaken for "nothing to do" on some pixel backends -- observed on
-    // real mlterm/sixel as slice navigation updating the status text but
-    // never the image, while the identical code path is fine on Kitty
-    // (mriv/HANDOFF.md; Kitty's protocol has an explicit image id/delete
-    // model that sidesteps the ambiguity sixel's raster-only protocol
-    // doesn't have). notcurses_refresh() forces a full, non-optimized
-    // repaint of exactly what was just rendered, so it costs a visible
-    // clear+redraw rather than an in-place update -- acceptable here since
-    // frames are keypress-driven, not animated.
-    if (notcurses_refresh(nc_, nullptr, nullptr) < 0)
-        debugLog("notcurses_refresh failed after a successful render");
+    // A forced notcurses_refresh() was tried here to work around a real
+    // mlterm/sixel bug (slice navigation updated the status text but never
+    // the image -- see the MRIV_DEBUG counters below). It was reverted: its
+    // own doc comment says it "clears the screen" before repainting, and on
+    // a real Ghostty session (Kitty protocol) that turned the image
+    // invisible for the *entire* interactive session instead -- clearing
+    // the screen deletes a terminal's placed Kitty image along with it, so
+    // the fix broke the terminal family it was previously working on. Do
+    // not reintroduce this without confirming on both a sixel and a Kitty-
+    // protocol terminal; see mriv/HANDOFF.md for the investigation.
 
     if (debugEnabled())
     {
