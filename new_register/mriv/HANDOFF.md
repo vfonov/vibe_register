@@ -738,3 +738,19 @@ file, since stdout carries the terminal protocol bytes) showing the `sprixelemis
 data before writing another candidate fix. `ctest` green 47/47, unaffected by either the addition or the
 revert (`Screen` has no unit coverage — this whole bug and its fix/revert cycle happened outside anything
 this sandbox's test suite can see).
+
+### 2026-08-19 (later still) — mlterm retested working, with the revert in place
+
+The user retested plain slice navigation on mlterm against the reverted build (no `notcurses_refresh()`,
+i.e. exactly the code `Screen::drawFrame()` had before the previous entry's fix-and-revert cycle) and
+reports it now works. No code changed between the original "scrolling doesn't update the image" report
+and this one except the add-then-revert of `notcurses_refresh()`, which nets to no change from the
+version that was originally broken — so the most likely explanation is that the original staleness was
+transient session/terminal state (a stuck sprixel from earlier testing, a corrupted mlterm buffer, or
+similar) rather than a reproducible bug in this code path. This is also why guessing at a fix for it
+before confirming a mechanism was the wrong move, per the previous entry's lesson.
+
+Not treating this as confirmed-fixed in the sense of "the bug is understood" — only as "not currently
+reproducing, on both a sixel terminal (mlterm) and a Kitty-protocol one (Ghostty)". If it recurs, get the
+`MRIV_DEBUG=1` sprixel-counter log from the previous entry before writing another candidate fix, rather
+than reasoning from the symptom alone again. `ctest` green 47/47, unchanged.
