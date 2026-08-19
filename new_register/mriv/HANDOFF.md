@@ -754,3 +754,57 @@ Not treating this as confirmed-fixed in the sense of "the bug is understood" —
 reproducing, on both a sixel terminal (mlterm) and a Kitty-protocol one (Ghostty)". If it recurs, get the
 `MRIV_DEBUG=1` sprixel-counter log from the previous entry before writing another candidate fix, rather
 than reasoning from the symptom alone again. `ctest` green 47/47, unchanged.
+
+### 2026-08-19 (yet later) — resize made the image disappear until the next slice change
+
+The user found a third real-terminal bug, distinct from the mlterm one: resizing the terminal window
+made the slice view disappear, reappearing only after scrolling through slices.
+
+**Two independent bugs, both in the resize path, neither related to the mlterm investigation above.**
+
+1. **`Screen::readKey()` swallowed `NCKEY_RESIZE` and repainted the *stale* frame at the new geometry
+   itself**, via a `notcurses_refresh()` call local to the resize branch, then looped for another key
+   without telling the caller anything happened. `notcurses_refresh()` repaints "the most recently
+   rendered frame" — the *old*, wrong-sized image — so a resize produced a redraw of content that no
+   longer matched the terminal's new cell/pixel geometry, which is what the user saw as the image simply
+   vanishing (this is a different call site from the `drawFrame()` one added and reverted earlier today;
+   this one predates that investigation and was never touched by it).
+
+2. **Even if that redraw had been correct, `Run.cpp::runInteractive()` computed the display box once,
+   before the session loop started**, and every frame — including ones drawn after a resize — reused
+   those captured `maxW`/`maxH` values. So a `Changed` result reaching `draw()` after a resize would
+   still have rebuilt the frame at the *pre-resize* size.
+
+This is why the user's workaround (scroll a slice) appeared to fix it: `moveSlice()` triggers the normal
+`Changed` → `draw()` path, but with the box captured stale, the actual repair only came from whatever
+coincidental relayout happened to look plausible at the wrong size, or the user's follow-up resize hint —
+either way, both defects needed fixing together for the fix to be real, not just for the symptom to move.
+
+**Fix, test-first:**
+
+- **`interactive/ViewState.hpp`** gained `constexpr char kKeyResize = '\x0c';` (Ctrl-L, the traditional
+  Unix "redraw the screen" key — chosen deliberately: a user who mashes it when a repaint looks stuck
+  gets the standard recovery for free, not a mriv-specific binding to memorize). `handleKey()` now checks
+  for it *before* the `editing_` dispatch — a resize is not text and must not be typed into an open range
+  prompt, close it, or touch what's in it — and returns `KeyResult::Changed` unconditionally without
+  mutating any state. Two new `test_view_state.cpp` cases: `testResizeForcesARepaintWithoutChangingAnything`
+  (slice/axis/active-volume all identical before and after) and
+  `testResizeDuringThePromptRepaintsWithoutTouchingTheText` (prompt stays open, typed text untouched).
+- **`interactive/Screen.cpp`**: the `NCKEY_RESIZE` branch no longer calls `notcurses_refresh()` or
+  swallows the event — it returns `kKeyResize`, the same translate-and-forward pattern already used for
+  Backspace/Enter/the arrows. notcurses has already updated its own geometry tracking by the time this
+  event is returned (that's the whole point of the event existing), so the caller's next
+  `pixelGeometry()` call reads the new size correctly with no extra step here — `Screen` stays exactly as
+  logic-free as its header requires.
+- **`cli/Run.cpp::runInteractive()`**: moved the `screen.pixelGeometry(headerRows)` call (and the
+  `maxW`/`maxH` derived from it) from before the session loop to the top of the `draw` lambda, so it is
+  queried fresh on every frame instead of once. `headerRows` itself is still computed once outside the
+  lambda — it depends only on the volume count, which cannot change mid-session, unlike the terminal's
+  pixel geometry.
+
+No `Screen`-level or `Run.cpp`-level test exists for this (both are the untestable glue per HANDOFF sec
+3.9); the fix is verified at the `ViewState` layer, where the actual decision now lives, plus a full
+`ctest` pass. `ctest` green 47/47 (`test_view_state` gained the two cases above). **Still needs the user
+to confirm on a real terminal** that resizing the window now keeps the image visible and correctly sized
+without requiring a slice change afterward — nothing in this sandbox can drive an `NCKEY_RESIZE` event to
+check it directly.

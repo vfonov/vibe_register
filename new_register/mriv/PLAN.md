@@ -348,9 +348,17 @@ several volumes become columns of one navigable grid, which is more use interact
 | `c` / `C` | Cycle the active column's colour map forward / back |
 | `r` | Open the range prompt for the active column |
 | `q`, `Esc` | Quit |
+| `Ctrl-L` | Redraw — also fires automatically on a terminal resize |
 | *in prompt* | printable → append, Backspace → delete, Enter → apply, `Esc` → cancel (arrows and letters are swallowed by the prompt, not acted on) |
 
 There is no `h`/`l` time navigation — see [Deferred work](#deferred-work--blocked-on-the-parent).
+
+A terminal resize is carried through the same key path as everything else: `Screen::readKey()`
+translates notcurses' `NCKEY_RESIZE` into the same control code as `Ctrl-L`, and `ViewState::handleKey()`
+reports it as a change without touching any state, so the caller redraws the current view against a
+freshly queried display box. The display box itself is queried fresh on every frame rather than once
+before the session loop, for the same reason — a box captured before a resize would leave the image
+sized for a screen that no longer exists.
 
 Position is a single 3D voxel cursor, held in the *first* volume's index space and mapped onto the
 others by `mapSliceIndex()`. One cursor is what makes navigation synchronised, which is the point of

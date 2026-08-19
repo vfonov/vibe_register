@@ -36,6 +36,19 @@ constexpr char kKeyDown  = '\x0e';
 constexpr char kKeyLeft  = '\x02';
 constexpr char kKeyRight = '\x06';
 
+/// A terminal resize, or a request to just redraw. Carried the same way as
+/// the arrows: Screen::readKey() maps notcurses' NCKEY_RESIZE to this rather
+/// than handling the resize itself, since recomputing the display box and
+/// rebuilding the frame needs the render pipeline, which Screen deliberately
+/// does not have (mriv/HANDOFF.md sec 3.9). It changes nothing in ViewState
+/// -- the picture is unchanged, only the terminal's geometry is -- so
+/// handleKey() reports Changed unconditionally and lets the caller redo the
+/// layout against whatever ViewState already holds. Bound to Ctrl-L, the
+/// traditional Unix "redraw the screen" keystroke, which is deliberate: a
+/// user who mashes it when a repaint looks stuck gets exactly the recovery
+/// they expect, for free.
+constexpr char kKeyResize = '\x0c';
+
 /// How one volume's intensities are mapped. Per volume, not per session:
 /// the reason to put two volumes side by side is usually that they need
 /// different ranges and different colour maps.

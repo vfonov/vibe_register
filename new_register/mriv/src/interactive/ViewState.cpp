@@ -202,6 +202,13 @@ KeyResult ViewState::handleEditKey(char key)
 
 KeyResult ViewState::handleKey(char key)
 {
+    // Ahead of the edit-prompt dispatch: a resize is not text, and must not
+    // be typed into an open prompt, close it, or touch anything it holds --
+    // it only means the terminal's geometry changed, so the caller redraws
+    // exactly what is already here.
+    if (key == kKeyResize)
+        return KeyResult::Changed;
+
     if (editing_)
         return handleEditKey(key);
 

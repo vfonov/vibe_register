@@ -414,6 +414,44 @@ void testArrowsDoNotEscapeTheRangePrompt()
     assert(state.activeViewRow() == 0);
 }
 
+/// A terminal resize carries no state change of its own -- the caller is
+/// supposed to recompute the display box and rebuild the frame against
+/// whatever ViewState already holds. All ViewState needs to do is say
+/// "repaint", so the resize handler in Screen::readKey() can stay logic-free
+/// like every other translated key.
+void testResizeForcesARepaintWithoutChangingAnything()
+{
+    auto state = makeTwoVolumeState();
+    state.handleKey('x');
+    state.handleKey('j');
+    state.handleKey('\t');
+
+    int sliceBefore  = state.sliceIndex();
+    char axisBefore  = state.axis();
+    int volumeBefore = state.activeVolume();
+
+    assert(state.handleKey(kKeyResize) == KeyResult::Changed);
+
+    assert(state.sliceIndex() == sliceBefore);
+    assert(state.axis() == axisBefore);
+    assert(state.activeVolume() == volumeBefore);
+}
+
+/// A resize mid-prompt must not be swallowed as a typed character -- it is
+/// not text, and it must not close or corrupt what the user is entering.
+void testResizeDuringThePromptRepaintsWithoutTouchingTheText()
+{
+    auto state = makeTwoVolumeState();
+    state.handleKey('r');
+    for (char key : std::string("20 1"))
+        state.handleKey(key);
+
+    assert(state.handleKey(kKeyResize) == KeyResult::Changed);
+
+    assert(state.isEditing());
+    assert(state.editor().text() == "20 1");
+}
+
 void testConstructorClampsTheCursor()
 {
     glm::ivec3 dims(4, 4, 4);
@@ -458,5 +496,7 @@ int main()
     testHorizontalArrowsSelectTheVolume();
     testHorizontalArrowsWithOneVolumeAreIgnored();
     testArrowsDoNotEscapeTheRangePrompt();
+    testResizeForcesARepaintWithoutChangingAnything();
+    testResizeDuringThePromptRepaintsWithoutTouchingTheText();
     return 0;
 }

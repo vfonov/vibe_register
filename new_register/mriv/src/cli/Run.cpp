@@ -259,12 +259,18 @@ int runInteractive(const Options& options, std::ostream& err)
             // underneath the header while navigating.
             int headerRows = static_cast<int>(nameLines.size()) + 1;
 
-            auto box = screen.pixelGeometry(headerRows);
-            int maxW = displayWidth(box.width, options);
-            int maxH = static_cast<int>(box.height);
-            log("interactive: display box " + std::to_string(maxW) + "x" + std::to_string(maxH));
-
             auto draw = [&](const ViewState& current) {
+                // Queried fresh on every frame, not once before the loop:
+                // the terminal can be resized mid-session (kKeyResize,
+                // interactive/ViewState.hpp), and a box captured before the
+                // loop would leave the image sized for a screen that no
+                // longer exists.
+                auto box = screen.pixelGeometry(headerRows);
+                int maxW = displayWidth(box.width, options);
+                int maxH = static_cast<int>(box.height);
+                log("interactive: display box " + std::to_string(maxW) + "x"
+                    + std::to_string(maxH));
+
                 FrameTracks tracks;
                 auto frame = buildFrame(planFrame(current, pointers, maxW, maxH, options.scale),
                                         &tracks);

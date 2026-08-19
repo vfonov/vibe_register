@@ -230,14 +230,15 @@ std::optional<char> Screen::readKey()
         if (input.evtype == NCTYPE_RELEASE)
             continue;
 
+        // Translated rather than handled here, like Backspace and the
+        // arrows below: recomputing the display box and rebuilding the
+        // frame at the new size needs the render pipeline, which this
+        // class deliberately does not have. notcurses has already updated
+        // its own geometry tracking by the time this event is returned, so
+        // the caller's next screen.pixelGeometry() call reads the new size
+        // correctly with no extra step here.
         if (id == NCKEY_RESIZE)
-        {
-            // Repaint at the new size on the next keypress. Re-fitting the
-            // image to a resized terminal immediately would need the render
-            // pipeline in here, and this class is deliberately logic-free.
-            notcurses_refresh(nc_, nullptr, nullptr);
-            continue;
-        }
+            return kKeyResize;
 
         // Escape is passed through as itself rather than translated to
         // 'q' here: what it means depends on state this class deliberately
