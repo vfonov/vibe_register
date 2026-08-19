@@ -82,6 +82,24 @@ Screen::PixelGeometry Screen::pixelGeometry(int headerRows) const
     if (!nc_)
         return geometry;
 
+    // notcurses only resizes the standard plane to match a new terminal size
+    // during the *next* render or refresh -- never at the moment an
+    // NCKEY_RESIZE event is read (notcurses_refresh(3): "if an NCKEY_RESIZE
+    // event has been read and you're not yet ready to render," a render or
+    // refresh is still required before the geometry is trustworthy). Reading
+    // it here, unconditionally, is what makes the values below current
+    // whether or not a resize just happened -- without it this function can
+    // silently return the pre-resize box. notcurses_render() rather than
+    // notcurses_refresh(): the latter's own man page says it clears the
+    // screen first, which deletes placed Kitty-protocol images (see
+    // drawFrame() below and mriv/HANDOFF.md), and for exactly this situation
+    // recommends notcurses_render() instead. Re-rendering already-drawn,
+    // unchanged content is cheap -- notcurses elides unchanged sprixel data
+    // rather than resending it (the sprixelemissions/sprixelelisions stats
+    // logged in drawFrame() are what that elision shows up as).
+    if (notcurses_render(nc_) < 0)
+        debugLog("notcurses_render (geometry sync) failed");
+
     ncplane* stdplane = notcurses_stdplane(nc_);
     unsigned rows = 0;
     unsigned cols = 0;
@@ -233,10 +251,11 @@ std::optional<char> Screen::readKey()
         // Translated rather than handled here, like Backspace and the
         // arrows below: recomputing the display box and rebuilding the
         // frame at the new size needs the render pipeline, which this
-        // class deliberately does not have. notcurses has already updated
-        // its own geometry tracking by the time this event is returned, so
-        // the caller's next screen.pixelGeometry() call reads the new size
-        // correctly with no extra step here.
+        // class deliberately does not have. Reading this event does *not*
+        // by itself make the plane's geometry current -- notcurses only
+        // applies a pending resize during the next render/refresh, not at
+        // input-read time -- so no extra step belongs here; pixelGeometry()
+        // forces that sync itself before every read (see its comment).
         if (id == NCKEY_RESIZE)
             return kKeyResize;
 

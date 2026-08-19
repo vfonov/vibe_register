@@ -808,3 +808,51 @@ No `Screen`-level or `Run.cpp`-level test exists for this (both are the untestab
 to confirm on a real terminal** that resizing the window now keeps the image visible and correctly sized
 without requiring a slice change afterward — nothing in this sandbox can drive an `NCKEY_RESIZE` event to
 check it directly.
+
+### 2026-08-19 (later again) — the resize fix above was incomplete: `pixelGeometry()` itself read stale plane dimensions
+
+The user retested the fix above and the bug was unchanged: resize still makes the image disappear until
+the next slice change. The `ViewState`/`Run.cpp` half of that fix was correct and stayed as-is; the claim
+quoted above — "notcurses has already updated its own geometry tracking by the time this event is
+returned... so the caller's next `pixelGeometry()` call reads the new size correctly" — was wrong. It was
+never verified against notcurses' actual behavior, because `Screen` cannot be exercised in this sandbox
+(no TTY, HANDOFF sec 3.9); it was a guess, and this is why guesses in this file get flagged rather than
+stated as fact.
+
+Checked this time against notcurses' own documentation (`notcurses.com` and
+`/usr/include/notcurses/notcurses.h` on this host) before writing any code:
+
+- `notcurses_refresh(3)`'s man page, on this exact situation: "primarily useful ... if an `NCKEY_RESIZE`
+  event has been read and you're not yet ready to render" — reading the event does **not** by itself
+  make anything current; a render or refresh afterward is still required.
+- The standard plane (what `ncplane_dim_yx()`/`ncplane_pixel_geom()` read, i.e. what
+  `Screen::pixelGeometry()` is built on) is resized to match the terminal only "at render time" — during
+  the *next* `notcurses_render()` or `notcurses_refresh()` call, never earlier.
+
+So the actual bug: `Run.cpp`'s `draw` lambda does call `screen.pixelGeometry(headerRows)` fresh every
+frame as intended, but on the frame drawn for the resize event itself, no render has happened yet since
+the resize — so that "fresh" query still reads the *pre-resize* box. The frame gets built and blitted at
+the old size, and `drawFrame()`'s own `notcurses_render()` call is what finally syncs the plane to the
+new size — one call too late to help that frame. The picture only looks right again once another key
+produces `KeyResult::Changed` (e.g. a slice move), because by then the *previous* draw's render call
+already synced the plane. Exactly "reappears only after I scroll through slices."
+
+`notcurses_refresh()` is not the fix, even though the name suggests it — already tried and reverted this
+session (commit `3ac21b6`) for the mlterm/Ghostty saga above, because its man page says it clears the
+screen first, deleting placed Kitty-protocol images. Its own man page resolves this: for the "read an
+`NCKEY_RESIZE`, not yet ready to render" case, it explicitly recommends calling `notcurses_render()`
+instead, "to avoid unnecessary redrawing." `notcurses_render()` also runs the pending resize callback,
+without the screen-clearing side effect — and it's already proven safe on both Kitty and mlterm this
+session, since `drawFrame()` calls it every frame.
+
+**Fix:** `Screen::pixelGeometry()` now calls `notcurses_render(nc_)` itself, unconditionally, before
+reading `ncplane_dim_yx()`/`ncplane_pixel_geom()` — so the geometry it returns is always current whether
+or not a resize is pending, rather than trusting the caller's timing. This costs one redundant render per
+frame in the non-resize case, which is cheap: notcurses elides unchanged sprixel data rather than
+resending it (the `sprixelemissions`/`sprixelelisions` stats logged in `drawFrame()` are what that
+elision shows up as). The disproven comment on `readKey()`'s `NCKEY_RESIZE` branch was corrected to say
+why no extra step belongs there instead of claiming geometry is already fresh.
+
+Still glue-level and untestable here (HANDOFF sec 3.9) — `ctest` green 47/47 is a regression check, not
+new coverage for this specific defect. **Still needs the user to confirm on a real terminal** that
+resizing now keeps the image visible immediately, without a follow-up slice change.

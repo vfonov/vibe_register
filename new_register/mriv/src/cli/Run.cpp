@@ -264,7 +264,9 @@ int runInteractive(const Options& options, std::ostream& err)
                 // the terminal can be resized mid-session (kKeyResize,
                 // interactive/ViewState.hpp), and a box captured before the
                 // loop would leave the image sized for a screen that no
-                // longer exists.
+                // longer exists. pixelGeometry() itself forces notcurses to
+                // sync the plane to any pending resize before reading it
+                // (interactive/Screen.cpp) -- callers here don't need to.
                 auto box = screen.pixelGeometry(headerRows);
                 int maxW = displayWidth(box.width, options);
                 int maxH = static_cast<int>(box.height);

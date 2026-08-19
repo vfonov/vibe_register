@@ -360,6 +360,13 @@ freshly queried display box. The display box itself is queried fresh on every fr
 before the session loop, for the same reason — a box captured before a resize would leave the image
 sized for a screen that no longer exists.
 
+That "fresh query" has to force its own sync: notcurses only resizes the standard plane to match the
+terminal during the *next* render or refresh, never at the moment `NCKEY_RESIZE` is read, so
+`Screen::pixelGeometry()` calls `notcurses_render()` on itself before reading plane dimensions rather
+than trusting them to already be current (`notcurses_refresh()` is deliberately not used here — its own
+man page says it clears the screen first, which deletes placed Kitty-protocol images; see
+`mriv/HANDOFF.md`).
+
 Position is a single 3D voxel cursor, held in the *first* volume's index space and mapped onto the
 others by `mapSliceIndex()`. One cursor is what makes navigation synchronised, which is the point of
 showing columns side by side; equal slice counts map index-for-index, and mismatched ones track
