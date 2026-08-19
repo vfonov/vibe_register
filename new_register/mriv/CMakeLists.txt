@@ -8,8 +8,6 @@ option(MRIV_BUILD_NOTCURSES
     "Download, build, and statically link notcurses from source (ExternalProject) instead of using a system install"
     OFF)
 
-find_package(PkgConfig REQUIRED)
-
 if(MRIV_BUILD_NOTCURSES)
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildNotcurses.cmake)
 else()
@@ -17,21 +15,31 @@ else()
     # new_register/CMakeLists.txt, static-linking section) so libminc's own
     # dependencies resolve statically. A *system-packaged* notcurses's static
     # archive does not carry its optional transitive deps (qrcodegen, gpm,
-    # libdeflate) in its .pc file, so linking it statically fails with
-    # undefined references at link time. Prefer the shared library for
-    # notcurses specifically, in this directory scope only -- this does not
-    # affect the parent's own dependency resolution. (MRIV_BUILD_NOTCURSES=ON
-    # sidesteps this entirely -- see cmake/BuildNotcurses.cmake.)
-    set(CMAKE_FIND_LIBRARY_SUFFIXES ".so" ".a")
-    pkg_check_modules(NOTCURSES QUIET IMPORTED_TARGET notcurses)
-    if(NOT NOTCURSES_FOUND)
+    # libdeflate), so linking it statically fails with undefined references
+    # at link time. Prefer the shared library for notcurses specifically, in
+    # this directory scope only -- this does not affect the parent's own
+    # dependency resolution. (MRIV_BUILD_NOTCURSES=ON sidesteps this
+    # entirely -- see cmake/BuildNotcurses.cmake.)
+    #
+    # Located via find_path/find_library rather than pkg-config: this repo
+    # targets Linux and macOS (AGENTS.md), and macOS ships no pkg-config
+    # executable at all (see cmake/BuildNotcurses.cmake's file-header
+    # comment for the fuller story), so a pkg-config-based lookup can't be
+    # relied on here even for a system-installed notcurses.
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ".so" ".dylib" ".a")
+    find_path(MRIV_NOTCURSES_INCLUDE_DIR notcurses/notcurses.h)
+    find_library(MRIV_NOTCURSES_CORE_LIBRARY NAMES notcurses-core)
+    find_library(MRIV_NOTCURSES_LIBRARY NAMES notcurses)
+    if(NOT MRIV_NOTCURSES_INCLUDE_DIR OR NOT MRIV_NOTCURSES_CORE_LIBRARY OR NOT MRIV_NOTCURSES_LIBRARY)
         message(FATAL_ERROR
-            "mriv: no system notcurses found (pkg-config module 'notcurses'). "
+            "mriv: no system notcurses found (looked for notcurses/notcurses.h "
+            "plus libnotcurses/libnotcurses-core via find_path/find_library). "
             "Re-run cmake with -DMRIV_BUILD_NOTCURSES=ON to download and "
             "statically build a private copy instead.")
     endif()
     add_library(mriv_notcurses INTERFACE)
-    target_link_libraries(mriv_notcurses INTERFACE PkgConfig::NOTCURSES)
+    target_include_directories(mriv_notcurses INTERFACE ${MRIV_NOTCURSES_INCLUDE_DIR})
+    target_link_libraries(mriv_notcurses INTERFACE ${MRIV_NOTCURSES_LIBRARY} ${MRIV_NOTCURSES_CORE_LIBRARY})
 endif()
 
 include(FetchContent)
