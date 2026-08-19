@@ -8,17 +8,24 @@
 namespace mriv::term
 {
 
-/// The single reserved row above the image in interactive mode: which
-/// columns are loaded and which one is active, where the cursor is, how the
-/// active volume is mapped, and which keys do what.
+/// One line per loaded volume, in column order, plain file names with no
+/// path and no marker -- which one is active is shown by the '*' Overlay
+/// draws beneath its column, not by text here. Printed above the status
+/// line, one row per volume, so the grid's columns can be told apart before
+/// the image is even on screen.
+std::vector<std::string> formatVolumeNameLines(const std::vector<std::string>& paths);
+
+/// The single reserved row below the volume names: where the cursor is,
+/// how the active volume is mapped, and which keys do what.
 ///
 /// The key legend is not decoration. Interactive mode has no help panel, so
 /// this line is the only thing that makes the bindings discoverable. The
 /// result never contains a newline -- it occupies exactly one terminal row,
 /// and wrapping it would push the image down and corrupt the layout.
 ///
-/// `paths` is parallel to the state's volumes; only the file names are
-/// shown, since a full path would push the legend off the row.
+/// `paths` is only used to name the active volume in the range prompt;
+/// which file that is otherwise comes from the '*' beneath its column, not
+/// from this line.
 std::string formatStatusLine(const ViewState& state, const std::vector<std::string>& paths);
 
 /// The same line without the key legend: where the cursor is and how the

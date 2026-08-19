@@ -16,6 +16,7 @@
 #include "cli/SliceSelection.hpp"
 #include "cli/VolumeInfo.hpp"
 #include "interactive/FramePlan.hpp"
+#include "interactive/Overlay.hpp"
 #include "interactive/Screen.hpp"
 #include "interactive/Session.hpp"
 #include "interactive/StatusLine.hpp"
@@ -237,7 +238,7 @@ int runInteractive(const Options& options, std::ostream& err)
     // The last frame drawn, kept so it can be put back on the terminal
     // after the alternate screen is gone -- see below.
     ResampledImage lastFrame;
-    std::string lastSummary;
+    std::vector<std::string> lastHeader;
     {
         Screen screen;
         if (!screen.init())
@@ -252,22 +253,37 @@ int runInteractive(const Options& options, std::ostream& err)
         }
         else
         {
-            auto box = screen.pixelGeometry();
+            auto nameLines = formatVolumeNameLines(paths);
+            // One row per volume plus the status row below them -- fixed
+            // for the whole session, so the image box does not shift
+            // underneath the header while navigating.
+            int headerRows = static_cast<int>(nameLines.size()) + 1;
+
+            auto box = screen.pixelGeometry(headerRows);
             int maxW = displayWidth(box.width, options);
             int maxH = static_cast<int>(box.height);
             log("interactive: display box " + std::to_string(maxW) + "x" + std::to_string(maxH));
 
             auto draw = [&](const ViewState& current) {
-                auto frame = buildFrame(planFrame(current, pointers, maxW, maxH, options.scale));
+                FrameTracks tracks;
+                auto frame = buildFrame(planFrame(current, pointers, maxW, maxH, options.scale),
+                                        &tracks);
                 if (frame.width <= 0 || frame.height <= 0)
                     return false;
 
-                if (!screen.drawFrame(formatStatusLine(current, paths),
-                                      frame.pixels.data(), frame.width, frame.height))
+                auto header = nameLines;
+                header.push_back(formatStatusLine(current, paths));
+                auto overlay = planOverlay(header, tracks, current.activeViewRow(),
+                                          current.activeVolume(), frame.height,
+                                          static_cast<int>(box.cellWidth),
+                                          static_cast<int>(box.cellHeight));
+
+                if (!screen.drawFrame(overlay, frame.pixels.data(), frame.width, frame.height))
                     return false;
 
-                lastFrame   = std::move(frame);
-                lastSummary = formatSummaryLine(current, paths);
+                lastFrame  = std::move(frame);
+                lastHeader = nameLines;
+                lastHeader.push_back(formatSummaryLine(current, paths));
                 return true;
             };
 
@@ -291,7 +307,8 @@ int runInteractive(const Options& options, std::ostream& err)
         Terminal terminal;
         if (terminal.initCli(stdout) && terminal.hasPixelSupport())
         {
-            terminal.printLine(lastSummary);
+            for (const auto& line : lastHeader)
+                terminal.printLine(line);
             terminal.blit(lastFrame.pixels.data(), lastFrame.width, lastFrame.height);
         }
     }

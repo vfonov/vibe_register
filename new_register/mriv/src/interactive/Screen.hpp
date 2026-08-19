@@ -12,6 +12,8 @@ struct ncplane;
 namespace mriv::term
 {
 
+struct FrameOverlay;
+
 /// RAII wrapper around a *full* notcurses context for interactive mode.
 ///
 /// This is the counterpart to render/Terminal, which wraps ncdirect for the
@@ -54,18 +56,31 @@ public:
 
     struct PixelGeometry
     {
-        unsigned width;
-        unsigned height;
+        unsigned width = 0;
+        unsigned height = 0;
+
+        /// The terminal's cell size in pixels -- what interactive/Overlay.hpp
+        /// needs to turn a pane's pixel rectangle into the row/column a
+        /// marker belongs at. Zero when unknown, same as width/height.
+        unsigned cellWidth = 0;
+        unsigned cellHeight = 0;
     };
 
-    /// The pixel box available to the image, excluding the status row.
+    /// The pixel box available to the image, after reserving `headerRows`
+    /// text rows above it (the volume names plus the status line -- see
+    /// interactive/Overlay.hpp) and the marker gutter -- one row below,
+    /// interactive/Overlay's kMarkerColumns columns to the left. Callers
+    /// must pass the same headerRows they pass to planOverlay(), or the
+    /// image will not agree with where the header text actually ends.
     /// Zero-initialized before a successful init().
-    PixelGeometry pixelGeometry() const;
+    PixelGeometry pixelGeometry(int headerRows) const;
 
-    /// Draw one frame: the status line on the top row, the image below it.
-    /// The previous frame's image plane is destroyed first so its bitmap is
-    /// released rather than left stacked underneath.
-    bool drawFrame(const std::string& status, const uint32_t* rgba, int w, int h);
+    /// Draw one frame: the overlay's text (volume names, status line and
+    /// the two active-pane markers) at their planned positions, then the
+    /// image at overlay.imageRow/imageColumn. The previous frame's image
+    /// plane is destroyed first so its bitmap is released rather than left
+    /// stacked underneath.
+    bool drawFrame(const FrameOverlay& overlay, const uint32_t* rgba, int w, int h);
 
     /// Block until a key is pressed. Returns std::nullopt when input ends
     /// (EOF or a read error), which the session treats as a clean exit.

@@ -173,11 +173,21 @@ void testStatusLineNamesThePlaneSliceAndRange()
     ViewState state = makeViewState(kDims, 'z', 48, 0.0, 100.0);
     std::string line = formatStatusLine(state, {"brain.mnc"});
 
-    assert(contains(line, "brain.mnc"));
     assert(contains(line, "axial"));
     assert(contains(line, "49/96")); // 1-based; see below
     assert(contains(line, "0"));
     assert(contains(line, "100"));
+}
+
+/// The volume names live above the status row, one per line, plain -- which
+/// one is active is a physical marker Overlay draws under its column, not
+/// text here.
+void testVolumeNameLinesNameEachColumnInOrderWithNoMarker()
+{
+    auto lines = formatVolumeNameLines({"/data/a.mnc", "/data/b.mnc"});
+    assert(lines.size() == 2);
+    assert(lines[0] == "a.mnc");
+    assert(lines[1] == "b.mnc");
 }
 
 void testStatusLineNamesEachPlane()
@@ -229,25 +239,6 @@ void testStatusLineListsColumnKeysOnlyWhenThereAreColumns()
     assert(contains(line, "Tab"));
 }
 
-/// Every column is named, in order, and the active one is marked -- 'c' and
-/// the range prompt act on it, so which one it is has to be visible.
-void testStatusLineNamesEveryVolumeAndMarksTheActiveOne()
-{
-    ViewState state = makeTwoVolumeState();
-
-    std::string first = formatStatusLine(state, {"a.mnc", "b.mnc"});
-    assert(contains(first, "a.mnc"));
-    assert(contains(first, "b.mnc"));
-    assert(first.find("a.mnc") < first.find("b.mnc"));
-    assert(contains(first, "a.mnc*"));
-    assert(!contains(first, "b.mnc*"));
-
-    state.handleKey('\t');
-    std::string second = formatStatusLine(state, {"a.mnc", "b.mnc"});
-    assert(contains(second, "b.mnc*"));
-    assert(!contains(second, "a.mnc*"));
-}
-
 /// The range and colour map shown are the active volume's: they are what
 /// 'c' and 'r' would change.
 void testStatusLineShowsTheActiveVolumesDisplay()
@@ -262,12 +253,12 @@ void testStatusLineShowsTheActiveVolumesDisplay()
 
 /// Long paths would push the key legend off the row, so only the file name
 /// is shown.
-void testStatusLineShowsBaseNamesOnly()
+void testVolumeNameLinesShowBaseNamesOnly()
 {
-    ViewState state = makeViewState(kDims, 'z', 0, 0.0, 1.0);
-    std::string line = formatStatusLine(state, {"/data/study/sub-01/anat/t1.mnc"});
-    assert(contains(line, "t1.mnc"));
-    assert(!contains(line, "/data/study"));
+    auto lines = formatVolumeNameLines({"/data/study/sub-01/anat/t1.mnc"});
+    assert(lines.size() == 1);
+    assert(contains(lines[0], "t1.mnc"));
+    assert(!contains(lines[0], "/data/study"));
 }
 
 /// One line, always -- it occupies a single reserved terminal row, and an
@@ -347,8 +338,6 @@ void testSummaryLineKeepsThePositionAndDropsTheLegend()
     ViewState state = makeTwoVolumeState();
     std::string summary = formatSummaryLine(state, {"a.mnc", "b.mnc"});
 
-    assert(contains(summary, "a.mnc"));
-    assert(contains(summary, "b.mnc"));
     assert(contains(summary, "axial"));
     assert(contains(summary, "49/96"));
     assert(!contains(summary, "j/k"));
@@ -397,9 +386,9 @@ int main()
     testStatusLineSliceNumberIsOneBased();
     testStatusLineListsTheKeys();
     testStatusLineListsColumnKeysOnlyWhenThereAreColumns();
-    testStatusLineNamesEveryVolumeAndMarksTheActiveOne();
     testStatusLineShowsTheActiveVolumesDisplay();
-    testStatusLineShowsBaseNamesOnly();
+    testVolumeNameLinesShowBaseNamesOnly();
+    testVolumeNameLinesNameEachColumnInOrderWithNoMarker();
     testStatusLineIsASingleLine();
     testStatusLineKeepsLargeRangesCompact();
     testStatusLineShowsThePromptWhileEditing();

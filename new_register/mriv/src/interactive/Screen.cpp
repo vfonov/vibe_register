@@ -6,15 +6,13 @@
 #include <notcurses/notcurses.h>
 
 #include "interactive/ViewState.hpp"
+#include "interactive/Overlay.hpp"
 
 namespace mriv::term
 {
 
 namespace
 {
-
-/// The status line occupies the top row; the image gets everything below.
-constexpr int kStatusRows = 1;
 
 bool debugEnabled()
 {
@@ -78,9 +76,9 @@ bool Screen::hasPixelSupport() const
     return support > NCPIXEL_NONE;
 }
 
-Screen::PixelGeometry Screen::pixelGeometry() const
+Screen::PixelGeometry Screen::pixelGeometry(int headerRows) const
 {
-    PixelGeometry geometry{0, 0};
+    PixelGeometry geometry;
     if (!nc_)
         return geometry;
 
@@ -98,11 +96,19 @@ Screen::PixelGeometry Screen::pixelGeometry() const
     if (celly == 0 || cellx == 0)
         return geometry;
 
-    unsigned imageRows = rows > static_cast<unsigned>(kStatusRows)
-                             ? rows - static_cast<unsigned>(kStatusRows)
-                             : 0;
+    geometry.cellWidth  = cellx;
+    geometry.cellHeight = celly;
+
+    // headerRows above the image, interactive/Overlay's marker row below it
+    // and marker columns to its left -- see planOverlay() for what goes in
+    // that space.
+    unsigned reservedRows = static_cast<unsigned>(headerRows) + static_cast<unsigned>(kMarkerRows);
+    unsigned reservedCols = static_cast<unsigned>(kMarkerColumns);
+
+    unsigned imageRows = rows > reservedRows ? rows - reservedRows : 0;
+    unsigned imageCols = cols > reservedCols ? cols - reservedCols : 0;
     geometry.height = imageRows * celly;
-    geometry.width  = cols * cellx;
+    geometry.width  = imageCols * cellx;
 
     // Clamp only when the terminal actually reports a limit -- zero means
     // "no limit known", not "no space".
@@ -114,7 +120,7 @@ Screen::PixelGeometry Screen::pixelGeometry() const
     return geometry;
 }
 
-bool Screen::drawFrame(const std::string& status, const uint32_t* rgba, int w, int h)
+bool Screen::drawFrame(const FrameOverlay& overlay, const uint32_t* rgba, int w, int h)
 {
     if (!nc_)
     {
@@ -137,8 +143,11 @@ bool Screen::drawFrame(const std::string& status, const uint32_t* rgba, int w, i
 
     ncplane* stdplane = notcurses_stdplane(nc_);
     ncplane_erase(stdplane);
-    if (ncplane_putstr_yx(stdplane, 0, 0, status.c_str()) < 0)
-        debugLog("ncplane_putstr_yx for the status line failed (line too long?)");
+    for (const auto& cell : overlay.text)
+    {
+        if (ncplane_putstr_yx(stdplane, cell.row, cell.col, cell.text.c_str()) < 0)
+            debugLog("ncplane_putstr_yx failed for \"" + cell.text + "\" (off-plane?)");
+    }
 
     // ncvisual_from_rgba() takes the row stride in *bytes*, not pixels --
     // see mriv/HANDOFF.md sec 3.3.
@@ -151,8 +160,8 @@ bool Screen::drawFrame(const std::string& status, const uint32_t* rgba, int w, i
 
     ncvisual_options vopts{};
     vopts.n       = stdplane;
-    vopts.y       = kStatusRows;
-    vopts.x       = 0;
+    vopts.y       = overlay.imageRow;
+    vopts.x       = overlay.imageColumn;
     vopts.scaling = NCSCALE_NONE;
     vopts.blitter = NCBLIT_PIXEL;
     vopts.flags   = NCVISUAL_OPTION_CHILDPLANE;

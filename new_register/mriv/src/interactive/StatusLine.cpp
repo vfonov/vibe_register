@@ -45,24 +45,23 @@ std::string nameFor(const std::vector<std::string>& paths, int index)
 
 } // namespace
 
+std::vector<std::string> formatVolumeNameLines(const std::vector<std::string>& paths)
+{
+    std::vector<std::string> lines;
+    lines.reserve(paths.size());
+    for (const auto& path : paths)
+        lines.push_back(baseName(path));
+    return lines;
+}
+
 std::string formatSummaryLine(const ViewState& state, const std::vector<std::string>& paths)
 {
+    (void)paths; // kept for interface symmetry with formatStatusLine's prompt use
+
     std::ostringstream out;
-
-    // Every column, in order, with the active one starred: 'c' and the
-    // range act on it, so which one that is has to be visible.
-    for (int i = 0; i < state.volumeCount(); ++i)
-    {
-        if (i > 0)
-            out << " ";
-        out << nameFor(paths, i);
-        if (i == state.activeVolume())
-            out << "*";
-    }
-
     const VolumeDisplay& display = state.display(state.activeVolume());
 
-    out << "  |  " << planeName(state.viewIndex()) << " (" << state.axis() << ")"
+    out << planeName(state.viewIndex()) << " (" << state.axis() << ")"
         // 1-based: "slice 1/96" reading as "the first of 96" is what a
         // position indicator should say, even though renderSlice() takes a
         // 0-based index.
