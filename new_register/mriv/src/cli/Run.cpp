@@ -315,6 +315,12 @@ int runInteractive(const Options& options, std::ostream& err)
         Terminal terminal;
         if (terminal.initCli(stdout) && terminal.hasPixelSupport())
         {
+            // The alternate screen restored the cursor to wherever it was
+            // before the session started, not necessarily row 0 -- home it
+            // first so a tall (--scale > 1) image always has a full
+            // terminal's worth of room below it rather than scrolling and
+            // overlapping this reprint's own text (mriv/HANDOFF.md).
+            terminal.moveCursorHome();
             for (const auto& line : lastHeader)
                 terminal.printLine(line);
             terminal.blit(lastFrame.pixels.data(), lastFrame.width, lastFrame.height);

@@ -12,6 +12,8 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
+#include <sstream>
+#include <string>
 #include <vector>
 
 #include <notcurses/direct.h>
@@ -171,6 +173,79 @@ void testBlitSucceedsAndCursorAdvancesWhenQueryable()
     fclose(f);
 }
 
+/// moveCursorHome() before init() must fail cleanly, not crash. Mirrors
+/// testBlitBeforeInitFails().
+void testMoveCursorHomeBeforeInitFails()
+{
+    Terminal term;
+    assert(!term.moveCursorHome());
+}
+
+/// Attempt a real moveCursorHome(). Whatever the outcome (this sandbox has
+/// no pixel-capable terminal -- HANDOFF.md sec 3.9), the call must not
+/// crash. If it does report success, the output must contain an ESC byte
+/// (the cursor-positioning escape sequence). Mirrors testBlitStructure().
+void testMoveCursorHomeStructure()
+{
+    FILE* f = tmpfile();
+    assert(f);
+
+    bool homeOk = false;
+    {
+        Terminal term;
+        assert(term.init(f, kTestFlags));
+        homeOk = term.moveCursorHome();
+    }
+
+    if (homeOk)
+    {
+        fseek(f, 0, SEEK_END);
+        long size = ftell(f);
+        assert(size > 0);
+
+        rewind(f);
+        std::vector<char> buf(static_cast<size_t>(size));
+        size_t n = fread(buf.data(), 1, buf.size(), f);
+        assert(n == buf.size());
+
+        bool hasEsc = false;
+        for (char c : buf)
+        {
+            if (c == '\x1b')
+            {
+                hasEsc = true;
+                break;
+            }
+        }
+        assert(hasEsc);
+    }
+
+    fclose(f);
+}
+
+/// Regression coverage for the scale>1 exit-time overlap bug (HANDOFF.md):
+/// the retained-frame reprint (cli/Run.cpp) must home the cursor before it
+/// blits, so a near-full-height scaled image always has a full terminal's
+/// worth of room below it rather than landing wherever the alternate
+/// screen left the cursor. Pins call *order* in test mode, where
+/// moveCursorHome() writes a fixed "\x1b[H" marker and blit() writes
+/// encoded pixel bytes to the same injected stream.
+void testMoveCursorHomePrecedesBlitInTestMode()
+{
+    std::ostringstream out;
+    Terminal term(out, PixelProtocol::Kitty);
+
+    assert(term.moveCursorHome());
+    std::vector<uint32_t> pixels{0xFF0000FFu, 0xFF00FF00u, 0xFFFF0000u, 0xFFFFFFFFu};
+    assert(term.blit(pixels.data(), 2, 2));
+
+    std::string bytes = out.str();
+    size_t homePos = bytes.find("\x1b[H");
+    assert(homePos != std::string::npos);
+    assert(homePos == 0);
+    assert(bytes.size() > 3); // blit() wrote something after the marker
+}
+
 } // namespace
 
 int main()
@@ -181,5 +256,8 @@ int main()
     testBlitEmptyImageFails();
     testBlitStructure();
     testBlitSucceedsAndCursorAdvancesWhenQueryable();
+    testMoveCursorHomeBeforeInitFails();
+    testMoveCursorHomeStructure();
+    testMoveCursorHomePrecedesBlitInTestMode();
     return 0;
 }

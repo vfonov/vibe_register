@@ -407,6 +407,18 @@ with it, so the final frame is re-emitted through the one-shot `ncdirect` path â
 prints an image and exits, and the only one proven not to have its bitmaps wiped on teardown. It is
 captioned with the status row minus the key legend.
 
+That reprint assumes the alternate screen's own last image is already gone by the time it draws â€”
+otherwise the two overlap. `notcurses_stop()`'s bitmap-clearing on teardown is terminal-dependent, not
+guaranteed (see `mriv/HANDOFF.md`), so `Screen::destroy()` does not rely on it: it destroys the last
+image plane and forces a `notcurses_render()` to flush that deletion to the terminal before
+`notcurses_stop()` runs, the same way every other frame's plane-deletion rides along with the render
+that draws the next frame.
+
+The reprint also homes the cursor (`Terminal::moveCursorHome()`) before printing anything: leaving the
+alternate screen restores the cursor to wherever it was before the session started, not row 0, and a
+`--scale`-magnified image tall enough to nearly fill the pixel box can otherwise land with too little
+room before the terminal's bottom edge and scroll into the text below it (see `mriv/HANDOFF.md`).
+
 ## Project layout
 
 ```

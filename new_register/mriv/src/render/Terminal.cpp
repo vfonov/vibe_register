@@ -185,6 +185,32 @@ unsigned Terminal::cursorRow() const
     return y;
 }
 
+bool Terminal::moveCursorHome()
+{
+    if (out_)
+    {
+        // No real cursor to move in test mode; emit a fixed, greppable
+        // marker so tests can pin call order against blit()'s output.
+        *out_ << "\x1b[H";
+        return out_->good();
+    }
+
+    if (!nc_)
+    {
+        std::cerr << "mriv: moveCursorHome() called before a successful init()\n";
+        return false;
+    }
+
+    // Both arguments >= 0 -> ncdirect_cursor_move_yx() emits terminfo's cup
+    // (absolute positioning), not a relative move -- verified against
+    // notcurses' own source, see mriv/HANDOFF.md.
+    bool ok = ncdirect_cursor_move_yx(nc_, 0, 0) == 0;
+    debugLog("moveCursorHome " + std::string(ok ? "ok" : "failed"));
+    if (!ok)
+        std::cerr << "mriv: ncdirect_cursor_move_yx() failed\n";
+    return ok;
+}
+
 bool Terminal::printLine(const std::string& text)
 {
     debugLog("printLine: " + text);

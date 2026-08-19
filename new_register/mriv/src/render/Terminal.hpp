@@ -112,6 +112,17 @@ public:
     /// fails (e.g. no reader on the far end, as with a tmpfile() in tests).
     unsigned cursorRow() const;
 
+    /// Move the cursor to the terminal's top-left corner (absolute row 0,
+    /// column 0) without touching any existing screen content. Used before
+    /// the exit-time retained-frame reprint (cli/Run.cpp) so a tall image
+    /// always has a full terminal height of room below it, regardless of
+    /// where the cursor was left after the alternate screen was restored
+    /// (see mriv/HANDOFF.md for why that position isn't row 0). Returns
+    /// false and writes a diagnostic to std::cerr on failure; in test mode,
+    /// writes a fixed "\x1b[H" marker to the injected stream instead of
+    /// touching notcurses, so tests can pin call order against blit().
+    bool moveCursorHome();
+
 private:
     void destroy();
 

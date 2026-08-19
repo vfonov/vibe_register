@@ -856,3 +856,139 @@ why no extra step belongs there instead of claiming geometry is already fresh.
 Still glue-level and untestable here (HANDOFF sec 3.9) — `ctest` green 47/47 is a regression check, not
 new coverage for this specific defect. **Still needs the user to confirm on a real terminal** that
 resizing now keeps the image visible immediately, without a follow-up slice change.
+
+**Confirmed working** by the user on a real terminal: resizing now keeps the image visible immediately,
+no follow-up slice change needed. Committed as `c201e0c`.
+
+### 2026-08-19 (later again still) — quitting left the last picture overlapping the text
+
+Bug reported by the user: pressing `q` to end an interactive session leaves the last frame's picture on
+screen, overlapping the text that prints after it.
+
+Root cause is the same mechanism as the resize bug above — "a plane's destruction isn't sent to the
+terminal until the next render" — applied to teardown instead of geometry queries. `runInteractive()`
+(`Run.cpp`) deliberately re-prints the last frame through the one-shot `ncdirect` path after the
+interactive session ends (`PLAN.md`'s "Quitting does leave the last frame on the terminal" note), on the
+assumption that the alternate screen's own copy of that image is already gone from the terminal by the
+time it draws. It isn't, reliably: `Screen::destroy()` (`~Screen()`) destroyed `imagePlane_` and called
+`notcurses_stop()`, with no render in between —
+
+```cpp
+void Screen::destroy()
+{
+    if (imagePlane_)
+    {
+        ncplane_destroy(imagePlane_);
+        imagePlane_ = nullptr;
+    }
+    if (nc_)
+    {
+        notcurses_stop(nc_);
+        nc_ = nullptr;
+    }
+}
+```
+
+— unlike every other frame's plane-destruction in this class: `drawFrame()` destroys the *previous*
+frame's plane, then later in the same call renders the new one, and that render is what actually flushes
+the previous plane's deletion to the terminal (a placed pixel-protocol image's removal is not sent until
+the deleting plane's destruction is rendered — the identical mechanism `pixelGeometry()`'s fix above
+relies on, just for a different read). `destroy()` is the one place in `Screen` that destroys a plane
+with no following render, because the session is ending — there is no next frame to carry the deletion.
+It stays purely in notcurses' internal bookkeeping. `notcurses_stop()`'s own bitmap-clearing on teardown
+is documented as terminal-dependent, not guaranteed (see the round 2/3 one-shot investigation above:
+"may delete just-drawn bitmaps... even with `NCOPTION_NO_CLEAR_BITMAPS` set... explicitly called out as
+unreliable/terminal-dependent"), and `Screen::init()` doesn't even set that flag. On a terminal where
+teardown doesn't independently clear the bitmap, the old image survives the switch back to the primary
+screen and sits underneath/over whatever `runInteractive()`'s ncdirect reprint prints next.
+
+**Fix:** `Screen::destroy()` now forces the same render-to-flush step `drawFrame()` already relies on,
+before `notcurses_stop()` runs — destroy `imagePlane_`, then call `notcurses_render(nc_)` to flush that
+deletion to the terminal, only then call `notcurses_stop()`. `Screen.hpp`'s class doc comment, which
+previously stated as fact that "restoring the terminal on exit is the wanted behaviour rather than the
+bug" (implying nothing further was needed), was corrected to note that `destroy()` forces the flush
+itself rather than trusting `notcurses_stop()` to do it.
+
+Still glue-level and untestable here (HANDOFF sec 3.9) — `ctest` green 47/47 (20/20 `mriv_*`) is a
+regression check, not new coverage for this defect. **Needs the user to confirm on a real terminal**
+that pressing `q` now leaves exactly one picture on screen with no leftover image or overlapping text.
+
+### 2026-08-19 (yet again) — `--scale` 2/3 still overlaps text at the bottom
+
+Follow-up bug report on top of the fix above: at `--scale 1` the exit-time overlap is gone, but at
+`--scale 2` or `--scale 3` the retained picture still covers text at the bottom of the terminal.
+
+Ruled out the frame-sizing/layout math first, since that's what `--scale` most directly touches:
+
+- `Resample.cpp::resampleToDisplay()` fits into `(maxW/scale, maxH/scale)` then magnifies by
+  replicating pixels into `scale x scale` blocks. Its doc comment claims up to `(scale-1)` pixels of
+  overflow past `(maxW, maxH)`, but `floor(maxH/s)*s <= maxH` shows that bound is never actually
+  reached — not the source of a visible bug.
+- `FrameBuilder.cpp` scales the inter-pane gap by `scale`, but sizes the output frame to what the
+  resampler actually produced, not blindly to the box.
+- `FramePlan.cpp::planFrame()` passes `boxWidth`/`boxHeight`/`scale` straight through with no extra
+  scale-driven multiplication of the box itself.
+- `Overlay.cpp::planOverlay()`'s footer-marker row already ceiling-divides on the *actual*
+  `imageHeight` parameter, so it already adapts to a taller, scaled image.
+- `Layout.cpp::computeGrid()`/`splitAxis()` gives the single-cell case (the common one) a budget
+  that's exactly `boxW`/`boxH`.
+
+So the image reaching the terminal is correctly bounded by the pixel box `Screen::pixelGeometry()`
+computed during the session. The bug is in what happens to that already-correct image at exit time,
+in the same retained-frame reprint (`Run.cpp:304-322`) touched by the previous entry:
+
+```cpp
+Terminal terminal;
+if (terminal.initCli(stdout) && terminal.hasPixelSupport())
+{
+    for (const auto& line : lastHeader)
+        terminal.printLine(line);
+    terminal.blit(lastFrame.pixels.data(), lastFrame.width, lastFrame.height);
+}
+```
+
+This prints at "the current cursor position" — wherever that is once `notcurses_stop()` has already
+restored the primary screen. Leaving the alternate screen (`rmcup`/DEC 1049) conventionally restores
+the cursor to wherever it was *before* the alternate screen was entered — i.e. wherever the shell
+prompt was when `mriv` was launched, not row 0. `Terminal::blit()`'s `ncdirectf_render()`/
+`ncdirect_raster_frame()` place the image at that cursor position and advance past it; per
+`<notcurses/direct.h>`'s own doc comment, "the image may be arbitrarily many rows -- the output will
+scroll" if there isn't enough room before the bottom edge.
+
+At `scale==1`, most real MRI volumes render comfortably under the pixel box (the resampler's "never
+upscale past native size" cap keeps them there), leaving vertical margin that happens to absorb a
+non-zero starting row. At `scale>=2` that cap is far more likely to bind — the volume is fit into a
+*smaller* box (`maxH/scale`) and magnified back up by nearest-neighbour replication until it nearly
+fills the box again. A near-full-height image, printed from a cursor row left over from wherever the
+shell prompt was, doesn't have enough rows left before the terminal's bottom edge and scrolls,
+dragging the just-printed header text down with it and overlapping whatever's below — invisible at
+`scale==1` (margin absorbs it), visible at `scale>=2` (no margin left).
+
+Confirmed via notcurses' own source (`dankamongmen/notcurses`, fetched directly):
+
+- `src/lib/direct.c`, `ncdirect_cursor_move_yx(n, y, x)`: when `y` and `x` are both `>= 0` it emits
+  `ESCAPE_CUP` — terminfo's `cup`, **absolute** positioning, not a relative move. So
+  `ncdirect_cursor_move_yx(nc, 0, 0)` moves the cursor to the literal top-left corner without touching
+  existing screen content.
+- `src/lib/termdesc.h`: `ESCAPE_CLEAR, // "clear" clear screen and home cursor` — confirms
+  `ncdirect_clear()` also homes the cursor, but additionally blanks the whole screen, a bigger,
+  unrequested side effect (it would erase pre-existing primary-screen content outside the printed
+  area). `ncdirect_cursor_move_yx(nc, 0, 0)` is the minimal fix for the actual defect (not enough
+  room, not "the screen looks wrong").
+
+**Fix:** added `Terminal::moveCursorHome()` (`render/Terminal.hpp`/`.cpp`), wrapping
+`ncdirect_cursor_move_yx(nc_, 0, 0)` in real mode and writing a fixed `"\x1b[H"` marker in test mode so
+tests can pin call order against `blit()`. `runInteractive()`'s retained-frame reprint now calls it
+before printing the header or blitting, best-effort like the rest of that block (existing code doesn't
+gate on `printLine()`/`blit()`'s return values either). Homing to row 0 guarantees a full terminal
+height of room below the cursor — the same amount `Screen::pixelGeometry()` already assumed was
+available when it decided how tall `lastFrame` was allowed to be during the session — so starting the
+reprint from row 0 always leaves enough room, regardless of `--scale`.
+
+New coverage in `mriv_test_terminal`: `testMoveCursorHomeBeforeInitFails()`,
+`testMoveCursorHomeStructure()` (mirroring the existing `blit()` tests), and
+`testMoveCursorHomePrecedesBlitInTestMode()`, which is the property that actually matters here —
+asserts the `"\x1b[H"` marker precedes `blit()`'s encoded bytes in a test-mode `Terminal`'s injected
+stream. `ctest` green 47/47. **Needs the user to confirm on a real terminal, at both `--scale 1` and
+`--scale 2`/`3`**, that quitting leaves exactly one picture on screen with no leftover image or text
+overlapping it.

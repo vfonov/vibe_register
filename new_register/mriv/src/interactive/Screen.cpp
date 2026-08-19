@@ -39,6 +39,19 @@ void Screen::destroy()
     {
         ncplane_destroy(imagePlane_);
         imagePlane_ = nullptr;
+
+        // Every other frame's plane-destruction is flushed to the terminal
+        // by the render that draws the *next* frame (drawFrame() destroys
+        // the previous plane, then renders). This is the last frame of the
+        // session, so there is no next frame to carry it -- without a
+        // render here, the deletion stays purely in notcurses' internal
+        // model, notcurses_stop() restoring the primary screen does not
+        // reliably clear a placed pixel-protocol image along with it
+        // (terminal-dependent per notcurses' own docs, mriv/HANDOFF.md),
+        // and the leftover image survives the switch back, overlapping
+        // whatever runInteractive() prints there next.
+        if (nc_ && notcurses_render(nc_) < 0)
+            debugLog("notcurses_render (teardown flush) failed");
     }
     if (nc_)
     {

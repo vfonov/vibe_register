@@ -24,9 +24,14 @@ struct FrameOverlay;
 /// that; hand-rolling it over ncdirect's cursor movement would be
 /// reimplementing the part of notcurses that exists for this. The
 /// bitmap-clearing teardown that made direct mode necessary for the one-shot
-/// path (see render/Terminal.hpp and mriv/HANDOFF.md) is not a problem here:
-/// interactive mode runs on the alternate screen, where restoring the
-/// terminal on exit is the wanted behaviour rather than the bug.
+/// path (see render/Terminal.hpp and mriv/HANDOFF.md) is not a problem here
+/// in the sense that mattered there -- restoring the terminal on exit is the
+/// wanted behaviour, not a bug to work around. But notcurses_stop()'s own
+/// bitmap-clearing is documented as terminal-dependent, not guaranteed, so
+/// destroy() does not lean on it either: it destroys the last image plane
+/// and forces a render to flush that deletion to the terminal before
+/// notcurses_stop() runs, the same way every other frame's deletion rides
+/// along with the render that draws the next frame (drawFrame() below).
 ///
 /// This class is deliberately kept free of decisions. Everything that can be
 /// judged without a terminal lives in ViewState, Session, StatusLine and the
