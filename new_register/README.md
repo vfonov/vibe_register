@@ -21,8 +21,8 @@ Requires system packages: GLFW3 and a C++17 compiler (GCC 9+).
 On macOS the app uses a native Cocoa window with a Metal renderer
 (`imgui_impl_osx` + `imgui_impl_metal`); GLFW, Vulkan, and OpenGL are not used.
 CMake auto-detects macOS (`APPLE`) and selects the Metal backend, disables the
-GLFW/Vulkan/OpenGL paths, the OSMesa headless tests, and `new_qc` (which does
-not yet have a Metal path).
+GLFW/Vulkan/OpenGL paths and the OSMesa headless tests. `new_qc` also has a
+native Cocoa+Metal path on macOS (`src/qc/main_macos.mm`).
 
 ```bash
 # Xcode Command Line Tools provide the Metal/MetalKit/AppKit frameworks.
