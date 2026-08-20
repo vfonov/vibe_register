@@ -293,17 +293,22 @@ set(ImGui_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(ImGui_DIR_SOURCES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(imgui)
 
-# 3.5. nlohmann/json (JSON serialization, C++11+)
-# Header-only library - no build needed
-FetchContent_Declare(
-    nlohmann_json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG        v3.11.3
-    GIT_SHALLOW    TRUE
-)
-set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
-set(JSON_Install OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(nlohmann_json)
+# 3.5. nlohmann/json (JSON serialization, C++11+) — system package preferred
+find_package(nlohmann_json 3.11 QUIET)
+if(nlohmann_json_FOUND)
+    message(STATUS "nlohmann/json: using system package (version ${nlohmann_json_VERSION})")
+else()
+    message(STATUS "nlohmann/json: system package not found — fetching v3.11.3 from source")
+    FetchContent_Declare(
+        nlohmann_json
+        GIT_REPOSITORY https://github.com/nlohmann/json.git
+        GIT_TAG        v3.11.3
+        GIT_SHALLOW    TRUE
+    )
+    set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+    set(JSON_Install OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(nlohmann_json)
+endif()
 
 # 3.6. stb (stb_image for new_qc image loading)
 if(BUILD_NEW_QC OR BUILD_QC_ONLY)
@@ -317,39 +322,75 @@ endif()
 
 if(NOT BUILD_QC_ONLY)
 
-    # 3.75. GLM (Math library for vector/matrix operations)
-    # Header-only library - no build needed
-    FetchContent_Declare(
-        glm
-        GIT_REPOSITORY https://github.com/g-truc/glm.git
-        GIT_TAG        1.0.1
-        GIT_SHALLOW    TRUE
-    )
-    set(GLM_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
-    set(GLM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(GLM_BUILD_INSTALL OFF CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(glm)
+    # 3.75. GLM (Math library for vector/matrix operations) — system package preferred
+    find_package(glm QUIET)
+    if(glm_FOUND)
+        message(STATUS "GLM: using system package (version ${glm_VERSION})")
+        # nr_core links a plain `glm` target (see below); wrap the system
+        # package's namespaced target under that same name so the link line
+        # doesn't need to know which path provided it.
+        add_library(glm INTERFACE)
+        target_link_libraries(glm INTERFACE glm::glm)
+    else()
+        message(STATUS "GLM: system package not found — fetching 1.0.1 from source")
+        FetchContent_Declare(
+            glm
+            GIT_REPOSITORY https://github.com/g-truc/glm.git
+            GIT_TAG        1.0.1
+            GIT_SHALLOW    TRUE
+        )
+        set(GLM_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+        set(GLM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(GLM_BUILD_INSTALL OFF CACHE BOOL "" FORCE)
+        FetchContent_MakeAvailable(glm)
+    endif()
 
     # 3.8. Eigen3 (Linear algebra: SVD, matrix solvers — used by Transform)
-    include(ExternalProject)
-    set(EIGEN_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/eigen_install")
-    ExternalProject_Add(Eigen
-        GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
-        GIT_TAG        3.4.0
-        GIT_SHALLOW    TRUE
-        INSTALL_DIR    ${EIGEN_INSTALL_PREFIX}
-        CMAKE_ARGS
-            -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
-            -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
-            -DBUILD_DOCUMENTATION=OFF
-            -DBUILD_TESTING=OFF
-            -DBUILD_PACKAGE=OFF
-            -DEIGEN_BUILD_PKGCONFIG=OFF
-        BUILD_BYPRODUCTS ${EIGEN_INSTALL_PREFIX}/include/eigen3/Eigen
-    )
-    set(eigen_SOURCE_DIR "${CMAKE_BINARY_DIR}/eigen-src")
-    set(eigen_BINARY_DIR "${CMAKE_BINARY_DIR}/eigen-build")
-    set(eigen_INCLUDE_DIR "${EIGEN_INSTALL_PREFIX}/include/eigen3")
+    # System package preferred; falls back to ExternalProject otherwise.
+    # NO_CMAKE_PACKAGE_REGISTRY: an ExternalProject-built Eigen (the fallback
+    # below) self-registers into ~/.cmake/packages/Eigen3 via Eigen's own
+    # export(PACKAGE) call. Without this, a machine that has ever built the
+    # fallback once would have every future run of this find_package (on
+    # ANY project) silently resolve to that build tree instead of a real
+    # system install, even after the build directory is deleted.
+    find_package(Eigen3 3.3 QUIET NO_CMAKE_PACKAGE_REGISTRY)
+    if(Eigen3_FOUND)
+        message(STATUS "Eigen3: using system package (version ${Eigen3_VERSION})")
+        get_target_property(eigen_INCLUDE_DIR Eigen3::Eigen INTERFACE_INCLUDE_DIRECTORIES)
+        add_custom_target(Eigen)  # no-op: add_dependencies(nr_core Eigen) stays valid either way
+    else()
+        message(STATUS "Eigen3: system package not found — fetching 3.4.0 from source")
+        include(ExternalProject)
+        set(EIGEN_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/eigen_install")
+
+        # Same offline-packaging escape hatch as libminc/minc2-simple below.
+        set(EIGEN_SOURCE_DIR "" CACHE PATH
+            "Pre-fetched Eigen source directory (skips the git clone when set)")
+        if(EIGEN_SOURCE_DIR)
+            set(_EIGEN_FETCH_ARGS SOURCE_DIR ${EIGEN_SOURCE_DIR} DOWNLOAD_COMMAND "" UPDATE_COMMAND "")
+        else()
+            set(_EIGEN_FETCH_ARGS
+                GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+                GIT_TAG        3.4.0
+                GIT_SHALLOW    TRUE)
+        endif()
+
+        ExternalProject_Add(Eigen
+            ${_EIGEN_FETCH_ARGS}
+            INSTALL_DIR    ${EIGEN_INSTALL_PREFIX}
+            CMAKE_ARGS
+                -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
+                -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
+                -DBUILD_DOCUMENTATION=OFF
+                -DBUILD_TESTING=OFF
+                -DBUILD_PACKAGE=OFF
+                -DEIGEN_BUILD_PKGCONFIG=OFF
+            BUILD_BYPRODUCTS ${EIGEN_INSTALL_PREFIX}/include/eigen3/Eigen
+        )
+        set(eigen_SOURCE_DIR "${CMAKE_BINARY_DIR}/eigen-src")
+        set(eigen_BINARY_DIR "${CMAKE_BINARY_DIR}/eigen-build")
+        set(eigen_INCLUDE_DIR "${EIGEN_INSTALL_PREFIX}/include/eigen3")
+    endif()
 
     # 3.9. NIfTI-1 library (for .nii and .nii.gz file support)
     # We compile nifti1_io and znzlib directly from a vendored copy of the
@@ -508,10 +549,21 @@ if(NOT BUILD_QC_ONLY)
             )
         endif()
 
+        # Allow packaging systems (e.g. a Homebrew formula) to supply an
+        # already-fetched source tree and skip the network clone entirely.
+        set(LIBMINC_SOURCE_DIR "" CACHE PATH
+            "Pre-fetched libminc source directory (skips the git clone when set)")
+        if(LIBMINC_SOURCE_DIR)
+            set(_LIBMINC_FETCH_ARGS SOURCE_DIR ${LIBMINC_SOURCE_DIR} DOWNLOAD_COMMAND "" UPDATE_COMMAND "")
+        else()
+            set(_LIBMINC_FETCH_ARGS
+                GIT_REPOSITORY https://github.com/BIC-MNI/libminc.git
+                GIT_TAG        develop-1.9.18
+                GIT_SHALLOW    TRUE)
+        endif()
+
         ExternalProject_Add(libminc
-            GIT_REPOSITORY https://github.com/BIC-MNI/libminc.git
-            GIT_TAG        develop-1.9.18
-            GIT_SHALLOW    TRUE
+            ${_LIBMINC_FETCH_ARGS}
             INSTALL_DIR    ${LIBMINC_INSTALL_PREFIX}
             CMAKE_ARGS ${_LIBMINC_ARGS}
             BUILD_BYPRODUCTS ${LIBMINC_INSTALL_PREFIX}/lib/libminc2.a
@@ -576,15 +628,24 @@ if(NOT BUILD_QC_ONLY)
         )
     endif()
 
+    # Same offline-packaging escape hatch as libminc above.
+    set(MINC2_SIMPLE_SOURCE_DIR "" CACHE PATH
+        "Pre-fetched minc2-simple source directory (skips the git clone when set)")
+    if(MINC2_SIMPLE_SOURCE_DIR)
+        set(_MINC2_SIMPLE_FETCH_ARGS SOURCE_DIR ${MINC2_SIMPLE_SOURCE_DIR} DOWNLOAD_COMMAND "" UPDATE_COMMAND "")
+    else()
+        set(_MINC2_SIMPLE_FETCH_ARGS
+            GIT_REPOSITORY https://github.com/NIST-MNI/minc2-simple.git
+            GIT_TAG        develop
+            GIT_SHALLOW    TRUE
+            UPDATE_DISCONNECTED TRUE)
+    endif()
+
     ExternalProject_Add(minc2-simple-static
-        GIT_REPOSITORY https://github.com/NIST-MNI/minc2-simple.git
-        GIT_TAG        develop
-        GIT_SHALLOW    TRUE
-        UPDATE_DISCONNECTED TRUE
+        ${_MINC2_SIMPLE_FETCH_ARGS}
         INSTALL_DIR    ${MINC2_SIMPLE_INSTALL_PREFIX}
         DEPENDS        ${_MINC2_DEPENDS}
         CMAKE_ARGS
-           # "-DCMAKE_MODULE_PATH=${_FAKE_MODULES_DIR}"
             -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
             -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
             "-DCMAKE_PREFIX_PATH=${_MINC2_CMAKE_PREFIX_PATH}"
