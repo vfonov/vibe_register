@@ -353,13 +353,25 @@ if(NOT BUILD_QC_ONLY)
     # fallback once would have every future run of this find_package (on
     # ANY project) silently resolve to that build tree instead of a real
     # system install, even after the build directory is deleted.
-    find_package(Eigen3 3.3 QUIET NO_CMAKE_PACKAGE_REGISTRY)
-    if(Eigen3_FOUND)
+    #
+    # No version arg is passed to find_package: Eigen jumped from the 3.4
+    # series straight to 5.0 (Homebrew's "eigen" formula is 5.x today), and
+    # a single version like "3.3" would impose an implicit same-major-version
+    # ceiling via Eigen3ConfigVersion.cmake, rejecting any 5.x system package.
+    # The floor is instead enforced manually below so both 3.3+ (common on
+    # Linux) and 5.x (Homebrew) are accepted.
+    set(NR_EIGEN_FALLBACK_VERSION 5.0.1)
+    find_package(Eigen3 QUIET NO_CMAKE_PACKAGE_REGISTRY)
+    if(Eigen3_FOUND AND NOT Eigen3_VERSION VERSION_LESS 3.3)
         message(STATUS "Eigen3: using system package (version ${Eigen3_VERSION})")
         get_target_property(eigen_INCLUDE_DIR Eigen3::Eigen INTERFACE_INCLUDE_DIRECTORIES)
         add_custom_target(Eigen)  # no-op: add_dependencies(nr_core Eigen) stays valid either way
     else()
-        message(STATUS "Eigen3: system package not found — fetching 3.4.0 from source")
+        if(Eigen3_FOUND)
+            message(STATUS "Eigen3: system package version ${Eigen3_VERSION} is too old (<3.3) — fetching ${NR_EIGEN_FALLBACK_VERSION} from source")
+        else()
+            message(STATUS "Eigen3: system package not found — fetching ${NR_EIGEN_FALLBACK_VERSION} from source")
+        endif()
         include(ExternalProject)
         set(EIGEN_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/eigen_install")
 
@@ -371,7 +383,7 @@ if(NOT BUILD_QC_ONLY)
         else()
             set(_EIGEN_FETCH_ARGS
                 GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
-                GIT_TAG        3.4.0
+                GIT_TAG        ${NR_EIGEN_FALLBACK_VERSION}
                 GIT_SHALLOW    TRUE)
         endif()
 
