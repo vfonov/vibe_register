@@ -11,7 +11,10 @@ void printUsage(const char* programName)
               << "\n"
               << "Arguments:\n"
               << "  input_csv    CSV file with columns: id, visit, picture\n"
-              << "  output_csv   CSV file for QC results (will be created/updated)\n"
+              << "               Use '-' to read a newline-separated list of image paths\n"
+              << "               from standard input instead (id = filename stem, visit = '-').\n"
+              << "  output_csv   CSV file for QC results (will be created/updated).\n"
+              << "               Optional with '-' input; defaults to qc_results.csv.\n"
               << "\n"
               << "Options:\n"
               << "  --help            Show this help message\n"
@@ -23,6 +26,10 @@ void printUsage(const char* programName)
               << "  id,visit,picture\n"
               << "  subject001,baseline,/path/to/image1.png\n"
               << "  subject002,followup,/path/to/image2.jpg\n"
+              << "\n"
+              << "Stdin (simplified) mode:\n"
+              << "  find images/ -name '*.png' | " << programName << " -\n"
+              << "  ls *.jpg | " << programName << " - results.csv\n"
               << "\n"
               << "Output CSV format:\n"
               << "  id,visit,picture,QC,notes\n"
@@ -113,7 +120,7 @@ int main(int argc, char* argv[])
             }
             backendType = *parsed;
         }
-        else if (arg[0] == '-')
+        else if (arg.size() > 1 && arg[0] == '-')
         {
             std::cerr << "Unknown option: " << arg << "\n";
             std::cerr << "Use --help for usage information\n";
@@ -134,11 +141,26 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (inputFile.empty() || outputFile.empty())
+    if (inputFile.empty())
     {
-        std::cerr << "Error: Both input and output CSV files are required\n";
+        std::cerr << "Error: input CSV (or '-' for a list of image paths on stdin) is required\n";
         std::cerr << "Use --help for usage information\n";
         return 1;
+    }
+
+    if (outputFile.empty())
+    {
+        if (inputFile == "-")
+        {
+            outputFile = "qc_results.csv";
+            std::cout << "No output CSV given; writing results to " << outputFile << "\n";
+        }
+        else
+        {
+            std::cerr << "Error: Both input and output CSV files are required\n";
+            std::cerr << "Use --help for usage information\n";
+            return 1;
+        }
     }
 
     QC::QCApp app;

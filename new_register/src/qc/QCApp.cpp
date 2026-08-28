@@ -34,7 +34,10 @@ bool QCApp::init(const std::string& inputFile, const std::string& outputFile,
 
     if (!csvHandler_.loadOutputCSV(outputFile))
     {
-        if (!csvHandler_.loadInputCSV(inputFile))
+        bool loaded = (inputFile == "-")
+            ? csvHandler_.loadImageList(std::cin)
+            : csvHandler_.loadInputCSV(inputFile);
+        if (!loaded)
             return false;
     }
 
@@ -181,7 +184,10 @@ bool QCApp::initWithBackend(std::unique_ptr<Backend> backend,
 
     if (!csvHandler_.loadOutputCSV(outputFile))
     {
-        if (!csvHandler_.loadInputCSV(inputFile))
+        bool loaded = (inputFile == "-")
+            ? csvHandler_.loadImageList(std::cin)
+            : csvHandler_.loadInputCSV(inputFile);
+        if (!loaded)
             return false;
     }
 

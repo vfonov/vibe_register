@@ -1,5 +1,6 @@
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <cassert>
@@ -276,6 +277,42 @@ void testResumeFromOutput()
     fs::remove(outputFile);
 }
 
+// Test stdin ("simplified") mode: build records from a list of image paths
+void testLoadImageList()
+{
+    std::cout << "\n=== Testing Load Image List (stdin mode) ===" << std::endl;
+
+    std::istringstream input(
+        "/data/sub01_t1.png\n"
+        "\n"                                 // blank line — should be skipped
+        "  rel/path/sub02.nii.gz  \n"        // surrounding whitespace — trimmed
+        "/x/sub03.jpg\n");
+
+    QC::CSVHandler handler;
+    bool loaded = handler.loadImageList(input);
+
+    TEST_ASSERT(loaded, "Image list loaded successfully");
+    TEST_ASSERT(handler.getRecordCount() == 3, "3 records loaded (blank line skipped)");
+
+    auto& records = handler.getRecords();
+    TEST_ASSERT(records[0].id == "sub01_t1", "id is the filename stem");
+    TEST_ASSERT(records[0].visit == "-", "visit is '-'");
+    TEST_ASSERT(records[0].picture_path == "/data/sub01_t1.png", "picture is the path as given");
+    TEST_ASSERT(records[0].qc_status == "" && records[0].notes == "", "QC/notes empty initially");
+
+    TEST_ASSERT(records[1].id == "sub02.nii", "only the last extension is stripped from the stem");
+    TEST_ASSERT(records[1].picture_path == "rel/path/sub02.nii.gz", "relative path preserved and trimmed");
+
+    TEST_ASSERT(records[2].id == "sub03", "third record stem correct");
+
+    // Empty stream -> false, no records
+    std::istringstream empty("");
+    QC::CSVHandler handler2;
+    bool loadedEmpty = handler2.loadImageList(empty);
+    TEST_ASSERT(!loadedEmpty, "Empty stream returns false");
+    TEST_ASSERT(handler2.getRecordCount() == 0, "Empty stream leaves no records");
+}
+
 int main(int argc, char* argv[])
 {
     std::cout << "========================================" << std::endl;
@@ -285,6 +322,7 @@ int main(int argc, char* argv[])
     // Run all tests
     testCSVFieldEscaping();
     testLoadInputCSV();
+    testLoadImageList();
     testLoadOutputCSV();
     testSaveOutputCSV();
     testSpecialCharacters();

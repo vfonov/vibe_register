@@ -270,9 +270,14 @@ Lightweight standalone viewer for reviewing arbitrary images (PNG, JPG, etc.) fr
 
 ```bash
 ./new_qc input.csv output.csv [--scale <factor>]
+# Simplified (stdin) mode — image paths piped on stdin, table built on the fly:
+find images/ -name '*.png' | ./new_qc -            # output defaults to qc_results.csv
+ls *.jpg | ./new_qc - results.csv
 ```
 
 **CSV:** Input — `id,visit,picture`. Output — `id,visit,picture,QC,notes`.
+
+**Stdin mode (`input_csv` = `-`):** reads a newline-separated list of image paths from stdin (blank lines skipped) and synthesises records — `id` = filename stem (last extension stripped), `visit` = `-`, `picture` = the path as given. `output_csv` is optional here and defaults to `qc_results.csv` in the current directory; resume from an existing output CSV still takes precedence. Implemented as `CSVHandler::loadImageList()`.
 
 **Keyboard:** `P` Pass (auto-advance), `F` Fail (auto-advance), `←`/`Page Up` previous, `→`/`Page Down` next, `Ctrl+S` save, `Esc` exit.
 

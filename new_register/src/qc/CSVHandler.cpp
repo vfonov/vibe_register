@@ -2,6 +2,7 @@
 #include <iostream>
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
 
 namespace QC
 {
@@ -148,6 +149,38 @@ bool CSVHandler::loadInputCSV(const std::string& filename)
     }
     
     std::cout << "Loaded " << records_.size() << " records from " << filename << std::endl;
+    return !records_.empty();
+}
+
+bool CSVHandler::loadImageList(std::istream& input)
+{
+    records_.clear();
+
+    std::string line;
+    while (std::getline(input, line))
+    {
+        line = trim(line);
+        if (line.empty())
+            continue;
+
+        std::filesystem::path path(line);
+        std::string id = path.stem().string();
+        if (id.empty())
+            id = path.filename().string();
+        if (id.empty())
+            id = line;
+
+        QCRecord record;
+        record.id = id;
+        record.visit = "-";
+        record.picture_path = line;
+        record.qc_status = "";
+        record.notes = "";
+
+        records_.push_back(record);
+    }
+
+    std::cout << "Loaded " << records_.size() << " images from standard input" << std::endl;
     return !records_.empty();
 }
 

@@ -27,6 +27,10 @@ public:
     // Load input CSV (id, visit, picture columns)
     bool loadInputCSV(const std::string& filename);
 
+    // Build records from a newline-separated list of image paths (stdin mode).
+    // id = filename stem, visit = "-", picture = path as given. Blank lines skipped.
+    bool loadImageList(std::istream& input);
+
     // Load existing output CSV to resume work
     bool loadOutputCSV(const std::string& filename);
 
