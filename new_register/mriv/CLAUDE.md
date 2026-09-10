@@ -12,7 +12,7 @@ This directory is `new_register/mriv/`, a subproject of `new_register/` — a mo
 - **Colour maps** — 18 of them, `enum class ColourMapType`.
 - **Volume metadata** — dimensions, voxel step, start, direction cosines, world↔voxel transforms.
 
-All of this lives in the **`nr_core`** static library target (`add_library(nr_core ...)` at `new_register/CMakeLists.txt:702`), which is deliberately GPU-free so headless tools can link it. `new_mincpik` is an existing headless consumer and the closest working model for what this subproject should look like.
+All of this lives in the **`nr_core`** static library target (`add_library(nr_core ...)` in `new_register/CMakeLists.txt`), which is deliberately GPU-free so headless tools can link it. `new_mincpik` is an existing headless consumer and the closest working model for what this subproject should look like.
 
 The parent notably does **not** have DICOM support or 4D/time-series volumes. Those gaps are documented in `PLAN.md`'s deferred-work section; they are not ours to fill.
 
@@ -84,7 +84,7 @@ This subproject uses **cxxopts** for CLI parsing. The parent removed cxxopts and
 
 - **Small, reviewable diffs.** A commit that touches one CLI flag or one rendering step is far easier to reason about than a sweeping refactor. If a change wants to grow, split it.
 - **One concern per commit.** Formatting churn, dependency bumps, and behavior changes go in separate commits.
-- **Never modify parent-project code from this subproject's commits** unless the task is explicitly to extend a parent API. The one expected parent-side edit — `option(BUILD_TERMINAL_VIEWER)` and `add_subdirectory(mriv)` in `new_register/CMakeLists.txt` — has already landed, as its own commit (lines 1149-1151). If you need something else from the parent, propose it as a separate commit (or ideally a separate PR), then update this subproject to consume it.
+- **Never modify parent-project code from this subproject's commits** unless the task is explicitly to extend a parent API. The one expected parent-side edit — `option(BUILD_TERMINAL_VIEWER)` and `add_subdirectory(mriv)` in `new_register/CMakeLists.txt` — has already landed. The option now sits with the other per-tool `BUILD_*` options near the top of the file. If you need something else from the parent, propose it as a separate commit (or ideally a separate PR), then update this subproject to consume it.
 - **Never touch `legacy/`.** It is read-only reference material for the whole repository (`AGENTS.md`, "Hard rules").
 - **New feature?** Document it in `PLAN.md` in the same commit (there is no mriv `README.md` yet — that is M6). If it changes the CLI surface, update the help text in `src/cli/Options.cpp` and the CLI surface block in `PLAN.md`. If it changes a key, update the on-screen legend (`formatHotkeyLine()` in `src/interactive/StatusLine.cpp`) and `PLAN.md`'s interactive key table.
 - **Dependency added?** This should be extremely rare. This subproject's whole point is to add minimal surface area over `nr_core`. If you genuinely need a new dependency, justify it in the commit message and update `PLAN.md`'s dependency list.

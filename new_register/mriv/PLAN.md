@@ -149,11 +149,10 @@ Whatever the parent supports: Linux and macOS. Do not extend or restrict that ma
 
 ### As a subdirectory of the parent
 
-`new_register/CMakeLists.txt` is the build root; there is **no top-level `/app/CMakeLists.txt`**. This subproject lives at `new_register/mriv/`, a direct child of the build root, and is hooked in at the end of the parent's CMakeLists (`new_register/CMakeLists.txt:1149-1151`):
+`new_register/CMakeLists.txt` is the build root; there is **no top-level `/app/CMakeLists.txt`**. This subproject lives at `new_register/mriv/`, a direct child of the build root, and is hooked in at the end of the parent's CMakeLists (`new_register/CMakeLists.txt`). `BUILD_TERMINAL_VIEWER` is declared with the parent's other per-tool options (`BUILD_NEW_REGISTER`, `BUILD_NEW_QC`, `BUILD_NEW_MINCPIK`) near the top of that file, and enabling it makes the parent resolve the MINC stack for `nr_core`:
 
 ```cmake
-option(BUILD_TERMINAL_VIEWER "Build the terminal-based slice viewer (mriv)" ON)
-if(BUILD_TERMINAL_VIEWER AND NOT BUILD_QC_ONLY)
+if(BUILD_TERMINAL_VIEWER)
     add_subdirectory(mriv)
 endif()
 ```

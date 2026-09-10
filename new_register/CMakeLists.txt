@@ -16,13 +16,11 @@ if(APPLE)
     set(_DEFAULT_ENABLE_OPENGL2 OFF)
     set(_DEFAULT_ENABLE_METAL   ON)
     set(_DEFAULT_ENABLE_TESTS   OFF)   # headless tests need OSMesa, unavailable on macOS
-    set(_DEFAULT_BUILD_NEW_QC   ON)
 else()
     set(_DEFAULT_ENABLE_VULKAN  ON)
     set(_DEFAULT_ENABLE_OPENGL2 ON)
     set(_DEFAULT_ENABLE_METAL   OFF)
     set(_DEFAULT_ENABLE_TESTS   ON)
-    set(_DEFAULT_BUILD_NEW_QC   ON)
 endif()
 
 # Export compile commands for clangd LSP support
@@ -36,13 +34,38 @@ set(CMAKE_DISABLE_INSTALL_PACKAGES ON)
 # Set after finding system packages to avoid interfering with their detection
 set(BUILD_SHARED_LIBS_DEFAULT ${BUILD_SHARED_LIBS})
 
-# --- Build mode options ---
-# BUILD_QC_ONLY: skip all MINC/HDF5/NetCDF/Eigen/GLM dependencies and build
-#                only the new_qc viewer (useful on machines without MINC toolkit)
-option(BUILD_QC_ONLY "Build only new_qc viewer (skip MINC/HDF5/Eigen dependencies)" OFF)
+# --- Tool selection ---
+# Each tool can be switched off independently.  Only the dependencies of the
+# enabled tools are searched for or fetched (see NR_NEED_CORE / NR_NEED_GUI).
+option(BUILD_NEW_REGISTER    "Build new_register (volume registration GUI)"  ON)
+option(BUILD_NEW_QC          "Build new_qc (image QC viewer)"                ON)
+option(BUILD_NEW_MINCPIK     "Build new_mincpik (headless mosaic generator)" ON)
+option(BUILD_TERMINAL_VIEWER "Build the terminal-based slice viewer (mriv)"  ON)
 
-# BUILD_NEW_QC: also build new_qc alongside new_register (default ON)
-option(BUILD_NEW_QC  "Build new_qc viewer alongside new_register" ${_DEFAULT_BUILD_NEW_QC})
+# NR_NEED_CORE: nr_core and its MINC/HDF5/NetCDF/zlib, libminc, minc2-simple,
+#               Eigen, glm, nlohmann_json and niftilib dependencies
+# NR_NEED_GUI:  GLFW, Wayland, Vulkan, OpenGL and ImGui
+set(NR_NEED_CORE OFF)
+if(BUILD_NEW_REGISTER OR BUILD_NEW_MINCPIK OR BUILD_TERMINAL_VIEWER)
+    set(NR_NEED_CORE ON)
+endif()
+set(NR_NEED_GUI OFF)
+if(BUILD_NEW_REGISTER OR BUILD_NEW_QC)
+    set(NR_NEED_GUI ON)
+endif()
+if(NOT NR_NEED_CORE AND NOT NR_NEED_GUI)
+    message(FATAL_ERROR "No tools selected. Enable at least one of BUILD_NEW_REGISTER, "
+        "BUILD_NEW_QC, BUILD_NEW_MINCPIK, BUILD_TERMINAL_VIEWER.")
+endif()
+
+set(_NR_TOOLS "")
+foreach(_tool NEW_REGISTER NEW_QC NEW_MINCPIK TERMINAL_VIEWER)
+    if(BUILD_${_tool})
+        list(APPEND _NR_TOOLS ${_tool})
+    endif()
+endforeach()
+string(REPLACE ";" ", " _NR_TOOLS "${_NR_TOOLS}")
+message(STATUS "Tools: ${_NR_TOOLS}")
 
 # --- Backend options ---
 option(ENABLE_VULKAN  "Build Vulkan backend"  ${_DEFAULT_ENABLE_VULKAN})
@@ -53,20 +76,21 @@ option(ENABLE_METAL   "Build Metal backend"   ${_DEFAULT_ENABLE_METAL})
 # ENABLE_TESTS: build headless UI tests (requires OSMesa library)
 option(ENABLE_TESTS "Enable headless UI tests (requires OSMesa library)" ${_DEFAULT_ENABLE_TESTS})
 
-# --- Dependencies always required ---
+# --- Dependencies ---
 include(FetchContent)
 
 # 1. GLFW — system package preferred; set FETCH_GLFW=ON to force-fetch 3.4.
 # Note: GLFW 3.4 fixes wl_touch on Wayland; system 3.3.x drops touch events.
+# Only the GUI tools use GLFW, and never on macOS (native Cocoa there).
 option(FETCH_GLFW "Always fetch GLFW 3.4 from source, ignoring any system installation" OFF)
 
-if(NOT FETCH_GLFW)
+if(NR_NEED_GUI AND NOT APPLE AND NOT FETCH_GLFW)
     find_package(glfw3 QUIET)
 endif()
 
 if(glfw3_FOUND)
     message(STATUS "GLFW: using system package (version ${glfw3_VERSION})")
-else()
+elseif(NR_NEED_GUI AND NOT APPLE)
     if(FETCH_GLFW)
         message(STATUS "GLFW: FETCH_GLFW=ON — fetching 3.4 from source")
     else()
@@ -93,23 +117,25 @@ endif()
 
 # 1.5. Wayland client (optional — enables direct wl_touch → ImGui injection
 #      for reliable touch screen support; gracefully absent on X11-only systems)
-find_package(PkgConfig QUIET)
-if(PkgConfig_FOUND)
-    pkg_check_modules(WAYLAND_CLIENT QUIET wayland-client)
-endif()
-if(WAYLAND_CLIENT_FOUND)
-    message(STATUS "Wayland client found — building with direct touch input support")
-else()
-    message(STATUS "Wayland client not found — touch screen input will rely on GLFW synthesis")
+if(NR_NEED_GUI)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(WAYLAND_CLIENT QUIET wayland-client)
+    endif()
+    if(WAYLAND_CLIENT_FOUND)
+        message(STATUS "Wayland client found — building with direct touch input support")
+    else()
+        message(STATUS "Wayland client not found — touch screen input will rely on GLFW synthesis")
+    endif()
 endif()
 
 # 2. Vulkan (soft find — required for new_register if ENABLE_VULKAN, optional for new_qc)
-if(ENABLE_VULKAN)
+if(NR_NEED_GUI AND ENABLE_VULKAN)
     find_package(Vulkan)
     if(Vulkan_FOUND)
         message(STATUS "Vulkan found — building with Vulkan backend")
     else()
-        if(NOT BUILD_QC_ONLY)
+        if(BUILD_NEW_REGISTER)
             message(FATAL_ERROR "Vulkan not found. Set ENABLE_VULKAN=OFF to disable Vulkan support.")
         else()
             message(STATUS "Vulkan not found — skipping Vulkan backend")
@@ -118,12 +144,12 @@ if(ENABLE_VULKAN)
 endif()
 
 # 2.1 OpenGL (conditional)
-if(ENABLE_OPENGL2)
+if(NR_NEED_GUI AND ENABLE_OPENGL2)
     find_package(OpenGL REQUIRED)
 endif()
 
-# --- MINC/HDF5/NetCDF dependencies (not needed for new_qc only) ---
-if(NOT BUILD_QC_ONLY)
+# --- MINC/HDF5/NetCDF dependencies (only for tools that link nr_core) ---
+if(NR_NEED_CORE)
 
     # ---------------------------------------------------------------------
     # 2.4 MINC toolkit — must be resolved BEFORE HDF5.
@@ -266,7 +292,7 @@ if(NOT BUILD_QC_ONLY)
     # 2.6 Threads (Required for Prefetcher background thread)
     find_package(Threads REQUIRED)
 
-endif() # NOT BUILD_QC_ONLY
+endif() # NR_NEED_CORE
 
 # --- Force static linking for fetched dependencies ---
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
@@ -281,37 +307,43 @@ SET(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
 SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 
-# 3. Dear ImGui (Docking Branch)
+# 3. Dear ImGui (Docking Branch) — GUI tools and the headless UI tests
 # Disable all optional builds - we only need the core library
-FetchContent_Declare(
-    imgui
-    GIT_REPOSITORY https://github.com/ocornut/imgui
-    GIT_TAG        docking
-)
-set(ImGui_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(ImGui_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(ImGui_DIR_SOURCES OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(imgui)
-
-# 3.5. nlohmann/json (JSON serialization, C++11+) — system package preferred
-find_package(nlohmann_json 3.11 QUIET)
-if(nlohmann_json_FOUND)
-    message(STATUS "nlohmann/json: using system package (version ${nlohmann_json_VERSION})")
-else()
-    message(STATUS "nlohmann/json: system package not found — fetching v3.11.3 from source")
+if(NR_NEED_GUI)
     FetchContent_Declare(
-        nlohmann_json
-        GIT_REPOSITORY https://github.com/nlohmann/json.git
-        GIT_TAG        v3.11.3
-        GIT_SHALLOW    TRUE
+        imgui
+        GIT_REPOSITORY https://github.com/ocornut/imgui
+        GIT_TAG        docking
     )
-    set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
-    set(JSON_Install OFF CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(nlohmann_json)
+    set(ImGui_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(ImGui_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(ImGui_DIR_SOURCES OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(imgui)
 endif()
 
-# 3.6. stb (stb_image for new_qc image loading)
-if(BUILD_NEW_QC OR BUILD_QC_ONLY)
+# 3.5. nlohmann/json (JSON serialization, C++11+; AppConfig in nr_core) — system package preferred
+if(NR_NEED_CORE)
+    find_package(nlohmann_json 3.11 QUIET)
+    if(nlohmann_json_FOUND)
+        message(STATUS "nlohmann/json: using system package (version ${nlohmann_json_VERSION})")
+    else()
+        message(STATUS "nlohmann/json: system package not found — fetching v3.11.3 from source")
+        FetchContent_Declare(
+            nlohmann_json
+            GIT_REPOSITORY https://github.com/nlohmann/json.git
+            GIT_TAG        v3.11.3
+            GIT_SHALLOW    TRUE
+        )
+        set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+        set(JSON_Install OFF CACHE BOOL "" FORCE)
+        FetchContent_MakeAvailable(nlohmann_json)
+    endif()
+endif()
+
+# 3.6. stb (stb_image for new_qc image loading; stb_image/stb_image_write for tests)
+# Fetched here, before add_subdirectory(tests), so test targets see stb_SOURCE_DIR
+# on a clean configure.
+if(BUILD_NEW_QC OR ENABLE_TESTS)
     FetchContent_Declare(
         stb
         GIT_REPOSITORY https://github.com/nothings/stb.git
@@ -320,7 +352,7 @@ if(BUILD_NEW_QC OR BUILD_QC_ONLY)
     FetchContent_MakeAvailable(stb)
 endif()
 
-if(NOT BUILD_QC_ONLY)
+if(NR_NEED_CORE)
 
     # 3.75. GLM (Math library for vector/matrix operations) — system package preferred
     find_package(glm QUIET)
@@ -420,20 +452,22 @@ if(NOT BUILD_QC_ONLY)
         ${nifti_SOURCE_DIR}/znzlib.c
     )
 
-endif() # NOT BUILD_QC_ONLY
+endif() # NR_NEED_CORE
 
 # Create ImGui library target (core only — backends compiled per-executable)
-add_library(imgui STATIC
-    ${imgui_SOURCE_DIR}/imgui.cpp
-    ${imgui_SOURCE_DIR}/imgui_demo.cpp
-    ${imgui_SOURCE_DIR}/imgui_draw.cpp
-    ${imgui_SOURCE_DIR}/imgui_tables.cpp
-    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-)
-target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
+if(NR_NEED_GUI)
+    add_library(imgui STATIC
+        ${imgui_SOURCE_DIR}/imgui.cpp
+        ${imgui_SOURCE_DIR}/imgui_demo.cpp
+        ${imgui_SOURCE_DIR}/imgui_draw.cpp
+        ${imgui_SOURCE_DIR}/imgui_tables.cpp
+        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    )
+    target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
+endif()
 
 
-if(NOT BUILD_QC_ONLY)
+if(NR_NEED_CORE)
 
 
     IF(FALSE) # NEUROSLOP
@@ -727,6 +761,10 @@ if(NOT BUILD_QC_ONLY)
         add_dependencies(nr_core minc2-simple-static)
     endif()
 
+endif() # NR_NEED_CORE
+
+if(BUILD_NEW_REGISTER)
+
     # --- Sources for new_register (explicit list instead of GLOB_RECURSE) ---
     set(SOURCES
         src/AppState.cpp
@@ -850,6 +888,10 @@ if(NOT BUILD_QC_ONLY)
 
     INSTALL(TARGETS new_register DESTINATION bin)
 
+endif() # BUILD_NEW_REGISTER
+
+if(BUILD_NEW_MINCPIK)
+
     # --- new_mincpik: headless mosaic image generator ---
     add_executable(new_mincpik
         src/mincpik/mincpik_main.cpp
@@ -870,10 +912,10 @@ if(NOT BUILD_QC_ONLY)
     endif()
     INSTALL(TARGETS new_mincpik DESTINATION bin)
 
-endif() # NOT BUILD_QC_ONLY
+endif() # BUILD_NEW_MINCPIK
 
 # --- new_qc: lightweight QC viewer for JPEG/PNG image datasets ---
-if(BUILD_NEW_QC OR BUILD_QC_ONLY)
+if(BUILD_NEW_QC)
 
     set(IMGUI_DIR ${imgui_SOURCE_DIR})
 
@@ -958,7 +1000,6 @@ if(BUILD_NEW_QC OR BUILD_QC_ONLY)
 
     target_link_libraries(new_qc PRIVATE
         imgui
-        nlohmann_json::nlohmann_json
         ${CMAKE_DL_LIBS}
     )
     if(NOT APPLE)
@@ -994,7 +1035,7 @@ if(BUILD_NEW_QC OR BUILD_QC_ONLY)
 
     INSTALL(TARGETS new_qc DESTINATION bin)
 
-endif() # BUILD_NEW_QC OR BUILD_QC_ONLY
+endif() # BUILD_NEW_QC
 
 # --- Testing ---
 enable_testing()
@@ -1005,19 +1046,22 @@ if(ENABLE_TESTS)
     # to work on re-configure, when the find_library cache entry already
     # existed), so those tests failed to link with undefined OSMesa symbols.
 
-    # Find OSMesa (libosmesa6-dev provides libOSMesa)
-    find_library(OSMESA_LIBRARY NAMES OSMesa osmesa)
-    if(NOT OSMESA_LIBRARY)
-        set(OSMESA_LIBRARY -lOSMesa)
-    endif()
-    message(STATUS "OSMesa library: ${OSMESA_LIBRARY}")
+    # The OSMesa + ImGui UI tests exercise new_register's interface only.
+    if(BUILD_NEW_REGISTER)
+        # Find OSMesa (libosmesa6-dev provides libOSMesa)
+        find_library(OSMESA_LIBRARY NAMES OSMesa osmesa)
+        if(NOT OSMESA_LIBRARY)
+            set(OSMESA_LIBRARY -lOSMesa)
+        endif()
+        message(STATUS "OSMesa library: ${OSMESA_LIBRARY}")
 
-    # Ensure OpenGL is available (may already be found via ENABLE_OPENGL2)
-    if(NOT TARGET OpenGL::GL)
-        find_package(OpenGL REQUIRED)
+        # Ensure OpenGL is available (may already be found via ENABLE_OPENGL2)
+        if(NOT TARGET OpenGL::GL)
+            find_package(OpenGL REQUIRED)
+        endif()
     endif()
 
-    # Ensure Threads is available (may already be found in NOT BUILD_QC_ONLY block)
+    # Ensure Threads is available (may already be found in NR_NEED_CORE block)
     if(NOT TARGET Threads::Threads)
         find_package(Threads REQUIRED)
     endif()
@@ -1026,19 +1070,10 @@ if(ENABLE_TESTS)
 
     # ============================================================
     # headless_tests — OSMesa + ImGui offscreen UI tests
+    # (stb is fetched in section 3.6 above)
     # ============================================================
 
-# stb — used for stb_image_write.h (PNG saving in imgui_impl_osmesa.cpp).
-# stb may already be fetched for new_qc; guard to avoid duplicate declarations.
-if(NOT stb_POPULATED)
-    FetchContent_Declare(
-        stb
-        GIT_REPOSITORY https://github.com/nothings/stb.git
-        GIT_TAG        master
-        GIT_SHALLOW    TRUE
-    )
-    FetchContent_MakeAvailable(stb)
-endif()
+if(BUILD_NEW_REGISTER)
 
 # imgui_test_engine — advanced UI test framework
 # The repo has no CMakeLists.txt in the imgui_test_engine/ sub-directory,
@@ -1141,12 +1176,14 @@ target_link_libraries(generate_headless_baselines PRIVATE
     ${CMAKE_DL_LIBS}
 )
 
+endif() # BUILD_NEW_REGISTER
+
 endif() # ENABLE_TESTS
 
 # --- mriv: terminal-based slice viewer (subproject) ---
-# Placed last: it needs nr_core (line ~605) and, for its tests, the
-# add_nr_test() macro defined by add_subdirectory(tests) above.
-option(BUILD_TERMINAL_VIEWER "Build the terminal-based slice viewer (mriv)" ON)
-if(BUILD_TERMINAL_VIEWER AND NOT BUILD_QC_ONLY)
+# Placed last: it needs nr_core and, for its tests, the add_nr_test() macro
+# defined by add_subdirectory(tests) above.  BUILD_TERMINAL_VIEWER is declared
+# with the other tool options at the top of this file.
+if(BUILD_TERMINAL_VIEWER)
     add_subdirectory(mriv)
 endif()

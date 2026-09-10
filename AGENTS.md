@@ -42,9 +42,11 @@ Other docs: [`PLAN.md`](PLAN.md) — roadmap, including the C++23 migration ·
 cd new_register/build
 cmake ..
 make -j$(nproc)
-ctest --output-on-failure    # 50 suites: 27 from new_register/tests/, 23 mriv_* from mriv/
+ctest --output-on-failure    # all tools enabled: 50 suites — 27 from new_register/tests/, 23 mriv_* from mriv/
 ctest -R OverlapTest         # one test by regex; -R "^mriv_" for the subproject
 ```
+
+- **Tool selection:** `BUILD_NEW_REGISTER`, `BUILD_NEW_QC`, `BUILD_NEW_MINCPIK`, `BUILD_TERMINAL_VIEWER` (all ON). In `CMakeLists.txt` they derive `NR_NEED_CORE` (MINC stack, Eigen, glm, json → `nr_core`) and `NR_NEED_GUI` (GLFW, Wayland, Vulkan, OpenGL, ImGui). Put any new dependency lookup or fetch under the matching gate, so disabled tools never download it.
 
 - **Adding a test:** plain `assert` in a `main()`, built with the `add_nr_test()` macro (`new_register/tests/CMakeLists.txt`) and registered with `add_test()`. No test frameworks.
 - Anything `tests/` links must be found **before** `add_subdirectory(tests)`. A `find_library` placed after it yields an empty variable on a clean configure and only appears to work on re-configure.

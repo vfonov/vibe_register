@@ -63,18 +63,25 @@ accepted backend value on macOS.
 
 ### Dependencies
 
+Only the dependencies of the tools selected with the `BUILD_*` options (see
+[Build Options](#build-options)) are searched for or fetched. "MINC tools" below
+means `new_register`, `new_mincpik` and `mriv` — everything that links `nr_core`;
+"GUI tools" means `new_register` and `new_qc`.
+
 | Dependency | How it is obtained | Notes |
 |---|---|---|
-| `minc2-simple` | FetchContent from GitHub (develop branch) | MINC2 I/O |
-| `libminc` | From minc-toolkit if present, otherwise ExternalProject | |
-| HDF5, NetCDF, zlib | From minc-toolkit if present, otherwise system | See [Building against minc-toolkit](#building-against-minc-toolkit) |
-| ImGui | Fetched by CMake (Docking branch) | |
-| GLFW | System (or `FETCH_GLFW=ON` for 3.4) | Not used on macOS. 3.4 fixes Wayland touch events |
-| Vulkan | System, optional | OpenGL 2 fallback available |
-| nlohmann/json | System package preferred; FetchContent v3.11.3 fallback | |
-| Eigen | System package preferred (3.3+ or 5.x); ExternalProject 5.0.1 fallback | Transform math |
-| glm | System package preferred; FetchContent 1.0.1 fallback | Vector/matrix types |
-| niftilib | Vendored in `third_party/niftilib/` | NIfTI I/O |
+| `minc2-simple` | FetchContent from GitHub (develop branch) | MINC2 I/O. MINC tools |
+| `libminc` | From minc-toolkit if present, otherwise ExternalProject | MINC tools |
+| HDF5, NetCDF, zlib | From minc-toolkit if present, otherwise system | MINC tools. See [Building against minc-toolkit](#building-against-minc-toolkit) |
+| ImGui | Fetched by CMake (Docking branch) | GUI tools |
+| GLFW | System (or `FETCH_GLFW=ON` for 3.4) | GUI tools; not used on macOS. 3.4 fixes Wayland touch events |
+| Vulkan | System, optional | GUI tools. OpenGL 2 fallback available |
+| nlohmann/json | System package preferred; FetchContent v3.11.3 fallback | MINC tools |
+| Eigen | System package preferred (3.3+ or 5.x); ExternalProject 5.0.1 fallback | MINC tools. Transform math |
+| glm | System package preferred; FetchContent 1.0.1 fallback | MINC tools. Vector/matrix types |
+| niftilib | Vendored in `third_party/niftilib/` | MINC tools. NIfTI I/O |
+| stb | FetchContent | `new_qc` and the tests |
+| imgui_test_engine, OSMesa | FetchContent / system | Headless UI tests (`ENABLE_TESTS` with `new_register`) |
 | notcurses | System, or self-built with `MRIV_BUILD_NOTCURSES=ON` | `mriv` only |
 | cxxopts | FetchContent | `mriv` only |
 
@@ -86,17 +93,26 @@ accepted backend value on macOS.
 | `ENABLE_OPENGL2` | ON (OFF on macOS) | Build the OpenGL 2 backend (needs `libgl-dev`) |
 | `ENABLE_METAL` | OFF (ON on macOS) | Build the Metal backend |
 | `ENABLE_TESTS` | ON (OFF on macOS) | Build the headless UI tests (requires OSMesa) |
-| `BUILD_NEW_QC` | ON | Build `new_qc` alongside `new_register` |
-| `BUILD_QC_ONLY` | OFF | Build only `new_qc`, skipping the MINC/HDF5/Eigen dependencies |
-| `BUILD_TERMINAL_VIEWER` | ON | Build the `mriv` terminal viewer |
+| `BUILD_NEW_REGISTER` | ON | Build `new_register` |
+| `BUILD_NEW_QC` | ON | Build `new_qc` |
+| `BUILD_NEW_MINCPIK` | ON | Build `new_mincpik` |
+| `BUILD_TERMINAL_VIEWER` | ON | Build the `mriv` terminal viewer (needs the MINC stack) |
 | `MRIV_BUILD_NOTCURSES` | OFF | Download, build, and statically link notcurses instead of using a system install |
 | `FETCH_GLFW` | OFF | Always fetch GLFW 3.4 from source, ignoring any system installation |
+
+At least one tool must be enabled. Tests are only built for the enabled tools.
 
 For example:
 
 ```bash
 cmake -DENABLE_VULKAN=ON -DENABLE_OPENGL2=OFF ..  # Vulkan only
 cmake -DENABLE_VULKAN=OFF -DENABLE_OPENGL2=ON ..  # OpenGL 2 only
+
+# new_qc only — no MINC/HDF5/Eigen/glm/json lookups or downloads
+cmake -DBUILD_NEW_REGISTER=OFF -DBUILD_NEW_MINCPIK=OFF -DBUILD_TERMINAL_VIEWER=OFF ..
+
+# new_mincpik only — no GLFW/ImGui/Vulkan/OpenGL
+cmake -DBUILD_NEW_REGISTER=OFF -DBUILD_NEW_QC=OFF -DBUILD_TERMINAL_VIEWER=OFF ..
 ```
 
 ### Building against minc-toolkit
@@ -437,7 +453,8 @@ A sample QC CSV is provided in `examples/qc_example.csv`:
 
 `new_qc` is a lightweight standalone viewer for reviewing arbitrary images
 (PNG, JPG, etc.) listed in a CSV manifest. It does not need the MINC stack —
-build it alone with `-DBUILD_QC_ONLY=ON` on machines without one. On macOS it
+build it alone with `-DBUILD_NEW_REGISTER=OFF -DBUILD_NEW_MINCPIK=OFF
+-DBUILD_TERMINAL_VIEWER=OFF` on machines without one. On macOS it
 uses its own native Cocoa + Metal path.
 
 ```bash

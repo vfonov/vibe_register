@@ -77,7 +77,7 @@ endif()
 
 Two constraints, both pointing at the same place:
 
-- `nr_core` is defined at `CMakeLists.txt:605`, inside `if(NOT BUILD_QC_ONLY)` which spans lines **360–741**.
+- `nr_core` is defined at `CMakeLists.txt:605`, inside `if(NR_NEED_CORE)` (set when any of `BUILD_NEW_REGISTER`, `BUILD_NEW_MINCPIK`, `BUILD_TERMINAL_VIEWER` is ON).
 - `add_nr_test` only exists after `add_subdirectory(tests)` at line **856**, inside `if(ENABLE_TESTS)` which ends at line **975** (end of file).
 
 So the call goes **at the end of the file, after line 975**. Anywhere earlier and you lose the test macro.
@@ -221,13 +221,12 @@ Append to the **end** of `new_register/CMakeLists.txt` (after line 975, `endif()
 # --- mriv: terminal-based slice viewer (subproject) ---
 # Placed last: it needs nr_core (line ~605) and, for its tests, the
 # add_nr_test() macro defined by add_subdirectory(tests) above.
-option(BUILD_TERMINAL_VIEWER "Build the terminal-based slice viewer (mriv)" ON)
-if(BUILD_TERMINAL_VIEWER AND NOT BUILD_QC_ONLY)
+if(BUILD_TERMINAL_VIEWER)
     add_subdirectory(mriv)
 endif()
 ```
 
-`PLAN.md` suggests putting the `option()` next to the others at lines 24–27. Keeping it adjacent to the `add_subdirectory()` is clearer and equally correct; either is fine, but the `add_subdirectory()` itself is not movable.
+The `option(BUILD_TERMINAL_VIEWER ...)` now lives with the other per-tool `BUILD_*` options near the top of the file, because it feeds `NR_NEED_CORE`. The `add_subdirectory()` itself is not movable.
 
 This is the **only** parent-source change you are authorised to make. It ships as a standalone commit (`CLAUDE.md`, change hygiene).
 

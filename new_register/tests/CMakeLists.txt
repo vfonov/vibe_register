@@ -1,7 +1,7 @@
 # --- Test targets ---
 # All test executables and CTest registrations for new_register and new_qc.
 
-if(NOT BUILD_QC_ONLY)
+if(NR_NEED_CORE)
 
 # Common paths
 set(SRC_DIR ${PROJECT_SOURCE_DIR}/src)
@@ -190,14 +190,16 @@ add_test(NAME TransformTest COMMAND test_transform)
 # SliceRenderer / mincpik rendering test
 # ------------------------------------------------------------------
 
-add_nr_test(test_mincpik
-    SOURCES   mincpik/text_render.cpp mincpik/mosaic.cpp mincpik/colour_bar.cpp
-    INCLUDES  ${COMMON_INCLUDES} ${SRC_DIR}/mincpik
-    LINKS     nr_core
-)
-add_test(NAME MincpikTest COMMAND test_mincpik
-    ${TEST_DATA_DIR}/mni_icbm152_t1_tal_nlin_sym_09c.mnc
-)
+if(BUILD_NEW_MINCPIK)
+    add_nr_test(test_mincpik
+        SOURCES   mincpik/text_render.cpp mincpik/mosaic.cpp mincpik/colour_bar.cpp
+        INCLUDES  ${COMMON_INCLUDES} ${SRC_DIR}/mincpik
+        LINKS     nr_core
+    )
+    add_test(NAME MincpikTest COMMAND test_mincpik
+        ${TEST_DATA_DIR}/mni_icbm152_t1_tal_nlin_sym_09c.mnc
+    )
+endif()
 
 # ------------------------------------------------------------------
 # Robustness against non-finite (inf/NaN) voxel values
@@ -292,35 +294,39 @@ add_test(NAME TestModeRenderTest COMMAND test_test_mode
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# ------------------------------------------------------------------
-# Headless test for coordinate input fields
-# ------------------------------------------------------------------
+if(BUILD_NEW_REGISTER)  # headless UI tests need the imgui target and OSMesa
 
-add_executable(test_coordinate_input
-    ${CMAKE_CURRENT_SOURCE_DIR}/test_coordinate_input.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/backends/imgui_impl_osmesa.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp)
-target_include_directories(test_coordinate_input PRIVATE
-    ${COMMON_INCLUDES} ${stb_SOURCE_DIR} ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/backends)
-target_link_libraries(test_coordinate_input PRIVATE nr_core imgui ${OSMESA_LIBRARY} OpenGL::GL Threads::Threads ${CMAKE_DL_LIBS})
-add_test(NAME CoordinateInputTest COMMAND test_coordinate_input)
+    # ------------------------------------------------------------------
+    # Headless test for coordinate input fields
+    # ------------------------------------------------------------------
 
-# ------------------------------------------------------------------
-# Headless test for dock column equal-width layout (overlay toggle)
-# ------------------------------------------------------------------
+    add_executable(test_coordinate_input
+        ${CMAKE_CURRENT_SOURCE_DIR}/test_coordinate_input.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../src/backends/imgui_impl_osmesa.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp)
+    target_include_directories(test_coordinate_input PRIVATE
+        ${COMMON_INCLUDES} ${stb_SOURCE_DIR} ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends
+        ${CMAKE_CURRENT_SOURCE_DIR}/../src/backends)
+    target_link_libraries(test_coordinate_input PRIVATE nr_core imgui ${OSMESA_LIBRARY} OpenGL::GL Threads::Threads ${CMAKE_DL_LIBS})
+    add_test(NAME CoordinateInputTest COMMAND test_coordinate_input)
 
-add_executable(test_column_layout
-    ${CMAKE_CURRENT_SOURCE_DIR}/test_column_layout.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/backends/imgui_impl_osmesa.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp)
-target_include_directories(test_column_layout PRIVATE
-    ${COMMON_INCLUDES} ${stb_SOURCE_DIR} ${imgui_SOURCE_DIR}
-    ${imgui_SOURCE_DIR}/backends
-    ${CMAKE_CURRENT_SOURCE_DIR}/../src/backends)
-target_link_libraries(test_column_layout PRIVATE
-    nr_core imgui ${OSMESA_LIBRARY} OpenGL::GL Threads::Threads ${CMAKE_DL_LIBS})
-add_test(NAME ColumnLayoutTest COMMAND test_column_layout)
+    # ------------------------------------------------------------------
+    # Headless test for dock column equal-width layout (overlay toggle)
+    # ------------------------------------------------------------------
+
+    add_executable(test_column_layout
+        ${CMAKE_CURRENT_SOURCE_DIR}/test_column_layout.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../src/backends/imgui_impl_osmesa.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp)
+    target_include_directories(test_column_layout PRIVATE
+        ${COMMON_INCLUDES} ${stb_SOURCE_DIR} ${imgui_SOURCE_DIR}
+        ${imgui_SOURCE_DIR}/backends
+        ${CMAKE_CURRENT_SOURCE_DIR}/../src/backends)
+    target_link_libraries(test_column_layout PRIVATE
+        nr_core imgui ${OSMESA_LIBRARY} OpenGL::GL Threads::Threads ${CMAKE_DL_LIBS})
+    add_test(NAME ColumnLayoutTest COMMAND test_column_layout)
+
+endif() # BUILD_NEW_REGISTER
 
 # ------------------------------------------------------------------
 # Reference PNG generator for test_test_mode (run manually, not a ctest)
@@ -339,13 +345,13 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_L
     endforeach()
 endif()
 
-endif() # NOT BUILD_QC_ONLY
+endif() # NR_NEED_CORE
 
 # ------------------------------------------------------------------
 # new_qc CSV handler unit tests
 # ------------------------------------------------------------------
 
-if(BUILD_NEW_QC OR BUILD_QC_ONLY)
+if(BUILD_NEW_QC)
     add_executable(csv_handler_test
         ${CMAKE_CURRENT_SOURCE_DIR}/csv_test.cpp
         ${PROJECT_SOURCE_DIR}/src/qc/CSVHandler.cpp
