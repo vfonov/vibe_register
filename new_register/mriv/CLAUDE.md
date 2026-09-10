@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for Claude Code working in this subproject. **Read `PLAN.md` for the full specification** — this file only covers *how* to work, not *what* to build.
+Guidance for Claude Code working in this subproject. **Read `PLAN.md` for the design, scope and milestone status** — this file only covers *how* to work, not *what* to build. The subproject is implemented through milestone M5; M6 (macOS verification, standalone build, a mriv README) is still open.
 
 ## Context: this is a subproject
 
@@ -12,7 +12,7 @@ This directory is `new_register/mriv/`, a subproject of `new_register/` — a mo
 - **Colour maps** — 18 of them, `enum class ColourMapType`.
 - **Volume metadata** — dimensions, voxel step, start, direction cosines, world↔voxel transforms.
 
-All of this lives in the **`nr_core`** static library target (`new_register/CMakeLists.txt:429`), which is deliberately GPU-free so headless tools can link it. `new_mincpik` is an existing headless consumer and the closest working model for what this subproject should look like.
+All of this lives in the **`nr_core`** static library target (`add_library(nr_core ...)` at `new_register/CMakeLists.txt:702`), which is deliberately GPU-free so headless tools can link it. `new_mincpik` is an existing headless consumer and the closest working model for what this subproject should look like.
 
 The parent notably does **not** have DICOM support or 4D/time-series volumes. Those gaps are documented in `PLAN.md`'s deferred-work section; they are not ours to fill.
 
@@ -29,7 +29,7 @@ The rule to internalize: **if you find yourself writing MINC2 or NIfTI parsing, 
    - `new_register/include/ColourMap.h` — `ColourMapType`
    - `new_register/include/NiftiVolume.h` — for context on how `Volume::load()` dispatches
    Also skim `new_register/src/mincpik/` — it is the parent's other headless `nr_core` consumer and shows the intended usage pattern.
-3. Skim the existing code in this subproject for the module you're about to change.
+3. Skim the existing code in this subproject for the module you're about to change. For tests, `PLAN_TESTING.md` describes the three layers (A: escape-sequence structure, B: decoded pixels, C: CLI integration) and the seams they rely on. `HANDOFF.md` §3 lists build and terminal traps verified the hard way.
 4. If the task is ambiguous, or seems to conflict with `PLAN.md`, or would require duplicating parent-project code, ask before writing code. Do not silently reinterpret the spec or reinvent existing components.
 
 ## How to work: red-green-refactor TDD
@@ -47,9 +47,9 @@ Commit at the end of each green step (or each green-plus-refactor cycle). Small 
 - **Consumer tests** for how this subproject uses parent APIs — use real parent types where they're cheap (`Volume::generate_test_data()` and the tiny `new_register/tests/sq1.mnc` make this easy), fake them where they're expensive. The goal is to test *this subproject's* logic, not re-test the parent's.
 - **Unit tests** for the code that genuinely lives here: the notcurses wrapper, CLI parsing, the resampler-to-terminal-cells math (including the `slicePixelAspect()` correction), the `--axis` → `viewIndex` mapping.
 - **Integration tests** using tiny sample volumes that exercise the full path from CLI invocation to encoded output. Capture the escape-sequence output to a buffer and assert on structure, not exact bytes.
-- Rendering tests that require a real terminal are gated on `MRIV_TEST_RENDER=1` and skipped by default.
-- **Framework: the parent's.** Plain `assert` in a `main()`, built with the `add_nr_test()` macro in `new_register/tests/CMakeLists.txt:25` and registered via `add_test(NAME mriv_...)`. Do not add doctest, GoogleTest, Catch2, or anything else — the parent has none, and its 26 tests get along fine without one.
-- **No absolute paths in test source.** Pass data paths as command-line arguments from CMake (`AGENTS.md` §7.9).
+- **No test needs a real terminal.** `MRIV_TEST_RENDER` is the seam: when set, the one-shot path swaps the real ncdirect `Terminal` for a test-mode one that writes Kitty graphics escapes to a stream (`MRIV_TEST_RENDER=none` forces the no-pixel-support branch instead). The CLI integration tests (`tests/test_cli.cpp`) set it themselves. What a real emulator paints is checked by hand.
+- **Framework: the parent's.** Plain `assert` in a `main()`. Register with `add_mriv_test(<name> [ARGS ...])` in `tests/CMakeLists.txt`: it wraps the parent's `add_nr_test()` (`new_register/tests/CMakeLists.txt:25`), links `mriv_lib` + `mriv_test_support`, and adds the `mriv_<name>` CTest entry with `ARGS` forwarded (the parent macro accepts `ARGS` but ignores it). Do not add doctest, GoogleTest, Catch2, or anything else — the parent has none, and its 27 suites get along fine without one.
+- **No absolute paths in test source.** Pass data paths as command-line arguments from CMake (`AGENTS.md`, "Hard rules").
 
 ### When TDD is genuinely awkward
 
@@ -62,7 +62,7 @@ Bugfixes are always TDD: write a failing test that reproduces the bug, fix it, w
 
 ## Coding conventions
 
-Match the parent (`AGENTS.md` §6):
+Match the parent (`AGENTS.md`, "Coding standards"):
 
 - **C++17** — `CMAKE_CXX_STANDARD 17`. Do not reach for C++20 features. (The parent has a documented, unscheduled ambition to move to C++23; when that lands we follow, we don't lead.)
 - `PascalCase` types and classes, `camelCase` methods and variables.
@@ -73,20 +73,20 @@ Match the parent (`AGENTS.md` §6):
 - RAII everywhere. No raw `new`/`delete`.
 - **No exceptions across the C-library boundary (notcurses).** The parent has no `Result<T, E>` or `Expected<T, E>` type, so don't hunt for one: wrap notcurses C return codes in `std::optional`, a small local status enum, or a `bool` + `std::cerr` message, whichever fits. Note that the parent's own `Volume::load()` *does* throw `std::runtime_error` — catch it at the CLI boundary and turn it into a clean message plus a non-zero exit.
 - Header hygiene: forward-declare where possible. This subproject's headers must not force notcurses includes on the parent — keep `<notcurses/notcurses.h>` inside `.cpp` files or clearly-marked internal headers.
-- **Notcurses:** use the C API directly (`<notcurses/notcurses.h>`). The C++ bindings package (`libnotcurses++-dev`, headers under `<ncpp/...>`) may be installed for reference, but this subproject does not use them — their exception-based error model conflicts with the project's error handling, and our own `render/terminal.cpp` wrapper already provides the RAII and typing we need. Do not reach for `ncpp::` reflexively.
-- Warnings-as-errors in Debug builds. If a warning is genuinely spurious, silence it locally with a pragma and a comment explaining why.
+- **Notcurses:** use the C API directly (`<notcurses/notcurses.h>`). The C++ bindings package (`libnotcurses++-dev`, headers under `<ncpp/...>`) may be installed for reference, but this subproject does not use them — their exception-based error model conflicts with the project's error handling, and our own wrappers — `render/Terminal.cpp` (ncdirect, one-shot output) and `interactive/Screen.cpp` (full notcurses, interactive mode) — already provide the RAII and typing we need. Do not reach for `ncpp::` reflexively.
+- Keep the build warning-free. Nothing enforces it (there is no `-Werror` in any build type), so read the compiler output yourself. If a warning is genuinely spurious, silence it locally with a pragma and a comment explaining why.
 
 ### One deliberate divergence from the parent
 
-This subproject uses **cxxopts** for CLI parsing. The parent removed cxxopts and hand-rolls its argv walking (`new_register/src/main.cpp:49`, `src/mincpik/mincpik_cli.cpp`). That difference is an explicit decision, recorded in `PLAN.md`. If you notice the inconsistency, leave it alone — "aligning with the parent" here would be undoing a choice, not fixing a mistake.
+This subproject uses **cxxopts** for CLI parsing. The parent removed cxxopts and hand-rolls its argv walking (`new_register/src/CliArgs.cpp`, `src/mincpik/mincpik_cli.cpp`). That difference is an explicit decision, recorded in `PLAN.md`. If you notice the inconsistency, leave it alone — "aligning with the parent" here would be undoing a choice, not fixing a mistake.
 
 ## Change hygiene
 
 - **Small, reviewable diffs.** A commit that touches one CLI flag or one rendering step is far easier to reason about than a sweeping refactor. If a change wants to grow, split it.
 - **One concern per commit.** Formatting churn, dependency bumps, and behavior changes go in separate commits.
-- **Never modify parent-project code from this subproject's commits** unless the task is explicitly to extend a parent API. The one expected parent-side edit — adding `option(BUILD_TERMINAL_VIEWER)` and `add_subdirectory(mriv)` to `new_register/CMakeLists.txt` — is itself a separate commit. If you need something else from the parent, propose it as a separate commit (or ideally a separate PR), then update this subproject to consume it.
-- **Never touch `legacy/`.** It is read-only reference material for the whole repository (`AGENTS.md` §7.2).
-- **New feature?** Update `README.md`'s feature list (one line) in the same commit. If it changes the CLI surface, update the help text and any CLI examples in `PLAN.md`.
+- **Never modify parent-project code from this subproject's commits** unless the task is explicitly to extend a parent API. The one expected parent-side edit — `option(BUILD_TERMINAL_VIEWER)` and `add_subdirectory(mriv)` in `new_register/CMakeLists.txt` — has already landed, as its own commit (lines 1149-1151). If you need something else from the parent, propose it as a separate commit (or ideally a separate PR), then update this subproject to consume it.
+- **Never touch `legacy/`.** It is read-only reference material for the whole repository (`AGENTS.md`, "Hard rules").
+- **New feature?** Document it in `PLAN.md` in the same commit (there is no mriv `README.md` yet — that is M6). If it changes the CLI surface, update the help text in `src/cli/Options.cpp` and the CLI surface block in `PLAN.md`. If it changes a key, update the on-screen legend (`formatHotkeyLine()` in `src/interactive/StatusLine.cpp`) and `PLAN.md`'s interactive key table.
 - **Dependency added?** This should be extremely rare. This subproject's whole point is to add minimal surface area over `nr_core`. If you genuinely need a new dependency, justify it in the commit message and update `PLAN.md`'s dependency list.
 
 ## Running the loop
@@ -100,24 +100,16 @@ make -j$(nproc)
 ctest --output-on-failure -R "^mriv_"   # our tests are prefixed
 ```
 
-If the subproject supports standalone builds (see `PLAN.md`), the loop from *this* directory:
+There is no standalone build yet: `MRIV_STANDALONE` is planned for M6 (see `PLAN.md`) and does not exist in any CMake file. Build from the parent tree.
 
-```bash
-cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMRIV_STANDALONE=ON
-cmake --build build -j
-ctest --test-dir build --output-on-failure
-```
-
-Standalone mode still needs a pre-built `nr_core` and its MINC/HDF5 stack — it skips the ImGui/Vulkan build cost, not the parent dependency.
-
-Fast inner loop while iterating on one test:
+Fast inner loop while iterating on one test, from `new_register/build`:
 
 ```bash
 cmake --build . -j --target <test_target>
-./tests/<test_target>
+./mriv/tests/<test_target>
 ```
 
-Sample volumes for smoke testing live in `test_data/` at the repo root and in `new_register/tests/` — reuse those rather than committing new ones.
+Sample volumes for smoke testing live in `test_data/` at the repo root (tests reach it via `MRIV_TEST_DATA_DIR`) and in `new_register/tests/` — reuse those rather than committing new ones.
 
 ## Things not to do
 
@@ -131,7 +123,7 @@ Sample volumes for smoke testing live in `test_data/` at the repo root and in `n
 - Do not use the `ncpp::` C++ bindings for notcurses even though `libnotcurses++-dev` may be installed; use the C API directly.
 - **Do not build `--series`, `--list-series`, or `-t`/`--time`.** The parent has no DICOM reader and no 4D volume model, so there is nothing to call. See `PLAN.md`'s "Deferred work — blocked on the parent" section.
 - Do not skip the `Volume::slicePixelAspect()` correction in the resampler. Anisotropic voxels are the common case; without it, most real volumes render stretched.
-- Do not implement caching, prefetching, or interactivity before the non-interactive path is end-to-end green.
+- Do not let interactive-mode features leak into the one-shot path: piped or `--no-interactive` output stays the clean image (no crosshair, no caption for a single file).
 - Do not skip the failing-test step because "it's obviously going to fail." Run it. The one time you skip is the time the test was wrong.
 - Do not merge with a red test suite. If a test is legitimately obsolete, delete it (in its own commit) with a note explaining why.
 - Do not "helpfully" extend platform support to Windows in v1.

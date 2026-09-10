@@ -1,9 +1,29 @@
 # new_register
 
-A multi-volume MINC2 viewer built with ImGui (Docking).
+A multi-volume MINC2/NIfTI viewer built with ImGui (Docking).
 Supports multiple graphics backends (Vulkan, OpenGL 2 on Linux/Windows;
 Metal on macOS), side-by-side volume comparison, tag point management, and a
 batch QC (Quality Control) review mode.
+
+The same build also produces:
+
+- **`new_qc`** — a lightweight standalone viewer for QC review of arbitrary images (see [below](#new_qc--image-qc-viewer)).
+- **`new_mincpik`** — a headless mosaic PNG generator for MINC2 volumes (`new_mincpik --help`).
+- **`mriv`** — a terminal slice viewer (see `mriv/PLAN.md`).
+
+## Features
+
+- MINC2 (`.mnc`, via minc2-simple) and NIfTI (`.nii`, `.nii.gz`, via vendored niftilib) volume loading; any number of volumes side by side
+- Three orthogonal slice views per volume (axial, sagittal, coronal)
+- Crosshair navigation with optional cursor / zoom / pan sync across volumes
+- 18 colour maps (plus inversion), per-volume display range, zoom/pan per view
+- Overlay compositing (volume 2 alpha-blended over volume 1)
+- Tag point placement, editing, and `.tag` file I/O
+- Registration transforms from tags: LSQ6/7/9/10/12 and thin-plate spline (TPS)
+- QC batch review mode
+- Screenshot capture (`P` key → `screenshot000001.png`, auto-incrementing)
+- JSON config persistence (`config.json`)
+- Hotkey reference panel in the UI
 
 ## Building (Linux)
 
@@ -12,9 +32,11 @@ cd new_register
 mkdir build && cd build
 cmake ..
 make -j$(nproc)
+ctest --output-on-failure    # optional: run the test suite
 ```
 
-Requires system packages: GLFW3 and a C++17 compiler (GCC 9+).
+Requires a C++17 compiler (GCC 9+) and GLFW3 (system package, or `-DFETCH_GLFW=ON`).
+See [Dependencies](#dependencies) for the rest.
 
 ## Building (macOS)
 
@@ -39,47 +61,121 @@ make -j$(sysctl -n hw.ncpu)
 The Metal backend is selected automatically; `--backend metal` is the only
 accepted backend value on macOS.
 
-### Backend Options
+### Dependencies
 
-By default both Vulkan and OpenGL 2 backends are compiled. You can control
-which backends are included at build time:
+| Dependency | How it is obtained | Notes |
+|---|---|---|
+| `minc2-simple` | FetchContent from GitHub (develop branch) | MINC2 I/O |
+| `libminc` | From minc-toolkit if present, otherwise ExternalProject | |
+| HDF5, NetCDF, zlib | From minc-toolkit if present, otherwise system | See [Building against minc-toolkit](#building-against-minc-toolkit) |
+| ImGui | Fetched by CMake (Docking branch) | |
+| GLFW | System (or `FETCH_GLFW=ON` for 3.4) | Not used on macOS. 3.4 fixes Wayland touch events |
+| Vulkan | System, optional | OpenGL 2 fallback available |
+| nlohmann/json | System package preferred; FetchContent v3.11.3 fallback | |
+| Eigen | System package preferred (3.3+ or 5.x); ExternalProject 5.0.1 fallback | Transform math |
+| glm | System package preferred; FetchContent 1.0.1 fallback | Vector/matrix types |
+| niftilib | Vendored in `third_party/niftilib/` | NIfTI I/O |
+| notcurses | System, or self-built with `MRIV_BUILD_NOTCURSES=ON` | `mriv` only |
+| cxxopts | FetchContent | `mriv` only |
+
+### Build Options
+
+| CMake option | Default | Description |
+|---|---|---|
+| `ENABLE_VULKAN` | ON (OFF on macOS) | Build the Vulkan backend (needs `libvulkan-dev`) |
+| `ENABLE_OPENGL2` | ON (OFF on macOS) | Build the OpenGL 2 backend (needs `libgl-dev`) |
+| `ENABLE_METAL` | OFF (ON on macOS) | Build the Metal backend |
+| `ENABLE_TESTS` | ON (OFF on macOS) | Build the headless UI tests (requires OSMesa) |
+| `BUILD_NEW_QC` | ON | Build `new_qc` alongside `new_register` |
+| `BUILD_QC_ONLY` | OFF | Build only `new_qc`, skipping the MINC/HDF5/Eigen dependencies |
+| `BUILD_TERMINAL_VIEWER` | ON | Build the `mriv` terminal viewer |
+| `MRIV_BUILD_NOTCURSES` | OFF | Download, build, and statically link notcurses instead of using a system install |
+| `FETCH_GLFW` | OFF | Always fetch GLFW 3.4 from source, ignoring any system installation |
+
+For example:
 
 ```bash
-cmake -DENABLE_VULKAN=ON -DENABLE_OPENGL2=ON ..   # both (default)
 cmake -DENABLE_VULKAN=ON -DENABLE_OPENGL2=OFF ..  # Vulkan only
 cmake -DENABLE_VULKAN=OFF -DENABLE_OPENGL2=ON ..  # OpenGL 2 only
 ```
 
-Additional system dependencies depend on which backends you enable:
-- **Vulkan**: Vulkan SDK (`libvulkan-dev`)
-- **OpenGL 2**: OpenGL development libraries (`libgl-dev`)
+### Building against minc-toolkit
+
+CMake looks for a minc-toolkit install (a prefix containing `bin/mincstats`) via
+`MINC_TOOLKIT_DIR`, honouring `$MINC_TOOLKIT` and falling back to `/opt/minc/*`.
+With no toolkit present, the build uses system HDF5 plus libminc via ExternalProject.
+
+A toolkit ships its own HDF5, NetCDF and zlib, and libminc is tightly coupled to
+that exact HDF5 build. When a toolkit is found, the build pins HDF5/NetCDF/zlib
+to the toolkit's copies and never consults the system ones — including inside the
+`minc2-simple` and `libminc` sub-builds.
+
+This is not a preference. The HDF5 that ships with minc-toolkit 1.9.18.9 (1.10.6)
+and Ubuntu's `libhdf5-dev` (1.10.10) use *different include guards* in
+`H5public.h` — `_H5public_H` versus `H5public_H` — so if both include directories
+are on the compiler's path, both headers are included and every HDF5 enum and
+struct is declared twice. The build then fails with a wall of
+`redeclaration of enumerator 'H5_ITER_UNKNOWN'` errors from `minc2-simple`.
+
+A relocated toolkit's exported CMake config (`LIBMINC-targets.cmake`) bakes in the
+original build machine's absolute paths, so the build resolves libminc from the
+install prefix directly rather than through that config.
+
+To check which HDF5 a build picked up:
+
+```bash
+cmake .. 2>&1 | grep -E "MINC toolkit|HDF5|zlib|NETCDF"
+ldd new_register | grep -E "hdf5|minc|libz"
+```
+
+### Offline builds
+
+Dependencies that would otherwise be cloned from git can be supplied as
+pre-fetched source trees:
+
+```bash
+cmake -DEIGEN_SOURCE_DIR=/path/to/eigen \
+      -DLIBMINC_SOURCE_DIR=/path/to/libminc \
+      -DMINC2_SIMPLE_SOURCE_DIR=/path/to/minc2-simple ..
+```
 
 ## Command Line Usage
 
 ```
-new_register [options] [volume1.mnc volume2.mnc ...]
+new_register [options] [volume1.mnc volume2.nii.gz ...]
 ```
 
 ### Options
 
 | Flag | Argument | Description |
 |---|---|---|
-| `-h`, `--help` | | Show help and exit |
+| `-G`, `--gray` | | Gray colour map for the next volume |
+| `-H`, `--hot` | | Hot Metal colour map for the next volume |
+| `-S`, `--spectral` | | Spectral colour map for the next volume |
+| `-r`, `--red` | | Red colour map for the next volume |
+| `-g`, `--green` | | Green colour map for the next volume |
+| `-b`, `--blue` | | Blue colour map for the next volume |
+| `--lut` | `<name>` | Named colour map for the next volume (see [Available Colour Maps](#available-colour-maps)) |
+| `--range` | `<min,max>` | Display value range for the next volume |
+| `-l`, `--label` | | Mark the next volume as a label volume |
+| `-L`, `--labels` | `<file>` | Label description file for the next volume |
 | `-c`, `--config` | `<path>` | Load config JSON from `<path>` |
-| `--lut` | `<name>` | Set colour map for the next volume (by display name) |
-| `-G`, `--gray` | | Set Gray colour map for the next volume |
-| `-H`, `--hot` | | Set Hot Metal colour map for the next volume |
-| `-S`, `--spectral` | | Set Spectral colour map for the next volume |
-| `-r`, `--red` | | Set Red colour map for the next volume |
-| `-g`, `--green` | | Set Green colour map for the next volume |
-| `-b`, `--blue` | | Set Blue colour map for the next volume |
-| `-B`, `--backend` | `<name>` | Graphics backend: `auto`, `vulkan`, `opengl2` (default: `auto`) |
+| `-B`, `--backend` | `<name>` | Graphics backend: `auto` (default), `vulkan`, `opengl2`, `metal` (macOS) |
+| `-t`, `--tags` | `<file>` | Load a combined two-volume `.tag` file |
+| `-d`, `--debug` | | Enable debug output |
+| `-h`, `--help` | | Show help and exit |
 | `--test` | | Launch with a generated test volume |
-| `--qc` | `<input.csv>` | Enable QC mode with input CSV (see below) |
-| `--qc-output` | `<output.csv>` | Output CSV for QC verdicts (required with `--qc`) |
+| `--scale` | `<factor>` | Override screen content scale (HiDPI) |
+| `--qc` | `<input.csv>` | QC mode, one verdict per column (see below) |
+| `--qc1` | `<input.csv>` | QC mode, a single verdict per row |
+| `--qc-output` | `<output.csv>` | Output CSV for QC verdicts (required with `--qc` / `--qc1`) |
+| `--sync` | | Synchronize cursor, zoom and pan across volumes |
+| `--sync-cursor` | | Synchronize cursor position across volumes |
+| `--sync-zoom` | | Synchronize zoom level across volumes |
+| `--sync-pan` | | Synchronize pan position across volumes |
 
-Positional arguments are treated as volume file paths (MINC2 `.mnc` files).
-LUT flags apply to the next volume on the command line.
+Positional arguments are volume file paths: `.mnc`, `.mnc.gz`, `.nii`, `.nii.gz`.
+Colour-map, range and label flags apply to the next volume on the command line.
 
 Running with no arguments prints help and exits. Use `--test` to launch with
 a generated test volume.
@@ -95,7 +191,7 @@ View a single volume:
 View two volumes side-by-side with different colour maps:
 
 ```bash
-./new_register --gray vol1.mnc --hot vol2.mnc
+./new_register --gray --range 0,100 vol1.mnc --hot vol2.mnc
 ```
 
 Load a saved configuration:
@@ -196,8 +292,9 @@ The "Save Local" button in the UI writes to the active config path.
 
 | JSON key | Type | Default | Description |
 |---|---|---|---|
-| `path` | string | (required) | Path to the MINC2 volume file |
+| `path` | string | (required) | Path to the volume file |
 | `colour_map` | string | `"Gray"` | Colour map display name |
+| `invert_colour_map` | bool | `false` | Invert (reverse) the colour map |
 | `value_min` | double or null | auto | Display range minimum |
 | `value_max` | double or null | auto | Display range maximum |
 | `slice_indices` | [int, int, int] | `[-1,-1,-1]` | Initial slice positions (-1 = midpoint) |
@@ -209,31 +306,29 @@ All volume fields except `path` are optional; omitted fields use their defaults.
 
 ### Available Colour Maps
 
-Use these display names in the `colour_map` JSON field and `--lut` CLI flag:
+Use these display names in the `colour_map` JSON field and the `--lut` CLI flag.
+Any map can be inverted (`invert_colour_map`, or the invert control in the UI).
 
 | Name | Description |
 |---|---|
 | `Gray` | Grayscale (black to white) |
 | `Hot Metal` | Black-red-yellow-white |
-| `Hot Metal (neg)` | Inverted hot metal |
 | `Cold Metal` | Black-blue-cyan-white |
-| `Cold Metal (neg)` | Inverted cold metal |
 | `Green Metal` | Black-green-white |
-| `Green Metal (neg)` | Inverted green metal |
 | `Lime Metal` | Black-lime-white |
-| `Lime Metal (neg)` | Inverted lime metal |
 | `Red Metal` | Black-red-white |
-| `Red Metal (neg)` | Inverted red metal |
 | `Purple Metal` | Black-purple-white |
-| `Purple Metal (neg)` | Inverted purple metal |
 | `Spectral` | Rainbow spectrum |
 | `Red` | Red channel only |
 | `Green` | Green channel only |
 | `Blue` | Blue channel only |
-| `Red (neg)` | Inverted red channel |
-| `Green (neg)` | Inverted green channel |
-| `Blue (neg)` | Inverted blue channel |
 | `Contour` | Contour lines |
+| `Viridis` | Perceptually uniform, blue-green-yellow |
+| `Jet` | Blue-cyan-yellow-red rainbow |
+| `Magma` | Perceptually uniform, black-purple-orange-white |
+| `Inferno` | Perceptually uniform, black-purple-orange-yellow |
+| `Plasma` | Perceptually uniform, blue-purple-yellow |
+| `Turbo` | Improved rainbow |
 
 ## QC Mode
 
@@ -241,6 +336,13 @@ QC mode is a batch review workflow for rating medical imaging datasets.
 Users step through rows of a CSV file, viewing the volumes for each row
 side by side, and marking each column as PASS or FAIL with optional
 comments. Verdicts are auto-saved to the output CSV on every change.
+
+Use `--qc1` instead of `--qc` to record a single verdict per row rather than
+one per column:
+
+```bash
+./new_register --qc1 input.csv --qc-output results.csv
+```
 
 ### QC Input CSV Format
 
@@ -330,3 +432,60 @@ A sample QC CSV is provided in `examples/qc_example.csv`:
     --qc examples/qc_example.csv \
     --qc-output examples/qc_example_out.csv
 ```
+
+## new_qc — Image QC Viewer
+
+`new_qc` is a lightweight standalone viewer for reviewing arbitrary images
+(PNG, JPG, etc.) listed in a CSV manifest. It does not need the MINC stack —
+build it alone with `-DBUILD_QC_ONLY=ON` on machines without one. On macOS it
+uses its own native Cocoa + Metal path.
+
+```bash
+./new_qc [--scale <factor>] [--backend vulkan|opengl2] input.csv output.csv
+```
+
+### new_qc CSV Formats
+
+Input — `id,visit,picture`:
+
+```csv
+id,visit,picture
+subject001,baseline,/path/to/image1.png
+subject002,followup,/path/to/image2.jpg
+```
+
+Output — `id,visit,picture,QC,notes`:
+
+```csv
+id,visit,picture,QC,notes
+subject001,baseline,/path/to/image1.png,Pass,Good quality
+subject002,followup,/path/to/image2.jpg,Fail,Artifact present
+```
+
+If the output CSV already exists, earlier results are loaded and review resumes.
+
+### Stdin (simplified) mode
+
+Pass `-` as the input CSV to read a newline-separated list of image paths from
+standard input; the table is built on the fly:
+
+```bash
+find images/ -name '*.png' | ./new_qc -       # output defaults to qc_results.csv
+ls *.jpg | ./new_qc - results.csv
+```
+
+Blank lines are skipped. Each path becomes a record with `id` = filename stem
+(last extension stripped), `visit` = `-`, and `picture` = the path as given.
+`output_csv` is optional in this mode and defaults to `qc_results.csv` in the
+current directory; resuming from an existing output CSV still takes precedence.
+
+### new_qc Keyboard
+
+| Key | Action |
+|---|---|
+| `P` | Pass (auto-advance) |
+| `F` | Fail (auto-advance) |
+| `←` / `Page Up` | Previous image |
+| `→` / `Page Down` | Next image |
+| `Ctrl+S` | Save |
+| `Esc` | Exit |

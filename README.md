@@ -14,6 +14,8 @@ There is also a special QC mode
 
 Original register (human coded 1993-2024): https://github.com/BIC-MNI/register , original documentation: https://en.wikibooks.org/wiki/MINC%2FVisualTools%2Fregister
 
+Build instructions, command-line usage, configuration and QC-mode docs: [new_register/README.md](new_register/README.md).
+
 See [FUTURE.md](FUTURE.md) for planned improvements and enhancements.
 
 **YMMV!**

@@ -811,3 +811,15 @@ npx serve .
 
 **Full implementation:** 1-2 weeks  
 **Minimum viable:** 2-3 days (basic rendering, no threading, limited file loading)
+
+---
+
+## C++23 Modernization (Future)
+
+The codebase targets C++17. A future upgrade to C++23 is planned. Phases 1–2 (unique_ptr, std::array) are complete. Remaining work is blocked on the C++23 upgrade:
+
+- **Phase 3:** `std::views::iota`, `std::ranges::minmax_element` in ColourMap.cpp / Volume.cpp
+- **Phase 4:** `constexpr` / `consteval` for LUT helpers; replace `countOf` template with `std::size()`
+- **Phase 5:** Structured bindings in AppConfig.cpp, TagWrapper.cpp, main.cpp
+- **Phase 6:** Replace magic numbers (hardcoded `256`, `sizeof`/`sizeof` ratios)
+- **Phase 7:** `std::format` / `std::print` replacing `printf`/`fprintf`/`std::cout`
