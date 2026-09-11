@@ -122,8 +122,10 @@ bool buildDisplays(const Options& options,
         }
         else
         {
-            display.rangeLow  = vol.computeQuantile(kAutoWindowLowQuantile);
-            display.rangeHigh = vol.computeQuantile(kAutoWindowHighQuantile);
+            const std::vector<float> window =
+                vol.computeQuantiles({kAutoWindowLowQuantile, kAutoWindowHighQuantile});
+            display.rangeLow  = window[0];
+            display.rangeHigh = window[1];
         }
 
         display.colourMap = defaultColourMapFor(i);

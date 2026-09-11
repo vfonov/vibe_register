@@ -81,10 +81,11 @@ RenderedSlice renderSlice(const Volume& vol,
 **Intensity range — `include/Volume.h`**
 
 ```cpp
-float Volume::computeQuantile(double q) const;   // Volume.h:59
+float Volume::computeQuantile(double q) const;   // Volume.h:53
+std::vector<float> Volume::computeQuantiles(const std::vector<double>& qs) const;   // Volume.h:60
 ```
 
-This is the percentile primitive behind `--auto-window`. Call it; do not write a histogram.
+This is the percentile primitive behind `--auto-window`. Call it; do not write a histogram. When you need more than one quantile (e.g. low and high window bounds), use `computeQuantiles()` — it copies the volume once instead of once per quantile.
 
 **Pixel aspect — `include/Volume.h`**
 

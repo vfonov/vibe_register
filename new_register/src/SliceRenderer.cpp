@@ -143,7 +143,7 @@ RenderedSlice renderSlice(
     size_t labelCount = 0;
     if (useColourMapForLabel)
     {
-        std::vector<int> uniqueLabels = vol.getUniqueLabelIds();
+        const std::vector<int>& uniqueLabels = vol.getUniqueLabelIds();
         for (size_t i = 0; i < uniqueLabels.size(); ++i)
             labelToIndex[uniqueLabels[i]] = static_cast<int>(i);
         labelCount = uniqueLabels.size();
@@ -489,7 +489,7 @@ RenderedSlice renderOverlaySlice(
             info.labelLUT = &vol.getLabelLUT();
             {
                 info.useColourMapForLabel = true;
-                std::vector<int> uniqueLabels = vol.getUniqueLabelIds();
+                const std::vector<int>& uniqueLabels = vol.getUniqueLabelIds();
                 for (size_t i = 0; i < uniqueLabels.size(); ++i)
                     info.labelToIndex[uniqueLabels[i]] = static_cast<int>(i);
                 info.labelCacheSize = uniqueLabels.size();

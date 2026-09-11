@@ -222,6 +222,28 @@ add_nr_test(test_overlay_blend
 )
 add_test(NAME OverlayBlendTest COMMAND test_overlay_blend)
 
+add_nr_test(test_volume_core
+    INCLUDES  ${INC_DIR} ${glm_SOURCE_DIR}
+    LINKS     nr_core
+)
+add_test(NAME VolumeCoreTest COMMAND test_volume_core)
+
+add_nr_test(test_volume_reorient
+    INCLUDES  ${INC_DIR}
+    LINKS     nr_core
+)
+add_test(NAME VolumeReorientTest COMMAND test_volume_reorient)
+
+add_nr_test(test_minc_reorient_match
+    LINKS  nr_core
+)
+add_test(NAME MincReorientMatchTest COMMAND test_minc_reorient_match
+    ${TEST_DATA_DIR}/clp_VF_20190508_t1.mnc
+    ${TEST_DATA_DIR}/mni_icbm152_t1_tal_nlin_sym_09c.mnc
+    ${TEST_DATA_DIR}/mni_icbm152_t1_tal_nlin_sym_09c_thick_slices.mnc
+    ${CMAKE_CURRENT_SOURCE_DIR}/sq1.mnc
+)
+
 # ------------------------------------------------------------------
 # Overlay rendering correctness test
 # ------------------------------------------------------------------

@@ -721,6 +721,7 @@ if(NR_NEED_CORE)
     # --- nr_core: GPU-free static library shared by new_register and new_mincpik ---
     set(NR_CORE_SOURCES
         src/Volume.cpp
+        src/VolumeReorient.cpp
         src/ColourMap.cpp
         src/Transform.cpp
         src/TagWrapper.cpp

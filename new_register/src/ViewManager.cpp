@@ -104,7 +104,7 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
     if (useColourMapForLabel) {
         auto cacheIt = labelToIndexCache_.find(volumeIndex);
         if (cacheIt == labelToIndexCache_.end()) {
-            std::vector<int> uniqueLabels = vol.getUniqueLabelIds();
+            const std::vector<int>& uniqueLabels = vol.getUniqueLabelIds();
             std::unordered_map<int, int> mapping;
             for (size_t i = 0; i < uniqueLabels.size(); ++i) {
                 mapping[uniqueLabels[i]] = static_cast<int>(i);
@@ -415,7 +415,7 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
                 info.useColourMapForLabel = true;
                 auto cacheIt = labelToIndexCache_.find(vi);
                 if (cacheIt == labelToIndexCache_.end()) {
-                    std::vector<int> uniqueLabels = vol.getUniqueLabelIds();
+                    const std::vector<int>& uniqueLabels = vol.getUniqueLabelIds();
                     std::unordered_map<int, int> mapping;
                     for (size_t i = 0; i < uniqueLabels.size(); ++i) {
                         mapping[uniqueLabels[i]] = static_cast<int>(i);

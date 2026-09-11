@@ -116,8 +116,9 @@ int main(int argc, char** argv)
             {
                 double q0 = (*args.perVolOpts[i].qrange)[0];
                 double q1 = (*args.perVolOpts[i].qrange)[1];
-                params[i].valueMin = volumes[i].computeQuantile(q0);
-                params[i].valueMax = volumes[i].computeQuantile(q1);
+                const std::vector<float> qv = volumes[i].computeQuantiles({q0, q1});
+                params[i].valueMin = qv[0];
+                params[i].valueMax = qv[1];
                 params[i].underColourMode = kSliceClampTransparent;
                 params[i].overColourMode  = kSliceClampCurrent;
             }

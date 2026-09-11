@@ -20,8 +20,8 @@ class Volume {
 public:
     glm::ivec3 dimensions{0, 0, 0};  // X, Y, Z voxel counts
 
-    /// Voxel spacing in mm along each axis (always positive after
-    /// setup_standard_order).  Index 0 = X, 1 = Y, 2 = Z.
+    /// Voxel spacing in mm along each axis (always positive: negative file
+    /// steps are normalised at load time).  Index 0 = X, 1 = Y, 2 = Z.
     glm::dvec3 step{1.0, 1.0, 1.0};
 
     /// World coordinate of the first voxel along each axis.
@@ -44,19 +44,20 @@ public:
     /// Inverse matrix: world coordinates to voxel coordinates.
     glm::dmat4 worldToVoxel{1.0};  // Identity by default
 
-    Volume();
-    ~Volume();
-
-    Volume(const Volume& other);
-    Volume& operator=(const Volume& other);
-    Volume(Volume&& other) noexcept;
-    Volume& operator=(Volume&& other) noexcept;
-
     /// Load a MINC2 volume from disk.
     /// @throws std::runtime_error on any failure (file not found, bad format, etc.)
     void load(const std::string& filename);
     float get(int x, int y, int z) const;
+
+    /// Single quantile; same as computeQuantiles({q})[0].
     float computeQuantile(double q) const;
+
+    /// Several quantiles from one copy of the data. result[i] corresponds to
+    /// qs[i] (input order kept; duplicates and unsorted input allowed). q is
+    /// clamped to [0,1]; a NaN q throws std::invalid_argument. Non-finite
+    /// voxels are ignored; if there are no finite voxels every result is 0.
+    /// An empty qs returns an empty vector without touching the data.
+    std::vector<float> computeQuantiles(const std::vector<double>& qs) const;
 
     /// Unchecked voxel access — caller guarantees x,y,z are in bounds.
     /// Avoids the branch overhead of get() in hot loops.
@@ -98,17 +99,25 @@ public:
     TagWrapper tags;
 
     bool isLabelVolume() const { return isLabelVolume_; }
-    void setLabelVolume(bool val) { isLabelVolume_ = val; }
+    void setLabelVolume(bool val) { isLabelVolume_ = val; invalidateLabelIdCache(); }
     void setLabelDescriptionFile(const std::string& path);
     const std::unordered_map<int, LabelInfo>& getLabelLUT() const { return labelLUT_; }
     const LabelInfo* getLabelInfo(int labelId) const;
-    std::vector<int> getUniqueLabelIds() const;
+
+    /// Sorted, non-zero label IDs present in `data` (empty unless isLabelVolume()).
+    /// Computed on first call and cached. load(), generate_test_data() and
+    /// setLabelVolume() reset the cache; call invalidateLabelIdCache() after
+    /// writing `data` directly. Not thread-safe — call from the main thread.
+    const std::vector<int>& getUniqueLabelIds() const;
+    void invalidateLabelIdCache() { uniqueLabelIds_.clear(); uniqueLabelIdsValid_ = false; }
     std::string getLabelNameAtVoxel(int x, int y, int z) const;
 
 private:
     bool isLabelVolume_ = false;
     std::string labelDescriptionFile_;
     std::unordered_map<int, LabelInfo> labelLUT_;
+    mutable std::vector<int> uniqueLabelIds_;
+    mutable bool uniqueLabelIdsValid_ = false;
 
 public:
     void loadLabelDescriptionFile(const std::string& path);

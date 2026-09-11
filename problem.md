@@ -102,3 +102,14 @@ The fix was verified by:
 - `Overlap2Test` (sq1 + sq2.mnc, identity dirCos) **passes** — both volumes are axis-aligned, so coordinate mapping errors cancel out or are too small to cause mismatches at nearest-neighbor resolution.
 - The LUT, blending, and output pixel format are all correct (verified by Overlap2Test passing and by `generate_overlap_refs` + test round-trip).
 - ~~The bug is **specifically in the world-space coordinate mapping** for volumes with non-identity direction cosines and different voxel sizes.~~ (FIXED)
+
+---
+
+# 2026-09-10 — `new_mincpik --label` ignored (RESOLVED)
+
+**Symptom:** `--label` had no effect; label volumes rendered with a continuous colour map.
+**Cause:** `Volume` had hand-written copy/move constructors and assignments that did not copy
+`isLabelVolume_`, `labelDescriptionFile_` or `labelLUT_`. `mincpik_main.cpp` sets the flag and then
+`push_back(std::move(vol))`, losing it. `AppState`'s LRU cache copy (`volumeCache_.put(path, vol)`) lost it too.
+**Fix:** removed the special member functions (rule of zero), so every member is copied/moved.
+**Test:** `VolumeCoreTest` (`tests/test_volume_core.cpp`).

@@ -1,7 +1,9 @@
 #include "NiftiVolume.h"
 #include "Volume.h"
+#include "VolumeReorient.h"
 #include <nifti1_io.h>
 #include <znzlib.h>
+#include <array>
 #include <stdexcept>
 #include <iostream>
 #include <cmath>
@@ -291,52 +293,24 @@ void loadNiftiIntoVolume(const std::string& filename, Volume& vol)
     //   (a) Axis permutation — if spatial_axes is not identity
     //   (b) Axis reversal — for each axis where flipAxis[d] is true
     //       (negative step was normalized to positive, data must be mirrored)
-    bool needTranspose = (spatial_axes[0] != 0 ||
-                          spatial_axes[1] != 1 ||
-                          spatial_axes[2] != 2);
-    bool needFlip = (flipAxis[0] || flipAxis[1] || flipAxis[2]);
-
-    if (needTranspose || needFlip)
+    const std::array<int, 3> fileAxisToSpatial{spatial_axes[0], spatial_axes[1], spatial_axes[2]};
+    const std::array<bool, 3> flip{flipAxis[0], flipAxis[1], flipAxis[2]};
+    if (!isIdentityReorient(fileAxisToSpatial, flip))
     {
-        int mx = vol.dimensions.x;
-        int my = vol.dimensions.y;
-        int mz = vol.dimensions.z;
-
-        std::vector<float> reordered(total_voxels);
-
-        for (int z = 0; z < mz; ++z)
+        std::vector<float> reordered;
+        try
         {
-            for (int y = 0; y < my; ++y)
-            {
-                for (int x = 0; x < mx; ++x)
-                {
-                    // Destination MINC indices (after flip)
-                    int mnc[3] = { x, y, z };
-
-                    // Apply axis reversal: flip MINC index for axes with
-                    // negative original step (now positive after normalization).
-                    // This mirrors the data so voxel 0 maps to the new start.
-                    int src_mnc[3] = {
-                        flipAxis[0] ? (mx - 1 - mnc[0]) : mnc[0],
-                        flipAxis[1] ? (my - 1 - mnc[1]) : mnc[1],
-                        flipAxis[2] ? (mz - 1 - mnc[2]) : mnc[2]
-                    };
-
-                    // Map from (possibly permuted) MINC index to NIfTI file index
-                    int ni = src_mnc[spatial_axes[0]];
-                    int nj = src_mnc[spatial_axes[1]];
-                    int nk = src_mnc[spatial_axes[2]];
-
-                    size_t src_idx = static_cast<size_t>(nk) * nii_dims[1] * nii_dims[0]
-                                   + static_cast<size_t>(nj) * nii_dims[0]
-                                   + ni;
-                    size_t dst_idx = static_cast<size_t>(z) * my * mx
-                                   + static_cast<size_t>(y) * mx
-                                   + x;
-                    reordered[dst_idx] = vol.data[src_idx];
-                }
-            }
+            reordered = reorientToStandard(vol.data.data(),
+                                           {nii_dims[0], nii_dims[1], nii_dims[2]},
+                                           fileAxisToSpatial, flip);
         }
+        catch (...)
+        {
+            nifti_image_free(nii_ptr);
+            throw;
+        }
+        // Keep the historical buffer size (nvox): only the first 3-D frame is reordered.
+        reordered.resize(total_voxels);
         vol.data = std::move(reordered);
     }
 

@@ -1,6 +1,8 @@
 #include "Volume.h"
 #include "DebugFlag.h"
 #include "NiftiVolume.h"
+#include "VolumeReorient.h"
+#include <array>
 #include <cmath>
 #include <vector>
 #include <algorithm>
@@ -65,81 +67,112 @@ private:
     bool opened_ = false;
 };
 
-Volume::Volume()
+namespace
 {
-    dimensions = glm::ivec3(0, 0, 0);
-}
 
-Volume::~Volume() {}
-
-Volume::Volume(const Volume& other)
-    : dimensions(other.dimensions),
-      step(other.step),
-      start(other.start),
-      dirCos(other.dirCos),
-      data(other.data),
-      min_value(other.min_value),
-      max_value(other.max_value),
-      voxelToWorld(other.voxelToWorld),
-      worldToVoxel(other.worldToVoxel),
-      tags(other.tags)
-{}
-
-Volume& Volume::operator=(const Volume& other) {
-    if (this != &other) {
-        dimensions = other.dimensions;
-        step = other.step;
-        start = other.start;
-        dirCos = other.dirCos;
-        data = other.data;
-        min_value = other.min_value;
-        max_value = other.max_value;
-        voxelToWorld = other.voxelToWorld;
-        worldToVoxel = other.worldToVoxel;
-        tags = other.tags;
-    }
-    return *this;
-}
-
-Volume::Volume(Volume&& other) noexcept
-    : dimensions(other.dimensions),
-      step(other.step),
-      start(other.start),
-      dirCos(other.dirCos),
-      data(std::move(other.data)),
-      min_value(other.min_value),
-      max_value(other.max_value),
-      voxelToWorld(other.voxelToWorld),
-      worldToVoxel(other.worldToVoxel),
-      tags(std::move(other.tags))
+// Build voxelToWorld / worldToVoxel from vol.dirCos, vol.step and vol.start.
+// MINC: world = dirCos * diag(step) * voxel + dirCos * start
+// start[i] is along dimension i's axis, so the world translation = dirCos * start.
+void buildVoxelToWorld(Volume& vol)
 {
-    other.dimensions = glm::ivec3(0, 0, 0);
-    other.min_value = 0.0f;
-    other.max_value = 1.0f;
+    glm::dmat3 dirCos3(vol.dirCos[0][0], vol.dirCos[0][1], vol.dirCos[0][2],
+                       vol.dirCos[1][0], vol.dirCos[1][1], vol.dirCos[1][2],
+                       vol.dirCos[2][0], vol.dirCos[2][1], vol.dirCos[2][2]);
+
+    glm::dvec3 scale(vol.step.x, vol.step.y, vol.step.z);
+    // start[i] is a coordinate along dimension i's own axis; rotate into world space.
+    // Formula from minc2-simple geo.py: aff[0:3,3] = dir_cos @ start
+    glm::dvec3 trans = dirCos3 * glm::dvec3(vol.start.x, vol.start.y, vol.start.z);
+
+    // dirCos * diag(scale): scale column i by scale[i] (scalar), not element-wise by scale vector.
+    glm::dmat3 affine = dirCos3;
+    for (int i = 0; i < 3; ++i)
+        affine[i] *= scale[i];
+
+    // For 4x4 matrix: world = affine * voxel + start
+    vol.voxelToWorld = glm::dmat4(
+        glm::dvec4(affine[0], 0.0),
+        glm::dvec4(affine[1], 0.0),
+        glm::dvec4(affine[2], 0.0),
+        glm::dvec4(trans, 1.0)
+    );
+
+    // Compute inverse for world-to-voxel
+    // world = affine * voxel + start
+    // world - start = affine * voxel
+    // voxel = affine^-1 * (world - start)
+    vol.worldToVoxel = glm::inverse(vol.voxelToWorld);
 }
 
-Volume& Volume::operator=(Volume&& other) noexcept {
-    if (this != &other) {
-        dimensions = other.dimensions;
-        step = other.step;
-        start = other.start;
-        dirCos = other.dirCos;
-        data = std::move(other.data);
-        min_value = other.min_value;
-        max_value = other.max_value;
-        voxelToWorld = other.voxelToWorld;
-        worldToVoxel = other.worldToVoxel;
-        tags = std::move(other.tags);
-        
-        other.dimensions = glm::ivec3(0, 0, 0);
-        other.min_value = 0.0f;
-        other.max_value = 1.0f;
+// Calculate min/max for visualization, ignoring non-finite voxels
+// (NaN, +inf, -inf) so they don't distort the displayed range.
+// The renderer maps non-finite values to under/over colours instead.
+void computeValueRange(Volume& vol, const std::string& filename)
+{
+    vol.min_value =  std::numeric_limits<float>::infinity();
+    vol.max_value = -std::numeric_limits<float>::infinity();
+    size_t nonFiniteCount = 0;
+    for (float v : vol.data)
+    {
+        if (!std::isfinite(v))
+        {
+            ++nonFiniteCount;
+            continue;
+        }
+        if (v < vol.min_value) vol.min_value = v;
+        if (v > vol.max_value) vol.max_value = v;
     }
-    return *this;
+
+    if (nonFiniteCount > 0 && debugLoggingEnabled())
+        std::cerr << "Volume " << filename << ": " << nonFiniteCount
+                  << " non-finite voxel(s) ignored when computing range; "
+                  << "they will render as under/over colour\n";
+
+    if (!std::isfinite(vol.min_value) || !std::isfinite(vol.max_value) ||
+        vol.min_value >= vol.max_value)
+    {
+        vol.min_value = 0.0f;
+        vol.max_value = 1.0f;
+    }
 }
+
+// Copy of the finite voxels (NaN / +-inf dropped: nth_element on NaN is undefined).
+std::vector<float> finiteValues(const std::vector<float>& data)
+{
+    std::vector<float> out(data.size());
+    size_t count = 0;
+    for (float v : data)
+    {
+        if (std::isfinite(v))
+            out[count++] = v;
+    }
+    out.resize(count);
+    return out;
+}
+
+// Place the order statistic for every target in [first, last) at its index in v,
+// using one nth_element per target over a shrinking range: O(n log m).
+// Precondition: targets sorted, unique, and all within [lo, hi).
+void selectOrderStatistics(std::vector<float>& v, size_t lo, size_t hi,
+                           const size_t* first, const size_t* last)
+{
+    if (first == last)
+        return;
+    using Diff = std::vector<float>::difference_type;
+    const size_t* mid = first + (last - first) / 2;
+    std::nth_element(v.begin() + static_cast<Diff>(lo), v.begin() + static_cast<Diff>(*mid),
+                     v.begin() + static_cast<Diff>(hi));
+    // Everything before *mid is <= v[*mid], everything after is >=.
+    selectOrderStatistics(v, lo, *mid, first, mid);
+    selectOrderStatistics(v, *mid + 1, hi, mid + 1, last);
+}
+
+}  // namespace
 
 void Volume::generate_test_data()
 {
+    invalidateLabelIdCache();
+
     dimensions = glm::ivec3(256, 256, 256);
 
     step = glm::dvec3(1.0, 1.0, 1.0);
@@ -185,6 +218,8 @@ void Volume::load(const std::string& filename)
     if (filename.empty())
         throw std::runtime_error("Empty filename provided");
 
+    invalidateLabelIdCache();
+
     // Detect NIfTI files by extension
     if (isNiftiFile(filename)) {
         loadNiftiFile(filename, *this);
@@ -194,127 +229,160 @@ void Volume::load(const std::string& filename)
     Minc2Handle h;
     h.open(filename);
 
-    if (minc2_setup_standard_order(h.get()) != MINC2_SUCCESS)
-        throw std::runtime_error("Failed to setup standard dimension order: " + filename);
-
     int ndim = 0;
     if (minc2_ndim(h.get(), &ndim) != MINC2_SUCCESS)
         throw std::runtime_error("Failed to get number of dimensions: " + filename);
 
-    struct minc2_dimension *dims = nullptr;
-    if (minc2_get_representation_dimensions(h.get(), &dims) != MINC2_SUCCESS)
+    struct minc2_dimension *storeDims = nullptr;
+    if (minc2_get_store_dimensions(h.get(), &storeDims) != MINC2_SUCCESS)
         throw std::runtime_error("Failed to get dimension info: " + filename);
 
-    // Find X, Y, Z dimension indices
-    glm::ivec3 dim_indices{-1, -1, -1};
-
-    for (int i = 0; i < ndim; ++i)
+    // Fast path: plain 3-D x/y/z volume. Read in file storage order and reorient
+    // ourselves; libminc's apparent-order read (setup_standard_order) permutes
+    // through a slow generic path.
+    std::array<int, 3> fileAxisToSpatial{-1, -1, -1};
+    bool fileOrderPath = (ndim == 3);
+    for (int j = 0; fileOrderPath && j < 3; ++j)
     {
-        if (dims[i].id == MINC2_DIM_X) dim_indices[0] = i;
-        else if (dims[i].id == MINC2_DIM_Y) dim_indices[1] = i;
-        else if (dims[i].id == MINC2_DIM_Z) dim_indices[2] = i;
+        switch (storeDims[j].id)
+        {
+        case MINC2_DIM_X: fileAxisToSpatial[j] = 0; break;
+        case MINC2_DIM_Y: fileAxisToSpatial[j] = 1; break;
+        case MINC2_DIM_Z: fileAxisToSpatial[j] = 2; break;
+        default: fileOrderPath = false; break;
+        }
+    }
+    if (fileOrderPath)
+    {
+        std::array<bool, 3> seen{false, false, false};
+        for (int j = 0; j < 3; ++j)
+        {
+            if (seen[fileAxisToSpatial[j]]) fileOrderPath = false;
+            else seen[fileAxisToSpatial[j]] = true;
+        }
     }
 
-    if (dim_indices[0] == -1 || dim_indices[1] == -1 || dim_indices[2] == -1)
-        throw std::runtime_error("Could not find X, Y, and Z dimensions: " + filename);
-
-    // Extract dimension sizes and spatial metadata
-    for (int axis = 0; axis < 3; ++axis)
+    if (fileOrderPath)
     {
-        int di = dim_indices[axis];
-        dimensions[axis] = dims[di].length;
-        step[axis]       = dims[di].step;
-        start[axis]      = dims[di].start;
-
-        if (dims[di].have_dir_cos)
+        // storeDims[j] is file axis j, with j = 0 the fastest-varying
+        // (minc2-simple stores store_dims[ndims-i-1] = file_dims[i]).
+        std::array<int, 3> fileDims{0, 0, 0};
+        std::array<bool, 3> flip{false, false, false};
+        for (int j = 0; j < 3; ++j)
         {
-            dirCos[axis][0] = dims[di].dir_cos[0];
-            dirCos[axis][1] = dims[di].dir_cos[1];
-            dirCos[axis][2] = dims[di].dir_cos[2];
+            const minc2_dimension& fd = storeDims[j];
+            int axis = fileAxisToSpatial[j];
+            fileDims[j]     = fd.length;
+            dimensions[axis] = fd.length;
+            step[axis]       = fd.step;
+            start[axis]      = fd.start;
+
+            if (fd.have_dir_cos)
+            {
+                dirCos[axis][0] = fd.dir_cos[0];
+                dirCos[axis][1] = fd.dir_cos[1];
+                dirCos[axis][2] = fd.dir_cos[2];
+            }
+            else
+            {
+                // Default direction cosines (identity)
+                dirCos[axis][0] = (axis == 0) ? 1.0 : 0.0;
+                dirCos[axis][1] = (axis == 1) ? 1.0 : 0.0;
+                dirCos[axis][2] = (axis == 2) ? 1.0 : 0.0;
+            }
+
+            if (step[axis] < 0.0)
+            {
+                // Same normalisation minc2_setup_standard_order applies (MI_POSITIVE):
+                // start moves to the far end, step becomes positive, data is mirrored.
+                start[axis] += step[axis] * (fd.length - 1);
+                step[axis]   = -step[axis];
+                flip[axis]   = true;
+            }
+        }
+        buildVoxelToWorld(*this);
+
+        size_t total_voxels = static_cast<size_t>(fileDims[0]) * fileDims[1] * fileDims[2];
+        if (total_voxels == 0)
+            throw std::runtime_error("Volume has 0 voxels: " + filename);
+
+        if (isIdentityReorient(fileAxisToSpatial, flip))
+        {
+            data.resize(total_voxels);
+            if (minc2_load_complete_volume(h.get(), data.data(), MINC2_FLOAT) != MINC2_SUCCESS)
+                throw std::runtime_error("Failed to load volume data: " + filename);
         }
         else
         {
-            // Default direction cosines (identity)
-            dirCos[axis][0] = (axis == 0) ? 1.0 : 0.0;
-            dirCos[axis][1] = (axis == 1) ? 1.0 : 0.0;
-            dirCos[axis][2] = (axis == 2) ? 1.0 : 0.0;
+            std::vector<float> fileOrder(total_voxels);
+            if (minc2_load_complete_volume(h.get(), fileOrder.data(), MINC2_FLOAT) != MINC2_SUCCESS)
+                throw std::runtime_error("Failed to load volume data: " + filename);
+            data = reorientToStandard(fileOrder.data(), fileDims, fileAxisToSpatial, flip);
         }
     }
-
-    // Build voxel-to-world transformation matrix.
-    // MINC: world = dirCos * diag(step) * voxel + dirCos * start
-    // start[i] is along dimension i's axis, so the world translation = dirCos * start.
-    
-    glm::dmat3 dirCos3(dirCos[0][0], dirCos[0][1], dirCos[0][2],
-                       dirCos[1][0], dirCos[1][1], dirCos[1][2],
-                       dirCos[2][0], dirCos[2][1], dirCos[2][2]);
-    
-    glm::dvec3 scale(step.x, step.y, step.z);
-    // start[i] is a coordinate along dimension i's own axis; rotate into world space.
-    // Formula from minc2-simple geo.py: aff[0:3,3] = dir_cos @ start
-    glm::dvec3 trans = dirCos3 * glm::dvec3(start.x, start.y, start.z);
-
-    // dirCos * diag(scale): scale column i by scale[i] (scalar), not element-wise by scale vector.
-    glm::dmat3 affine = dirCos3;
-    for (int i = 0; i < 3; ++i)
-        affine[i] *= scale[i];
-    
-    // For 4x4 matrix: world = affine * voxel + start
-    voxelToWorld = glm::dmat4(
-        glm::dvec4(affine[0], 0.0),
-        glm::dvec4(affine[1], 0.0),
-        glm::dvec4(affine[2], 0.0),
-        glm::dvec4(trans, 1.0)
-    );
-    
-    // Compute inverse for world-to-voxel
-    // world = affine * voxel + start
-    // world - start = affine * voxel
-    // voxel = affine^-1 * (world - start)
-    worldToVoxel = glm::inverse(voxelToWorld);
-
-    size_t total_voxels = 1;
-    for (int i = 0; i < ndim; ++i)
+    else
     {
-        total_voxels *= dims[i].length;
-    }
+        if (minc2_setup_standard_order(h.get()) != MINC2_SUCCESS)
+            throw std::runtime_error("Failed to setup standard dimension order: " + filename);
 
-    if (total_voxels == 0)
-        throw std::runtime_error("Volume has 0 voxels: " + filename);
+        struct minc2_dimension *dims = nullptr;
+        if (minc2_get_representation_dimensions(h.get(), &dims) != MINC2_SUCCESS)
+            throw std::runtime_error("Failed to get dimension info: " + filename);
 
-    data.resize(total_voxels);  // std::bad_alloc propagates naturally
+        // Find X, Y, Z dimension indices
+        glm::ivec3 dim_indices{-1, -1, -1};
 
-    if (minc2_load_complete_volume(h.get(), data.data(), MINC2_FLOAT) != MINC2_SUCCESS)
-        throw std::runtime_error("Failed to load volume data: " + filename);
-
-    // Calculate min/max for visualization, ignoring non-finite voxels
-    // (NaN, +inf, -inf) so they don't distort the displayed range.
-    // The renderer maps non-finite values to under/over colours instead.
-    min_value =  std::numeric_limits<float>::infinity();
-    max_value = -std::numeric_limits<float>::infinity();
-    size_t nonFiniteCount = 0;
-    for (float v : data)
-    {
-        if (!std::isfinite(v))
+        for (int i = 0; i < ndim; ++i)
         {
-            ++nonFiniteCount;
-            continue;
+            if (dims[i].id == MINC2_DIM_X) dim_indices[0] = i;
+            else if (dims[i].id == MINC2_DIM_Y) dim_indices[1] = i;
+            else if (dims[i].id == MINC2_DIM_Z) dim_indices[2] = i;
         }
-        if (v < min_value) min_value = v;
-        if (v > max_value) max_value = v;
+
+        if (dim_indices[0] == -1 || dim_indices[1] == -1 || dim_indices[2] == -1)
+            throw std::runtime_error("Could not find X, Y, and Z dimensions: " + filename);
+
+        // Extract dimension sizes and spatial metadata
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            int di = dim_indices[axis];
+            dimensions[axis] = dims[di].length;
+            step[axis]       = dims[di].step;
+            start[axis]      = dims[di].start;
+
+            if (dims[di].have_dir_cos)
+            {
+                dirCos[axis][0] = dims[di].dir_cos[0];
+                dirCos[axis][1] = dims[di].dir_cos[1];
+                dirCos[axis][2] = dims[di].dir_cos[2];
+            }
+            else
+            {
+                // Default direction cosines (identity)
+                dirCos[axis][0] = (axis == 0) ? 1.0 : 0.0;
+                dirCos[axis][1] = (axis == 1) ? 1.0 : 0.0;
+                dirCos[axis][2] = (axis == 2) ? 1.0 : 0.0;
+            }
+        }
+
+        buildVoxelToWorld(*this);
+
+        size_t total_voxels = 1;
+        for (int i = 0; i < ndim; ++i)
+        {
+            total_voxels *= dims[i].length;
+        }
+
+        if (total_voxels == 0)
+            throw std::runtime_error("Volume has 0 voxels: " + filename);
+
+        data.resize(total_voxels);  // std::bad_alloc propagates naturally
+
+        if (minc2_load_complete_volume(h.get(), data.data(), MINC2_FLOAT) != MINC2_SUCCESS)
+            throw std::runtime_error("Failed to load volume data: " + filename);
     }
 
-    if (nonFiniteCount > 0 && debugLoggingEnabled())
-        std::cerr << "Volume " << filename << ": " << nonFiniteCount
-                  << " non-finite voxel(s) ignored when computing range; "
-                  << "they will render as under/over colour\n";
-
-    if (!std::isfinite(min_value) || !std::isfinite(max_value) ||
-        min_value >= max_value)
-    {
-        min_value = 0.0f;
-        max_value = 1.0f;
-    }
+    computeValueRange(*this, filename);
 }
 
 float Volume::get(int x, int y, int z) const
@@ -328,12 +396,38 @@ float Volume::get(int x, int y, int z) const
 
 float Volume::computeQuantile(double q) const
 {
-    if (data.empty()) return 0.0f;
-    q = std::clamp(q, 0.0, 1.0);
-    std::vector<float> tmp = data;
-    size_t idx = static_cast<size_t>(q * (tmp.size() - 1));
-    std::nth_element(tmp.begin(), tmp.begin() + idx, tmp.end());
-    return tmp[idx];
+    return computeQuantiles({q})[0];
+}
+
+std::vector<float> Volume::computeQuantiles(const std::vector<double>& qs) const
+{
+    for (double q : qs)
+    {
+        if (std::isnan(q))
+            throw std::invalid_argument("Volume::computeQuantiles: quantile is NaN");
+    }
+    if (qs.empty())
+        return {};
+
+    std::vector<float> tmp = finiteValues(data);
+    if (tmp.empty())
+        return std::vector<float>(qs.size(), 0.0f);
+
+    std::vector<size_t> idx(qs.size());
+    for (size_t i = 0; i < qs.size(); ++i)
+        idx[i] = static_cast<size_t>(std::clamp(qs[i], 0.0, 1.0) *
+                                     static_cast<double>(tmp.size() - 1));
+
+    std::vector<size_t> targets = idx;
+    std::sort(targets.begin(), targets.end());
+    targets.erase(std::unique(targets.begin(), targets.end()), targets.end());
+    selectOrderStatistics(tmp, 0, tmp.size(),
+                          targets.data(), targets.data() + targets.size());
+
+    std::vector<float> result(qs.size());
+    for (size_t i = 0; i < qs.size(); ++i)
+        result[i] = tmp[idx[i]];
+    return result;
 }
 
 void Volume::worldExtent(glm::dvec3& extent) const
@@ -484,18 +578,22 @@ std::string Volume::getLabelNameAtVoxel(int x, int y, int z) const {
     return "";
 }
 
-std::vector<int> Volume::getUniqueLabelIds() const {
-    if (!isLabelVolume_ || data.empty()) {
-        return {};
+const std::vector<int>& Volume::getUniqueLabelIds() const {
+    if (uniqueLabelIdsValid_) {
+        return uniqueLabelIds_;
     }
-    std::unordered_set<int> uniqueIds;
-    for (float val : data) {
-        int labelId = static_cast<int>(val + 0.5f);
-        if (labelId != 0) {
-            uniqueIds.insert(labelId);
+    uniqueLabelIds_.clear();
+    if (isLabelVolume_ && !data.empty()) {
+        std::unordered_set<int> uniqueIds;
+        for (float val : data) {
+            int labelId = static_cast<int>(val + 0.5f);
+            if (labelId != 0) {
+                uniqueIds.insert(labelId);
+            }
         }
+        uniqueLabelIds_.assign(uniqueIds.begin(), uniqueIds.end());
+        std::sort(uniqueLabelIds_.begin(), uniqueLabelIds_.end());
     }
-    std::vector<int> result(uniqueIds.begin(), uniqueIds.end());
-    std::sort(result.begin(), result.end());
-    return result;
+    uniqueLabelIdsValid_ = true;
+    return uniqueLabelIds_;
 }
