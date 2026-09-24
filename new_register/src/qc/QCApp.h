@@ -76,6 +76,7 @@ private:
     void navigatePrevious();
     void navigateNext();
     void markAsPass();
+    void markAsWarning();
     void markAsFail();
     void saveProgress();
 

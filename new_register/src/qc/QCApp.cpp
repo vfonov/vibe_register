@@ -367,6 +367,8 @@ void QCApp::renderCaseList()
 
             if (record.qc_status == "Fail")
                 ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, IM_COL32(180, 40, 40, 60));
+            else if (record.qc_status == kStatusWarning)
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, IM_COL32(200, 150, 30, 60));
             else if (record.qc_status == "Pass")
                 ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, IM_COL32(40, 180, 40, 60));
 
@@ -453,11 +455,19 @@ void QCApp::renderUI()
     ImGui::SameLine();
 
     bool isPass = (currentRecord.qc_status == "Pass");
+    bool isWarning = (currentRecord.qc_status == kStatusWarning);
     bool isFail = (currentRecord.qc_status == "Fail");
 
     ImGui::PushStyleColor(ImGuiCol_Button, isPass ? ImVec4(0.2f, 0.8f, 0.2f, 1.0f) : ImVec4(0.3f, 0.3f, 0.3f, 1.0f));
     if (ImGui::Button("Pass (P)", ImVec2(80.0f * currentScale_, 30.0f * currentScale_)))
         markAsPass();
+    ImGui::PopStyleColor();
+
+    ImGui::SameLine();
+
+    ImGui::PushStyleColor(ImGuiCol_Button, isWarning ? ImVec4(0.85f, 0.6f, 0.1f, 1.0f) : ImVec4(0.3f, 0.3f, 0.3f, 1.0f));
+    if (ImGui::Button("Warning (W)", ImVec2(100.0f * currentScale_, 30.0f * currentScale_)))
+        markAsWarning();
     ImGui::PopStyleColor();
 
     ImGui::SameLine();
@@ -495,6 +505,7 @@ void QCApp::renderUI()
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
     ImGui::Text("Shortcuts:");
     ImGui::Text("P - Mark as Pass");
+    ImGui::Text("W - Mark as Warning");
     ImGui::Text("F - Mark as Fail");
     ImGui::Text("←/→ - Navigate");
     ImGui::Text("Ctrl+S - Save");
@@ -592,6 +603,14 @@ void QCApp::markAsPass()
     navigateNext();
 }
 
+void QCApp::markAsWarning()
+{
+    auto& records = csvHandler_.getRecords();
+    records[currentIndex_].qc_status = kStatusWarning;
+    if (autoSave_) saveProgress();
+    navigateNext();
+}
+
 void QCApp::markAsFail()
 {
     auto& records = csvHandler_.getRecords();
@@ -616,6 +635,8 @@ void QCApp::handleKeyboard()
 
     if (ImGui::IsKeyPressed(ImGuiKey_P))
         markAsPass();
+    if (ImGui::IsKeyPressed(ImGuiKey_W))
+        markAsWarning();
     if (ImGui::IsKeyPressed(ImGuiKey_F))
         markAsFail();
     if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) || ImGui::IsKeyPressed(ImGuiKey_PageUp))
