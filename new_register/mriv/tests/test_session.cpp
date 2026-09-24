@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "interactive/Session.hpp"
+#include "interactive/ViewState.hpp"
 
 using namespace mriv::term;
 

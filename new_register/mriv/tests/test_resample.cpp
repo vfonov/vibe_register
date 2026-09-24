@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "render/Resample.hpp"
+#include "render/SlicePipeline.hpp"
 
 using namespace mriv::term;
 

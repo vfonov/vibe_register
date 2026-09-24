@@ -306,7 +306,7 @@ int runInteractive(const Options& options, std::ostream& err)
                 // longer exists. pixelGeometry() itself forces notcurses to
                 // sync the plane to any pending resize before reading it
                 // (interactive/Screen.cpp) -- callers here don't need to.
-                auto box = screen.pixelGeometry(headerRows);
+                auto box = screen.pixelGeometry(headerRows + kMarkerRows, kMarkerColumns);
                 int maxW = displayWidth(box.width, options);
                 int maxH = static_cast<int>(box.height);
                 log("interactive: display box " + std::to_string(maxW) + "x"

@@ -1,12 +1,13 @@
 #include "interactive/Screen.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 
 #include <notcurses/notcurses.h>
 
-#include "interactive/ViewState.hpp"
-#include "interactive/Overlay.hpp"
+#include "interactive/FrameOverlay.hpp"
+#include "interactive/Keys.hpp"
 
 namespace mriv::term
 {
@@ -71,7 +72,7 @@ bool Screen::init()
     nc_ = notcurses_init(&opts, stdout);
     if (!nc_)
     {
-        std::cerr << "mriv: failed to initialize the terminal for interactive mode\n";
+        std::cerr << programName_ << ": failed to initialize the terminal for interactive mode\n";
         return false;
     }
 
@@ -89,7 +90,7 @@ bool Screen::hasPixelSupport() const
     return support > NCPIXEL_NONE;
 }
 
-Screen::PixelGeometry Screen::pixelGeometry(int headerRows) const
+Screen::PixelGeometry Screen::pixelGeometry(int reservedRows, int reservedCols) const
 {
     PixelGeometry geometry;
     if (!nc_)
@@ -130,14 +131,13 @@ Screen::PixelGeometry Screen::pixelGeometry(int headerRows) const
     geometry.cellWidth  = cellx;
     geometry.cellHeight = celly;
 
-    // headerRows above the image, interactive/Overlay's marker row below it
-    // and marker columns to its left -- see planOverlay() for what goes in
-    // that space.
-    unsigned reservedRows = static_cast<unsigned>(headerRows) + static_cast<unsigned>(kMarkerRows);
-    unsigned reservedCols = static_cast<unsigned>(kMarkerColumns);
+    // Whatever the caller lays text into -- for mriv, the header rows above
+    // the image and interactive/Overlay's marker gutter (see planOverlay()).
+    unsigned rowsTaken = static_cast<unsigned>(std::max(0, reservedRows));
+    unsigned colsTaken = static_cast<unsigned>(std::max(0, reservedCols));
 
-    unsigned imageRows = rows > reservedRows ? rows - reservedRows : 0;
-    unsigned imageCols = cols > reservedCols ? cols - reservedCols : 0;
+    unsigned imageRows = rows > rowsTaken ? rows - rowsTaken : 0;
+    unsigned imageCols = cols > colsTaken ? cols - colsTaken : 0;
     geometry.height = imageRows * celly;
     geometry.width  = imageCols * cellx;
 
@@ -155,12 +155,12 @@ bool Screen::drawFrame(const FrameOverlay& overlay, const uint32_t* rgba, int w,
 {
     if (!nc_)
     {
-        std::cerr << "mriv: drawFrame() called before a successful init()\n";
+        std::cerr << programName_ << ": drawFrame() called before a successful init()\n";
         return false;
     }
     if (!rgba || w <= 0 || h <= 0)
     {
-        std::cerr << "mriv: refusing to draw an empty frame\n";
+        std::cerr << programName_ << ": refusing to draw an empty frame\n";
         return false;
     }
 
@@ -185,7 +185,7 @@ bool Screen::drawFrame(const FrameOverlay& overlay, const uint32_t* rgba, int w,
     ncvisual* visual = ncvisual_from_rgba(rgba, h, w * static_cast<int>(sizeof(uint32_t)), w);
     if (!visual)
     {
-        std::cerr << "mriv: failed to build an image for the terminal\n";
+        std::cerr << programName_ << ": failed to build an image for the terminal\n";
         return false;
     }
 
@@ -202,13 +202,13 @@ bool Screen::drawFrame(const FrameOverlay& overlay, const uint32_t* rgba, int w,
 
     if (!imagePlane_)
     {
-        std::cerr << "mriv: failed to draw the slice\n";
+        std::cerr << programName_ << ": failed to draw the slice\n";
         return false;
     }
 
     if (notcurses_render(nc_) < 0)
     {
-        std::cerr << "mriv: failed to render the frame\n";
+        std::cerr << programName_ << ": failed to render the frame\n";
         return false;
     }
 
@@ -302,8 +302,16 @@ std::optional<char> Screen::readKey()
             return kKeyLeft;
         if (id == NCKEY_RIGHT)
             return kKeyRight;
+        if (id == NCKEY_HOME)
+            return kKeyHome;
+        if (id == NCKEY_END)
+            return kKeyEnd;
+        if (id == NCKEY_PGUP)
+            return kKeyPageUp;
+        if (id == NCKEY_PGDOWN)
+            return kKeyPageDown;
 
-        // The remaining special keys (function keys, page up/down, mouse)
+        // The remaining special keys (function keys, mouse)
         // live beyond Unicode and have no binding; swallow them rather than
         // passing junk on.
         if (id > 0x7f)

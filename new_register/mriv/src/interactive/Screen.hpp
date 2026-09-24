@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 
 // Forward-declared only: this header must not force notcurses includes on
 // consumers (see mriv/CLAUDE.md, header hygiene).
@@ -45,7 +46,8 @@ struct FrameOverlay;
 class Screen
 {
 public:
-    Screen() = default;
+    /// `programName` prefixes every diagnostic ("mriv: ...", "mriv_qc: ...").
+    explicit Screen(std::string programName = "mriv") : programName_(std::move(programName)) {}
     ~Screen();
 
     Screen(const Screen&) = delete;
@@ -71,14 +73,14 @@ public:
         unsigned cellHeight = 0;
     };
 
-    /// The pixel box available to the image, after reserving `headerRows`
-    /// text rows above it (the volume names plus the status line -- see
-    /// interactive/Overlay.hpp) and the marker gutter -- one row below,
-    /// interactive/Overlay's kMarkerColumns columns to the left. Callers
-    /// must pass the same headerRows they pass to planOverlay(), or the
-    /// image will not agree with where the header text actually ends.
-    /// Zero-initialized before a successful init().
-    PixelGeometry pixelGeometry(int headerRows) const;
+    /// The pixel box available to the image, after reserving
+    /// `reservedRows` text rows and `reservedCols` text columns of the
+    /// terminal for whatever the caller draws around it. mriv reserves its
+    /// header rows plus interactive/Overlay's marker gutter (kMarkerRows
+    /// below, kMarkerColumns to the left); callers must reserve the same
+    /// space they lay text into, or the image will not agree with where
+    /// that text actually ends. Zero-initialized before a successful init().
+    PixelGeometry pixelGeometry(int reservedRows, int reservedCols) const;
 
     /// Draw one frame: the overlay's text (volume names, status line and
     /// the two active-pane markers) at their planned positions, then the
@@ -96,6 +98,7 @@ public:
 private:
     void destroy();
 
+    std::string programName_;
     notcurses* nc_ = nullptr;
     ncplane* imagePlane_ = nullptr;
 };

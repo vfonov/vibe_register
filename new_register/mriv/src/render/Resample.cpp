@@ -38,20 +38,19 @@ std::vector<uint32_t> resamplePixelsNearest(
 }
 
 ResampledImage resampleToDisplay(
-    const RenderedSlice& slice, double aspect, int maxW, int maxH, int scale)
+    const uint32_t* src, int w, int h, double aspect, int maxW, int maxH, int scale)
 {
     ResampledImage result;
 
-    if (slice.width <= 0 || slice.height <= 0)
+    if (!src || w <= 0 || h <= 0)
         return result;
 
     int clampedScale = std::max(1, scale);
     int fitW = std::max(1, maxW / clampedScale);
     int fitH = std::max(1, maxH / clampedScale);
 
-    auto size = computeResampleSize(slice.width, slice.height, aspect, fitW, fitH);
-    result.pixels = resamplePixelsNearest(slice.pixels.data(), slice.width, slice.height,
-                                           size.width, size.height);
+    auto size = computeResampleSize(w, h, aspect, fitW, fitH);
+    result.pixels = resamplePixelsNearest(src, w, h, size.width, size.height);
     result.width  = size.width;
     result.height = size.height;
 

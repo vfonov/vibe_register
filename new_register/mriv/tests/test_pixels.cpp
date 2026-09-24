@@ -16,6 +16,7 @@
 #include "render/Encode.hpp"
 #include "render/PixelProtocol.hpp"
 #include "render/Resample.hpp"
+#include "render/SlicePipeline.hpp"
 #include "render/SliceGeometry.hpp"
 #include "render/Terminal.hpp"
 

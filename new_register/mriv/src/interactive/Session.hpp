@@ -3,7 +3,7 @@
 #include <functional>
 #include <optional>
 
-#include "interactive/ViewState.hpp"
+#include "interactive/Keys.hpp"
 
 namespace mriv::term
 {
@@ -15,15 +15,31 @@ using KeySource = std::function<std::optional<char>()>;
 
 /// Draws the given state. Returns false if the frame could not be drawn,
 /// which ends the session with a non-zero status.
-using FrameSink = std::function<bool(const ViewState&)>;
+template <typename State>
+using FrameSink = std::function<bool(const State&)>;
 
 /// Saves whatever is currently on screen. Called for KeyResult::Screenshot,
-/// which never changes ViewState -- there is nothing new to draw, only the
+/// which never changes the state -- there is nothing new to draw, only the
 /// last successfully drawn frame to write out, so this is a distinct sink
 /// from FrameSink rather than a state to render.
 using ScreenshotSink = std::function<void()>;
 
+namespace detail
+{
+/// Keeps `draw`'s parameter out of template argument deduction, so State is
+/// deduced from `state` alone and any callable (a lambda, std::ref(...))
+/// converts to the FrameSink afterwards. std::type_identity is C++20.
+template <typename T>
+struct NonDeduced
+{
+    using type = T;
+};
+} // namespace detail
+
 /// Run the interactive loop until the user quits or input ends.
+///
+/// `State` is anything with `KeyResult handleKey(char)` -- mriv's ViewState,
+/// or mriv_qc's QcState. The loop is the same for both.
 ///
 /// An initial frame is drawn before any key is read, so the user sees the
 /// slice they asked for without pressing anything. After that a frame is
@@ -38,7 +54,35 @@ using ScreenshotSink = std::function<void()>;
 /// (most tests) do not need to pass one.
 ///
 /// Returns 0 on a clean exit and 1 if a frame failed to draw.
-int runSession(ViewState& state, const KeySource& nextKey, const FrameSink& draw,
-               const ScreenshotSink& screenshot = ScreenshotSink());
+template <typename State>
+int runSession(State& state, const KeySource& nextKey,
+               const typename detail::NonDeduced<FrameSink<State>>::type& draw,
+               const ScreenshotSink& screenshot = ScreenshotSink())
+{
+    if (!draw(state))
+        return 1;
+
+    for (;;)
+    {
+        std::optional<char> key = nextKey();
+        if (!key.has_value())
+            return 0;
+
+        KeyResult result = state.handleKey(*key);
+        if (result == KeyResult::Quit)
+            return 0;
+        if (result == KeyResult::Screenshot)
+        {
+            if (screenshot)
+                screenshot();
+            continue;
+        }
+        if (result == KeyResult::Ignored)
+            continue;
+
+        if (!draw(state))
+            return 1;
+    }
+}
 
 } // namespace mriv::term

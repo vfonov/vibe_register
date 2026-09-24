@@ -3,6 +3,7 @@
 #include "render/Resample.hpp"
 
 #include "ColourMap.h"
+#include "SliceRenderer.h"
 
 class Volume;
 
@@ -36,6 +37,16 @@ struct SliceRequest
     /// Integer pixel magnification applied after the fit (default 1).
     int scale = 1;
 };
+
+/// resampleToDisplay() for a RenderedSlice from the parent's renderSlice().
+/// Lives here rather than in render/Resample.hpp so that Resample stays free
+/// of nr_core (it is part of mriv_term).
+inline ResampledImage resampleToDisplay(
+    const RenderedSlice& slice, double aspect, int maxW, int maxH, int scale = 1)
+{
+    return resampleToDisplay(slice.pixels.data(), slice.width, slice.height,
+                             aspect, maxW, maxH, scale);
+}
 
 /// Render one slice and resample it to the display box, applying the
 /// Volume::slicePixelAspect() correction for the view's in-plane axes.

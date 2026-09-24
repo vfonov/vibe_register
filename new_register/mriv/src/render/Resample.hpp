@@ -3,8 +3,6 @@
 #include <cstdint>
 #include <vector>
 
-#include "SliceRenderer.h"
-
 namespace mriv::term
 {
 
@@ -33,17 +31,19 @@ struct ResampledImage
 };
 
 /// Convenience wrapper combining computeResampleSize() and
-/// resamplePixelsNearest() for a RenderedSlice from the parent's
-/// renderSlice().
+/// resamplePixelsNearest() for a packed RGBA (0xAABBGGRR) buffer of size
+/// (w,h) -- a slice from the parent's renderSlice() (see the RenderedSlice
+/// overload in render/SlicePipeline.hpp) or a decoded 2D image (mriv_qc).
+/// An empty source (w or h <= 0) gives an empty image.
 ///
 /// `scale` is an integer pixel-magnification factor (default 1, no
-/// magnification): the slice is first fit into (maxW/scale, maxH/scale)
+/// magnification): the image is first fit into (maxW/scale, maxH/scale)
 /// as usual, then each resulting pixel is replicated into a scale x scale
 /// block via nearest-neighbour resampling, so the final image never
 /// exceeds (maxW, maxH) by more than (scale - 1) pixels in either
 /// dimension. Values <= 1 are treated as no magnification.
 ResampledImage resampleToDisplay(
-    const RenderedSlice& slice, double aspect, int maxW, int maxH, int scale = 1);
+    const uint32_t* src, int w, int h, double aspect, int maxW, int maxH, int scale = 1);
 
 /// Where a native (pre-resample) coordinate along one axis lands after
 /// resamplePixelsNearest() scales `nativeSize` pixels to `displaySize`
