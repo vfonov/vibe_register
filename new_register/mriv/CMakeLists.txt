@@ -92,6 +92,19 @@ target_link_libraries(mriv_lib PRIVATE mriv_notcurses)
 add_executable(mriv src/main.cpp)
 target_link_libraries(mriv PRIVATE mriv_lib)
 
+# mriv_qc: terminal image QC (Pass/Warning/Fail) over a list of PNG/JPG
+# files -- new_qc's CSV workflow drawn through mriv_term. Links neither
+# nr_core nor the MINC stack.
+add_library(mriv_qc_lib STATIC
+    src/qc/QcImage.cpp
+    src/qc/QcState.cpp
+    src/qc/QcStatusLine.cpp
+    src/qc/QcOptions.cpp
+)
+target_include_directories(mriv_qc_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(mriv_qc_lib PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
+target_link_libraries(mriv_qc_lib PUBLIC mriv_term qc_csv cxxopts::cxxopts)
+
 if(ENABLE_TESTS)
     add_subdirectory(tests)
 endif()

@@ -40,6 +40,22 @@ macro(add_mriv_test NAME)
     add_test(NAME mriv_${NAME} COMMAND ${NAME} ${M_ARGS})
 endmacro()
 
+# mriv_qc tests link mriv_qc_lib only -- not mriv_lib/mriv_test_support, which
+# would drag in nr_core, and whose decode.cpp defines STB_IMAGE_IMPLEMENTATION
+# a second time (qc/QcImage.cpp has the other one).
+macro(add_mriv_qc_test NAME)
+    add_nr_test(${NAME} CATCH2
+        INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/../src
+        LINKS    mriv_qc_lib
+    )
+    add_test(NAME mriv_${NAME} COMMAND ${NAME})
+endmacro()
+
+add_mriv_qc_test(test_qc_image)
+add_mriv_qc_test(test_qc_state)
+add_mriv_qc_test(test_qc_status_line)
+add_mriv_qc_test(test_qc_options)
+
 add_mriv_test(test_options)
 add_mriv_test(test_slice_selection)
 add_mriv_test(test_view_list)
