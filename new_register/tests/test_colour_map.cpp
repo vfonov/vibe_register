@@ -1,219 +1,211 @@
 #include "ColourMap.h"
 
-#include <cstdio>
-#include <cstdlib>
-#include <cmath>
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
+
+#include <catch2/catch_test_macros.hpp>
+
+namespace
+{
+
+struct Rgba
+{
+    int r, g, b, a;
+};
 
 /// Extract RGBA components from a packed 0xAABBGGRR value.
-static void unpack(uint32_t c, int& r, int& g, int& b, int& a)
+Rgba unpack(uint32_t c)
 {
-    r = (c >>  0) & 0xFF;
-    g = (c >>  8) & 0xFF;
-    b = (c >> 16) & 0xFF;
-    a = (c >> 24) & 0xFF;
+    return { static_cast<int>((c >>  0) & 0xFF),
+             static_cast<int>((c >>  8) & 0xFF),
+             static_cast<int>((c >> 16) & 0xFF),
+             static_cast<int>((c >> 24) & 0xFF) };
 }
 
-static int failures = 0;
+} // namespace
 
-static void check(bool cond, const char* msg, int line)
+TEST_CASE("all colour maps are named and fully opaque", "[colourmap]")
 {
-    if (!cond)
-    {
-        std::fprintf(stderr, "FAIL (line %d): %s\n", line, msg);
-        ++failures;
-    }
-}
-
-#define CHECK(cond, msg) check((cond), (msg), __LINE__)
-
-int main()
-{
-    // 1. All colour maps should be nameable and have valid LUTs.
     for (int i = 0; i < colourMapCount(); ++i)
     {
         auto type = static_cast<ColourMapType>(i);
-        auto name = colourMapName(type);
-        CHECK(!name.empty(), "colour map name should not be empty");
+        CAPTURE(i);
+        CHECK_FALSE(colourMapName(type).empty());
 
         const ColourLut& lut = colourMapLut(type);
-        // All entries should have full alpha.
         for (int j = 0; j < kLutSize; ++j)
         {
-            int r, g, b, a;
-            unpack(lut.table[j], r, g, b, a);
-            CHECK(a == 255, "alpha should be 255 for all built-in maps");
+            CAPTURE(j);
+            CHECK(unpack(lut.table[j]).a == 255);
         }
     }
+}
 
-    // 2. Gray scale: first entry should be black, last should be white.
+TEST_CASE("gray scale runs from black to white", "[colourmap]")
+{
+    const ColourLut& lut = colourMapLut(ColourMapType::GrayScale);
+
+    Rgba c = unpack(lut.table[0]);
+    CHECK(c.r == 0);
+    CHECK(c.g == 0);
+    CHECK(c.b == 0);
+
+    c = unpack(lut.table[255]);
+    CHECK(c.r == 255);
+    CHECK(c.g == 255);
+    CHECK(c.b == 255);
+
+    // Midpoint should be ~128 and neutral.
+    c = unpack(lut.table[128]);
+    CHECK(std::abs(c.r - 128) <= 1);
+    CHECK(c.r == c.g);
+    CHECK(c.g == c.b);
+}
+
+TEST_CASE("hot metal runs from black through dark red to white", "[colourmap]")
+{
+    const ColourLut& lut = colourMapLut(ColourMapType::HotMetal);
+
+    Rgba c = unpack(lut.table[0]);
+    CHECK(c.r == 0);
+    CHECK(c.g == 0);
+    CHECK(c.b == 0);
+
+    c = unpack(lut.table[255]);
+    CHECK(c.r == 255);
+    CHECK(c.g == 255);
+    CHECK(c.b == 255);
+
+    // At 25% (~index 64) should be dark red: R~128, G~0, B~0.
+    c = unpack(lut.table[64]);
+    CHECK(std::abs(c.r - 128) <= 2);
+    CHECK(c.g <= 2);
+    CHECK(c.b <= 2);
+}
+
+TEST_CASE("invertColourLut reverses the LUT", "[colourmap]")
+{
+    const ColourLut& original = colourMapLut(ColourMapType::HotMetal);
+    ColourLut inverted = invertColourLut(original);
+
+    // First entry of inverted should match last entry of original.
+    Rgba c = unpack(inverted.table[0]);
+    CHECK(c.r == 255);
+    CHECK(c.g == 255);
+    CHECK(c.b == 255);
+
+    // Last entry of inverted should match first entry of original.
+    c = unpack(inverted.table[255]);
+    CHECK(c.r == 0);
+    CHECK(c.g == 0);
+    CHECK(c.b == 0);
+
+    // Symmetry: inverted[i] == original[255-i].
+    for (int i = 0; i < kLutSize; ++i)
     {
-        const ColourLut& lut = colourMapLut(ColourMapType::GrayScale);
-        int r, g, b, a;
-        unpack(lut.table[0], r, g, b, a);
-        CHECK(r == 0 && g == 0 && b == 0, "gray LUT[0] should be black");
-
-        unpack(lut.table[255], r, g, b, a);
-        CHECK(r == 255 && g == 255 && b == 255, "gray LUT[255] should be white");
-
-        // Midpoint should be ~128.
-        unpack(lut.table[128], r, g, b, a);
-        CHECK(std::abs(r - 128) <= 1, "gray LUT[128] R should be ~128");
-        CHECK(r == g && g == b, "gray LUT[128] should be neutral");
+        CAPTURE(i);
+        CHECK(inverted.table[i] == original.table[kLutSize - 1 - i]);
     }
+}
 
-    // 3. Hot metal: first entry black, last entry white.
-    {
-        const ColourLut& lut = colourMapLut(ColourMapType::HotMetal);
-        int r, g, b, a;
-        unpack(lut.table[0], r, g, b, a);
-        CHECK(r == 0 && g == 0 && b == 0, "hot LUT[0] should be black");
-
-        unpack(lut.table[255], r, g, b, a);
-        CHECK(r == 255 && g == 255 && b == 255, "hot LUT[255] should be white");
-
-        // At 25% (~index 64) should be dark red: R~128, G~0, B~0.
-        unpack(lut.table[64], r, g, b, a);
-        CHECK(std::abs(r - 128) <= 2, "hot LUT[64] R should be ~128");
-        CHECK(g <= 2, "hot LUT[64] G should be ~0");
-        CHECK(b <= 2, "hot LUT[64] B should be ~0");
-    }
-
-    // 4. Inverted Hot Metal: verify invertColourLut reverses the LUT.
-    {
-        const ColourLut& original = colourMapLut(ColourMapType::HotMetal);
-        ColourLut inverted = invertColourLut(original);
-        int r, g, b, a;
-        
-        // First entry of inverted should match last entry of original
-        unpack(inverted.table[0], r, g, b, a);
-        CHECK(r == 255 && g == 255 && b == 255, "inverted hot LUT[0] should be white");
-        
-        // Last entry of inverted should match first entry of original
-        unpack(inverted.table[255], r, g, b, a);
-        CHECK(r == 0 && g == 0 && b == 0, "inverted hot LUT[255] should be black");
-        
-        // Verify symmetry: inverted[i] == original[255-i]
-        for (int i = 0; i < kLutSize; ++i)
-        {
-            int r1, g1, b1, a1, r2, g2, b2, a2;
-            unpack(inverted.table[i], r1, g1, b1, a1);
-            unpack(original.table[kLutSize - 1 - i], r2, g2, b2, a2);
-            CHECK(r1 == r2 && g1 == g2 && b1 == b2 && a1 == a2,
-                  "inverted LUT should be reverse of original");
-        }
-    }
-
-    // 5. Red: first black, last pure red.
+TEST_CASE("single-channel maps end in the pure primary", "[colourmap]")
+{
+    SECTION("red")
     {
         const ColourLut& lut = colourMapLut(ColourMapType::Red);
-        int r, g, b, a;
-        unpack(lut.table[0], r, g, b, a);
-        CHECK(r == 0 && g == 0 && b == 0, "red LUT[0] should be black");
+        Rgba c = unpack(lut.table[0]);
+        CHECK(c.r == 0);
+        CHECK(c.g == 0);
+        CHECK(c.b == 0);
 
-        unpack(lut.table[255], r, g, b, a);
-        CHECK(r == 255, "red LUT[255] R should be 255");
-        CHECK(g == 0 && b == 0, "red LUT[255] G,B should be 0");
+        c = unpack(lut.table[255]);
+        CHECK(c.r == 255);
+        CHECK(c.g == 0);
+        CHECK(c.b == 0);
     }
 
-    // 5. Green: first black, last pure green.
+    SECTION("green")
     {
-        const ColourLut& lut = colourMapLut(ColourMapType::Green);
-        int r, g, b, a;
-        unpack(lut.table[255], r, g, b, a);
-        CHECK(r == 0 && g == 255 && b == 0, "green LUT[255] should be pure green");
+        Rgba c = unpack(colourMapLut(ColourMapType::Green).table[255]);
+        CHECK(c.r == 0);
+        CHECK(c.g == 255);
+        CHECK(c.b == 0);
     }
 
-    // 6. Blue: first black, last pure blue.
+    SECTION("blue")
     {
-        const ColourLut& lut = colourMapLut(ColourMapType::Blue);
-        int r, g, b, a;
-        unpack(lut.table[255], r, g, b, a);
-        CHECK(r == 0 && g == 0 && b == 255, "blue LUT[255] should be pure blue");
+        Rgba c = unpack(colourMapLut(ColourMapType::Blue).table[255]);
+        CHECK(c.r == 0);
+        CHECK(c.g == 0);
+        CHECK(c.b == 255);
     }
+}
 
-    // 8. Spectral: first black, last light gray.
+TEST_CASE("spectral runs from black to light gray", "[colourmap]")
+{
+    const ColourLut& lut = colourMapLut(ColourMapType::Spectral);
+
+    Rgba c = unpack(lut.table[0]);
+    CHECK(c.r == 0);
+    CHECK(c.g == 0);
+    CHECK(c.b == 0);
+
+    // Last control point is (0.8, 0.8, 0.8) -> 204.
+    c = unpack(lut.table[255]);
+    CHECK(std::abs(c.r - 204) <= 1);
+    CHECK(c.r == c.g);
+    CHECK(c.g == c.b);
+}
+
+TEST_CASE("contour has a visible discontinuity", "[colourmap]")
+{
+    const ColourLut& lut = colourMapLut(ColourMapType::Contour);
+    // At the 0.166 boundary (~index 42), there should be a colour jump.
+    // Index 42 = 0.1647 (just before boundary) — should be blue-ish.
+    Rgba c1 = unpack(lut.table[42]);
+    // Index 43 = 0.1686 (just after boundary) — should be cyan-ish.
+    Rgba c2 = unpack(lut.table[43]);
+    // There should be a large jump in at least one channel.
+    int maxDiff = std::max({ std::abs(c2.r - c1.r), std::abs(c2.g - c1.g),
+                             std::abs(c2.b - c1.b) });
+    CHECK(maxDiff > 30);
+}
+
+TEST_CASE("colourMapCount matches the number of types", "[colourmap]")
+{
+    CHECK(colourMapCount() == 18);
+}
+
+TEST_CASE("colourMapLut returns a cached reference", "[colourmap]")
+{
+    const ColourLut& a = colourMapLut(ColourMapType::Spectral);
+    const ColourLut& b = colourMapLut(ColourMapType::Spectral);
+    CHECK(&a == &b);
+}
+
+TEST_CASE("colourMapByName looks up display names", "[colourmap]")
+{
+    SECTION("valid names")
     {
-        const ColourLut& lut = colourMapLut(ColourMapType::Spectral);
-        int r, g, b, a;
-        unpack(lut.table[0], r, g, b, a);
-        CHECK(r == 0 && g == 0 && b == 0, "spectral LUT[0] should be black");
-
-        unpack(lut.table[255], r, g, b, a);
-        // Last control point is (0.8, 0.8, 0.8) -> 204
-        CHECK(std::abs(r - 204) <= 1, "spectral LUT[255] R should be ~204");
-        CHECK(r == g && g == b, "spectral LUT[255] should be neutral gray");
+        CHECK(colourMapByName("Gray") == ColourMapType::GrayScale);
+        CHECK(colourMapByName("Hot Metal") == ColourMapType::HotMetal);
+        CHECK(colourMapByName("Spectral") == ColourMapType::Spectral);
     }
 
-    // 9. Contour: should have visible discontinuities.
+    SECTION("invalid names return nullopt")
     {
-        const ColourLut& lut = colourMapLut(ColourMapType::Contour);
-        // At the 0.166 boundary (~index 42), there should be a colour jump.
-        int r1, g1, b1, a1, r2, g2, b2, a2;
-        // Index 42 = 0.1647 (just before boundary) — should be blue-ish.
-        unpack(lut.table[42], r1, g1, b1, a1);
-        // Index 43 = 0.1686 (just after boundary) — should be cyan-ish.
-        unpack(lut.table[43], r2, g2, b2, a2);
-        // There should be a large jump in at least one channel.
-        int maxDiff = std::max({std::abs(r2 - r1), std::abs(g2 - g1),
-                                std::abs(b2 - b1)});
-        CHECK(maxDiff > 30, "contour should have visible discontinuity near index 42-43");
+        CHECK_FALSE(colourMapByName("NonExistent").has_value());
+        CHECK_FALSE(colourMapByName("").has_value());
     }
 
-    // 10. colourMapCount() should equal the number of types.
-    CHECK(colourMapCount() == 18, "should have 18 colour map types");
-
-    // 11. Calling colourMapLut twice should return the same object (cached).
-    {
-        const ColourLut& a = colourMapLut(ColourMapType::Spectral);
-        const ColourLut& b = colourMapLut(ColourMapType::Spectral);
-        CHECK(&a == &b, "colourMapLut should return cached reference");
-    }
-
-    // 12. colourMapByName: specific valid lookups.
-    {
-        auto gray = colourMapByName("Gray");
-        CHECK(gray.has_value() && *gray == ColourMapType::GrayScale,
-              "colourMapByName(\"Gray\") should return GrayScale");
-
-        auto hot = colourMapByName("Hot Metal");
-        CHECK(hot.has_value() && *hot == ColourMapType::HotMetal,
-              "colourMapByName(\"Hot Metal\") should return HotMetal");
-
-        auto spec = colourMapByName("Spectral");
-        CHECK(spec.has_value() && *spec == ColourMapType::Spectral,
-              "colourMapByName(\"Spectral\") should return Spectral");
-    }
-
-    // 13. colourMapByName: invalid names return nullopt.
-    {
-        auto bad = colourMapByName("NonExistent");
-        CHECK(!bad.has_value(), "colourMapByName(\"NonExistent\") should be nullopt");
-
-        auto empty = colourMapByName("");
-        CHECK(!empty.has_value(), "colourMapByName(\"\") should be nullopt");
-    }
-
-    // 14. colourMapByName round-trip: name -> type -> name for all 21 types.
+    SECTION("name round-trips to type for every map")
     {
         for (int i = 0; i < colourMapCount(); ++i)
         {
             auto type = static_cast<ColourMapType>(i);
-            auto name = colourMapName(type);
-            auto lookup = colourMapByName(name);
-            CHECK(lookup.has_value() && *lookup == type,
-                  "colourMapByName(colourMapName(type)) should recover original type");
+            CAPTURE(i);
+            CHECK(colourMapByName(colourMapName(type)) == type);
         }
-    }
-
-    if (failures == 0)
-    {
-        std::printf("All colour map tests passed.\n");
-        return 0;
-    }
-    else
-    {
-        std::fprintf(stderr, "%d test(s) failed.\n", failures);
-        return 1;
     }
 }

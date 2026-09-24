@@ -19,7 +19,8 @@ target_include_directories(mriv_test_support PUBLIC
 target_link_libraries(mriv_test_support PUBLIC mriv_lib)
 
 # Convenience wrapper so every mriv test gets the production include dir and
-# the stb headers used by decode helpers.
+# the stb headers used by decode helpers. Other keywords (CATCH2, LINKS, ...)
+# pass through to add_nr_test().
 #
 # ARGS is parsed here and forwarded to add_test() rather than passed through to
 # add_nr_test(): add_nr_test() declares the ARGS keyword but never uses it (see
@@ -60,7 +61,7 @@ add_mriv_test(test_slice_pipeline)
 add_mriv_test(test_frame_builder)
 add_mriv_test(test_frame_plan)
 add_mriv_test(test_overlay)
-add_mriv_test(test_layout)
+add_mriv_test(test_layout CATCH2)
 add_mriv_test(test_compose)
 add_mriv_test(test_resample)
 add_mriv_test(test_crosshair)

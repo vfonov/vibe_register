@@ -12,11 +12,13 @@ We also don't re-test the parent's readers, `renderSlice()` or the colour maps. 
 
 ## Framework
 
-- Tests are plain `assert` in a `main()`, registered with `add_mriv_test(<name> [ARGS ...])` in
-  `tests/CMakeLists.txt`. The CTest name is `mriv_<name>`. There is no test framework.
+- Tests use **Catch2 v3** (`TEST_CASE` / `REQUIRE` / `CHECK`), registered with
+  `add_mriv_test(<name> CATCH2 [ARGS ...])` in `tests/CMakeLists.txt`; `main()` comes from the
+  parent's shared `nr_test_main`. The CTest name is `mriv_<name>`. Suites not yet migrated are
+  still plain `assert` in a `main()` (without `CATCH2`); see the migration in the root `PLAN.md`.
 - Fixture paths come from CMake as argv (`MRIV_TEST_DATA_DIR`, `new_register/tests/sq1.mnc`,
-  `sq2.mnc`). A test that needs a fixture must `assert` that its argv is present, never skip
-  silently (see `HANDOFF.md` §3).
+  `sq2.mnc`). A test that needs a fixture must fail (`REQUIRE`, or `assert` in an unmigrated
+  suite) when it is missing, never skip silently (see `HANDOFF.md` §3).
 - Otherwise, build synthetic volumes in memory with `Volume::generate_test_data()` or small local
   helpers.
 - Run with `ctest --output-on-failure -R "^mriv_"` from `new_register/build`.

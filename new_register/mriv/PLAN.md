@@ -136,7 +136,7 @@ This subproject adds exactly two things on top of `nr_core`:
 
 > **Deliberate divergence — do not "fix" this.** The parent used to use cxxopts and removed it; `new_register/src/CliArgs.cpp` opens with `// CLI argument parsing (replaces cxxopts)`, and both it and `src/mincpik/mincpik_cli.{h,cpp}` are hand-rolled argv walkers. This subproject uses cxxopts anyway, by explicit decision. An agent that notices the inconsistency and "aligns with the parent" is undoing a deliberate choice.
 
-No test framework is fetched — we reuse the parent's (see [Testing](#testing)).
+No test framework is fetched here — we reuse the parent's Catch2 (see [Testing](#testing)).
 
 Notably **not** dependencies of this subproject, because `nr_core` already links them transitively (`target_link_libraries(nr_core …)` in `new_register/CMakeLists.txt`): minc2-simple, MINC2/libminc, HDF5, NetCDF, zlib, glm, nlohmann_json, Eigen, and the vendored niftilib (`nifti1_io.c`, `znzlib.c`).
 
@@ -572,12 +572,12 @@ See [`CLAUDE.md`](CLAUDE.md), "Coding conventions" — it follows the parent's `
 
 ## Testing
 
-The parent has **no** doctest, Catch2, or GoogleTest — and we do not add one. Its suites are plain `assert` + `main()` executables built by a small macro, `add_nr_test()` (`new_register/tests/CMakeLists.txt:25`), each followed by a separate `add_test()` that gives it its CTest name. The parent macro accepts an `ARGS` keyword but silently ignores it.
+The parent uses **Catch2 v3**, resolved in `new_register/CMakeLists.txt` under `ENABLE_TESTS` (system package, else fetched). Its suites are built by a small macro, `add_nr_test()` (`new_register/tests/CMakeLists.txt`), each followed by a separate `add_test()` that gives it its CTest name. With the `CATCH2` keyword the macro links `nr_test_main`, which supplies `main()`; the test source holds only `TEST_CASE`s. The migration from plain `assert` + `main()` is in progress (root `PLAN.md`); unmigrated suites omit `CATCH2`. The parent macro accepts an `ARGS` keyword but silently ignores it. Do not add doctest, GoogleTest or a second framework.
 
 This subproject wraps that in `add_mriv_test()` (`mriv/tests/CMakeLists.txt`). It adds the `src/` and stb include dirs, links `mriv_lib` and the `mriv_test_support` helper library (`tests/escapes`, `tests/decode`), and registers the CTest entry itself, forwarding `ARGS`:
 
 ```cmake
-add_mriv_test(test_foo)                         # builds tests/test_foo.cpp, CTest name mriv_test_foo
+add_mriv_test(test_foo CATCH2)                  # builds tests/test_foo.cpp, CTest name mriv_test_foo
 add_mriv_test(test_bar ARGS <fixture-path>)     # arguments reach the test's argv
 ```
 

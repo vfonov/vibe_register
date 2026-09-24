@@ -1,6 +1,14 @@
 # --- Test targets ---
 # All test executables and CTest registrations for new_register and new_qc.
 
+# --- Shared Catch2 entry point ---
+# nr_test_main provides main() (a Catch::Session with the extra --data-dir and
+# --src-dir options, read back through nr_test.h).  It links Catch2 only — not
+# nr_core — so tests of tools without nr_core (new_qc) can use it too.
+add_library(nr_test_main STATIC ${CMAKE_CURRENT_SOURCE_DIR}/nr_test_main.cpp)
+target_include_directories(nr_test_main PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(nr_test_main PUBLIC Catch2::Catch2)
+
 if(NR_NEED_CORE)
 
 # Common paths
@@ -17,13 +25,14 @@ message("TEST_LIBS=${TEST_LIBS}")
 
 # --- Helper macro to reduce boilerplate ---
 # add_nr_test(<name>
+#     CATCH2       Catch2 test: link nr_test_main, which provides main()
 #     SOURCES      extra .cpp from src/ (optional)
 #     INCLUDES     include dirs          (defaults to COMMON_INCLUDES)
 #     LINKS        link libraries
 #     ARGS         command-line args for ctest
 # )
 macro(add_nr_test NAME)
-    cmake_parse_arguments(T "" "" "SOURCES;INCLUDES;LINKS;ARGS" ${ARGN})
+    cmake_parse_arguments(T "CATCH2" "" "SOURCES;INCLUDES;LINKS;ARGS" ${ARGN})
 
     # Build source list: the test file itself + any extra source files
     set(_srcs ${CMAKE_CURRENT_SOURCE_DIR}/${NAME}.cpp)
@@ -41,6 +50,10 @@ macro(add_nr_test NAME)
 
     if(T_LINKS)
         target_link_libraries(${NAME} PRIVATE ${T_LINKS})
+    endif()
+
+    if(T_CATCH2)
+        target_link_libraries(${NAME} PRIVATE nr_test_main)
     endif()
 endmacro()
 
@@ -122,7 +135,7 @@ add_test(NAME MincDimsTest COMMAND test_minc_dims ${TEST_DATA_DIR})
 # Colour map test — nr_core provides ColourMap
 # ------------------------------------------------------------------
 
-add_nr_test(test_colour_map
+add_nr_test(test_colour_map CATCH2
     INCLUDES  ${INC_DIR}
     LINKS     nr_core
 )

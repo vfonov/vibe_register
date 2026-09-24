@@ -1067,6 +1067,25 @@ if(ENABLE_TESTS)
         find_package(Threads REQUIRED)
     endif()
 
+    # Catch2 v3 — unit test framework for tests/ and mriv/tests/.  Resolved
+    # here, before add_subdirectory(tests), so Catch2::Catch2 exists on a clean
+    # configure.  System package preferred; fetched only when tests are enabled.
+    find_package(Catch2 3 QUIET)
+    if(Catch2_FOUND)
+        message(STATUS "Catch2: using system package (version ${Catch2_VERSION})")
+    else()
+        message(STATUS "Catch2: system package not found — fetching v3.16.0 from source")
+        FetchContent_Declare(
+            Catch2
+            GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+            GIT_TAG        v3.16.0
+            GIT_SHALLOW    TRUE
+        )
+        set(CATCH_INSTALL_DOCS   OFF CACHE BOOL "" FORCE)
+        set(CATCH_INSTALL_EXTRAS OFF CACHE BOOL "" FORCE)
+        FetchContent_MakeAvailable(Catch2)
+    endif()
+
     add_subdirectory(tests)
 
     # ============================================================

@@ -45,6 +45,53 @@ Open work only. Implemented features are described in
 
 ---
 
+## Catch2 Test Migration
+
+All C++ unit tests move to **Catch2 v3**, resolved in `new_register/CMakeLists.txt` under
+`ENABLE_TESTS` just before `add_subdirectory(tests)` (system package preferred, else FetchContent at
+a pinned tag, currently `v3.16.0`). Motivation: the current suites mix three assertion styles
+(plain `assert`, hand-rolled `CHECK` + failure counter, `TEST`/`PASS`/`FAIL` macros), and plain
+`assert` compiles to nothing under `-DNDEBUG`, so those suites pass without checking anything in a
+Release build.
+
+**Conventions**
+
+- `add_nr_test(<name> CATCH2 ...)` / `add_mriv_test(<name> CATCH2 ...)` links `nr_test_main`, which
+  supplies `main()` (a `Catch::Session`) plus `--data-dir` / `--src-dir`, read through
+  `tests/nr_test.h` (`nrtest::dataDir()`, `nrtest::srcDir()`). A missing fixture must fail
+  (`REQUIRE`), never skip.
+- One CTest entry per executable, existing CTest names kept (`ctest -R OverlapTest`, `-R "^mriv_"`
+  and the suite count keep working). `catch_discover_tests()` can replace this later in the macro.
+- Conversion: each test function → `TEST_CASE("...", "[module]")`, shared setup → `SECTION`;
+  `assert`/`CHECK` → `REQUIRE` where later code depends on it (indexing, dereferencing), `CHECK`
+  otherwise; Catch2 rejects `a && b` inside an assertion, so split those; `approxEqual`-style helpers
+  → `Catch::Matchers::WithinAbs` / `WithinRel`. Delete the old macros, counters and `main()`.
+- Per converted file: CTest name unchanged, reported assertion count comparable to the old checks,
+  and one deliberately broken expectation makes it fail.
+- Out of scope: `headless_ui_tests` (imgui_test_engine harness) and the debug tools (`dump_vol`,
+  `generate_*`).
+
+**Batches**
+
+- [x] Phase 1–2: Catch2 lookup/fetch, `nr_test_main` + `nr_test.h`, `CATCH2` keyword in `add_nr_test()`
+- [x] 3a Pilot: `test_colour_map`, mriv `test_layout`
+- [ ] 3b Remaining 21 mriv suites (plain `assert` — mostly mechanical)
+- [ ] 3c Parent tests without data: transform, app_config, qc_csv, overlay_blend, volume_core,
+      volume_reorient, label_rounding, robust_nonfinite, `csv_test` (new_qc; `nr_test_main` does
+      not depend on `nr_core`)
+- [ ] 3d Parent data-driven tests: real_data, coordinate_sync, world_to_voxel, center_of_mass,
+      thick_slices_com, matrix_debug, tag_load, volume_info, minc_dims, nifti_*, minc_reorient_match,
+      overlap/overlap2, coord_sq2tr, mincpik, test_mode — move paths to `--data-dir` / `--src-dir`
+- [ ] 3e Headless OSMesa tests (`test_coordinate_input`, `test_column_layout`) — GL/ImGui context
+      setup into a fixture
+- [ ] 4 Cleanup: make Catch2 the `add_nr_test()` default and drop the `CATCH2` keyword; make
+      `add_nr_test()` honour `ARGS` (and drop the workaround in `add_mriv_test()`); remove the GCC < 10
+      `stdc++fs` loop if no longer needed
+- [ ] 5 Docs: drop the "unmigrated suites" notes from `AGENTS.md`, `mriv/CLAUDE.md`,
+      `mriv/PLAN.md`, `mriv/PLAN_TESTING.md`, `mriv/HANDOFF.md`
+
+---
+
 ## new_mincpik Performance TODO
 
 CPU hot spots in the headless mosaic pipeline, roughly by impact.

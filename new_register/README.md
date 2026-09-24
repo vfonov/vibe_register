@@ -84,6 +84,7 @@ means `new_register`, `new_mincpik` and `mriv` — everything that links `nr_cor
 | imgui_test_engine, OSMesa | FetchContent / system | Headless UI tests (`ENABLE_TESTS` with `new_register`) |
 | notcurses | System, or self-built with `MRIV_BUILD_NOTCURSES=ON` | `mriv` only |
 | cxxopts | FetchContent | `mriv` only |
+| Catch2 v3 | System package preferred; FetchContent v3.16.0 fallback | Unit tests (`ENABLE_TESTS`) |
 
 ### Build Options
 

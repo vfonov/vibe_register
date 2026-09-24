@@ -47,7 +47,8 @@ ctest -R OverlapTest         # one test by regex; -R "^mriv_" for the subproject
 
 - **Tool selection:** `BUILD_NEW_REGISTER`, `BUILD_NEW_QC`, `BUILD_NEW_MINCPIK`, `BUILD_TERMINAL_VIEWER` (all ON). In `CMakeLists.txt` they derive `NR_NEED_CORE` (MINC stack, Eigen, glm, json → `nr_core`) and `NR_NEED_GUI` (GLFW, Wayland, Vulkan, OpenGL, ImGui). Put any new dependency lookup or fetch under the matching gate, so disabled tools never download it.
 
-- **Adding a test:** plain `assert` in a `main()`, built with the `add_nr_test()` macro (`new_register/tests/CMakeLists.txt`) and registered with `add_test()`. No test frameworks.
+- **Adding a test:** Catch2 v3 `TEST_CASE`s (no `main()`), built with `add_nr_test(<name> CATCH2 ...)` (`new_register/tests/CMakeLists.txt`) and registered with `add_test()`. `CATCH2` links `nr_test_main`, which supplies `main()` plus `--data-dir` / `--src-dir` options read via `tests/nr_test.h`. Older suites are still plain `assert` / hand-rolled checks in a `main()` and are being migrated (`PLAN.md`). No other test framework.
+- Catch2 is resolved in `new_register/CMakeLists.txt` under `ENABLE_TESTS`, just before `add_subdirectory(tests)` — system package preferred, otherwise FetchContent at a pinned release tag.
 - Anything `tests/` links must be found **before** `add_subdirectory(tests)`. A `find_library` placed after it yields an empty variable on a clean configure and only appears to work on re-configure.
 - **macOS code cannot be compiled on Linux.** On `APPLE`, CMake builds `src/main_macos.mm` + `src/MetalBackend.mm` (ARC) instead of `main.cpp` / `WindowManager.cpp`, and `new_qc` uses `src/qc/main_macos.mm` + `src/qc/MetalBackend.mm`; OSMesa tests are disabled. A green Linux build says nothing about those files — keep changes to shared code (`GraphicsBackend`, `Interface`, `CliArgs`) compatible with both entry points.
 
