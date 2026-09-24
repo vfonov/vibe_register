@@ -82,6 +82,7 @@ TEST_CASE("the key legend names every binding", "[qc][status]")
     CHECK_THAT(keys, ContainsSubstring("[/] unrated"));
     CHECK_THAT(keys, ContainsSubstring("s save"));
     CHECK_THAT(keys, ContainsSubstring("q quit"));
+    CHECK_FALSE(keys.find("shot") != std::string::npos);
 }
 
 TEST_CASE("the exit summary reports the tallies and where results went", "[qc][status]")

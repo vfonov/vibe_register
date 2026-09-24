@@ -58,7 +58,7 @@ std::string formatDetailLine(const QcState& state, bool loadFailed)
 std::string formatHotkeyLine()
 {
     return "p pass  w warn  f fail  u clear  arrows prev/next  "
-           "[/] unrated  g/G first/last  s save  S shot  q quit";
+           "[/] unrated  g/G first/last  s save  q quit";
 }
 
 std::string formatSummary(const QcState& state, const std::string& outputPath)

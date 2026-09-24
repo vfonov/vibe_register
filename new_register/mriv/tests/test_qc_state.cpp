@@ -245,12 +245,12 @@ TEST_CASE("q and Escape quit, saving only unsaved changes", "[qc][state]")
     CHECK_FALSE(state.dirty());
 }
 
-TEST_CASE("S asks for a screenshot and resize asks for a redraw", "[qc][state]")
+TEST_CASE("S does nothing and resize asks for a redraw", "[qc][state]")
 {
     auto records = makeRecords(2);
     FakeSaver saver;
     QcState state(records, std::ref(saver));
-    CHECK(state.handleKey('S') == KeyResult::Screenshot);
+    CHECK(state.handleKey('S') == KeyResult::Ignored);
     CHECK(state.handleKey(mriv::term::kKeyResize) == KeyResult::Changed);
     CHECK(state.handleKey('?') == KeyResult::Ignored);
 }

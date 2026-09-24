@@ -527,7 +527,6 @@ As in `new_qc`, an existing results CSV replaces the input on start-up, so a sec
 | `g` Home / `G` End | First / last image |
 | `]` / `[` | Next / previous unrated image, wrapping around |
 | `s` | Save now |
-| `S` | Screenshot of the displayed image (PNG) |
 | `q`, Esc | Save if needed, then quit and print the tallies |
 
 The screen has three text rows (position, id, visit, verdict and tallies; the path, or a one-key-press message; the key legend) above the image. The image is fitted to the remaining pixel box: a small image is magnified by the largest integer factor that fits, and a large one is shrunk. It is centred with a cell offset, not padded onto a canvas, so less bitmap data is sent over SSH. A file that fails to decode shows `cannot load <path>` and a blank frame. When the list is read from stdin, keys are read from `/dev/tty`.

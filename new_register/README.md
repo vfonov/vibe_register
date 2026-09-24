@@ -562,5 +562,4 @@ Every verdict is saved at once. On exit the tallies are printed, e.g.
 | `g` / `Home`, `G` / `End` | First / last image |
 | `]` / `[` | Next / previous unrated image |
 | `s` | Save |
-| `S` | Screenshot (PNG) |
 | `q` / `Esc` | Save and exit |

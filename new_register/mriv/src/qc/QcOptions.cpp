@@ -124,7 +124,6 @@ void printQcHelp(std::ostream& out)
         << "  g / G, Home/End  first / last image\n"
         << "  ] / [            next / previous unrated image\n"
         << "  s                save now\n"
-        << "  S                screenshot (PNG)\n"
         << "  q, Esc           save and quit\n";
 }
 

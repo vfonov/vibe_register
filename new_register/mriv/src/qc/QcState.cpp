@@ -77,8 +77,6 @@ KeyResult QcState::handleKey(char key)
         if (save())
             message_ = "Saved";
         return KeyResult::Changed;
-    case 'S':
-        return KeyResult::Screenshot;
     default:
         return KeyResult::Ignored;
     }

@@ -17,7 +17,6 @@
 #include "qc/QcOptions.hpp"
 #include "qc/QcState.hpp"
 #include "qc/QcStatusLine.hpp"
-#include "render/Screenshot.hpp"
 
 #include "CSVHandler.h"
 
@@ -116,7 +115,6 @@ int runQc(int argc, char** argv, std::istream& in, std::ostream& out, std::ostre
             // redraws the same picture.
             size_t loadedIndex = static_cast<size_t>(-1);
             std::optional<Image> loaded;
-            ResampledImage shown;
 
             auto draw = [&](const QcState& current) {
                 if (current.index() != loadedIndex)
@@ -126,9 +124,10 @@ int runQc(int argc, char** argv, std::istream& in, std::ostream& out, std::ostre
                 }
 
                 auto box = screen.pixelGeometry(kTextRows, 0);
-                shown = loaded ? fitImageToBox(*loaded, static_cast<int>(box.width),
-                                               static_cast<int>(box.height), options.scale)
-                               : ResampledImage{};
+                ResampledImage shown =
+                    loaded ? fitImageToBox(*loaded, static_cast<int>(box.width),
+                                           static_cast<int>(box.height), options.scale)
+                           : ResampledImage{};
 
                 // drawFrame() refuses an empty image, and the previous
                 // picture must not linger under a "cannot load" line: one
@@ -156,16 +155,7 @@ int runQc(int argc, char** argv, std::istream& in, std::ostream& out, std::ostre
 
             auto keys = [&]() { return screen.readKey(); };
 
-            auto takeScreenshot = [&]() {
-                if (!loaded)
-                    return;
-                std::string path = saveScreenshot(shown.pixels.data(), shown.width, shown.height);
-                state.setMessage(path.empty() ? std::string("Screenshot failed")
-                                              : "Screenshot saved: " + path);
-                draw(state);
-            };
-
-            status = runSession(state, keys, draw, takeScreenshot);
+            status = runSession(state, keys, draw);
         }
     }
 
