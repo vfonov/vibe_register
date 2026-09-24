@@ -105,6 +105,9 @@ target_include_directories(mriv_qc_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_include_directories(mriv_qc_lib PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
 target_link_libraries(mriv_qc_lib PUBLIC mriv_term qc_csv cxxopts::cxxopts)
 
+add_executable(mriv_qc src/qc/main.cpp src/qc/QcRun.cpp)
+target_link_libraries(mriv_qc PRIVATE mriv_qc_lib)
+
 if(ENABLE_TESTS)
     add_subdirectory(tests)
 endif()
