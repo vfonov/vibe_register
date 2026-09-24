@@ -1,6 +1,6 @@
 # Neuro Slop for the Neuro Science
 
-## 100% Vibe coded register replacement, C++17 , Vulkan with OpenGL2 fallback, ImGui
+## 100% Vibe coded register replacement, C++17 , Vulkan with OpenGL2 fallback (Metal on macOS), ImGui
 
 ![Register with two volumes](images/two_volumes.png)
 
@@ -16,6 +16,6 @@ Original register (human coded 1993-2024): https://github.com/BIC-MNI/register ,
 
 Build instructions, command-line usage, configuration and QC-mode docs: [new_register/README.md](new_register/README.md).
 
-See [FUTURE.md](FUTURE.md) for planned improvements and enhancements.
+See [PLAN.md](PLAN.md) for planned improvements and enhancements.
 
 **YMMV!**

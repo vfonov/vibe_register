@@ -23,7 +23,7 @@ The same build also produces:
 - QC batch review mode
 - Screenshot capture (`P` key → `screenshot000001.png`, auto-incrementing)
 - JSON config persistence (`config.json`)
-- Hotkey reference panel in the UI
+- Hotkey reference window (`H` / `?`, or the `[?] Hotkeys` button)
 
 ## Building (Linux)
 
@@ -70,11 +70,11 @@ means `new_register`, `new_mincpik` and `mriv` — everything that links `nr_cor
 
 | Dependency | How it is obtained | Notes |
 |---|---|---|
-| `minc2-simple` | FetchContent from GitHub (develop branch) | MINC2 I/O. MINC tools |
+| `minc2-simple` | ExternalProject from GitHub (develop branch) | MINC2 I/O. MINC tools |
 | `libminc` | From minc-toolkit if present, otherwise ExternalProject | MINC tools |
 | HDF5, NetCDF, zlib | From minc-toolkit if present, otherwise system | MINC tools. See [Building against minc-toolkit](#building-against-minc-toolkit) |
 | ImGui | Fetched by CMake (Docking branch) | GUI tools |
-| GLFW | System (or `FETCH_GLFW=ON` for 3.4) | GUI tools; not used on macOS. 3.4 fixes Wayland touch events |
+| GLFW | System package if found, otherwise 3.4 fetched automatically (`FETCH_GLFW=ON` forces the fetch) | GUI tools; not used on macOS. 3.4 fixes Wayland touch events |
 | Vulkan | System, optional | GUI tools. OpenGL 2 fallback available |
 | nlohmann/json | System package preferred; FetchContent v3.11.3 fallback | MINC tools |
 | Eigen | System package preferred (3.3+ or 5.x); ExternalProject 5.0.1 fallback | MINC tools. Transform math |
@@ -92,7 +92,7 @@ means `new_register`, `new_mincpik` and `mriv` — everything that links `nr_cor
 | `ENABLE_VULKAN` | ON (OFF on macOS) | Build the Vulkan backend (needs `libvulkan-dev`) |
 | `ENABLE_OPENGL2` | ON (OFF on macOS) | Build the OpenGL 2 backend (needs `libgl-dev`) |
 | `ENABLE_METAL` | OFF (ON on macOS) | Build the Metal backend |
-| `ENABLE_TESTS` | ON (OFF on macOS) | Build the headless UI tests (requires OSMesa) |
+| `ENABLE_TESTS` | ON (OFF on macOS) | Build the new_register CTest suites (`tests/`, plus the headless UI tests, which need OSMesa when `BUILD_NEW_REGISTER` is on) |
 | `BUILD_NEW_REGISTER` | ON | Build `new_register` |
 | `BUILD_NEW_QC` | ON | Build `new_qc` |
 | `BUILD_NEW_MINCPIK` | ON | Build `new_mincpik` |
@@ -193,8 +193,9 @@ new_register [options] [volume1.mnc volume2.nii.gz ...]
 Positional arguments are volume file paths: `.mnc`, `.mnc.gz`, `.nii`, `.nii.gz`.
 Colour-map, range and label flags apply to the next volume on the command line.
 
-Running with no arguments prints help and exits. Use `--test` to launch with
-a generated test volume.
+Running with no volume arguments (and no QC CSV) prints an error and a usage hint and
+exits with status 1. Use `--help` for the full option list, or `--test` to launch
+with a generated test volume.
 
 ### Examples
 
@@ -232,13 +233,15 @@ Run in QC mode:
 
 | Key | Action | Mode |
 |---|---|---|
+| `+` / `-` | Step one slice in the last-clicked view (keypad `+`/`-` too) | All |
 | `R` | Reset all views (zoom, pan, slice positions) | All |
 | `Q` | Quit | All |
 | `C` | Toggle clean mode (hide control panels) | All |
 | `P` | Save screenshot (`screenshot000001.png`, auto-incrementing) | All |
-| `T` | Toggle tag list window | Normal only |
+| `H` / `?` | Toggle the hotkey reference window | All |
 | `]` | Next QC dataset | QC only |
 | `[` | Previous QC dataset | QC only |
+| `1`..`9`, `0` | Set the row verdict (1st..10th option) and advance to the next row | `--qc1` only |
 
 ### Mouse Controls
 
@@ -256,7 +259,8 @@ Run in QC mode:
 Configuration is stored as JSON. The config file is loaded from `./config.json`
 in the current directory, or from a path specified with `--config`.
 
-The "Save Local" button in the UI writes to the active config path.
+The "Save Config" and "Load Config" buttons in the Tools panel open a file dialog
+to write or read a config file.
 
 ### config.json (Regular Mode)
 
@@ -303,6 +307,12 @@ The "Save Local" button in the UI writes to the active config path.
 | `sync_pan` | bool | `false` | Synchronize pan position across volumes |
 | `tag_list_visible` | bool | `false` | Show the tag list window on startup |
 | `show_overlay` | bool | `true` | Show the overlay comparison panel |
+| `show_crosshairs` | bool | `true` | Draw crosshairs on the slice views |
+| `auto_save_tags` | bool | `false` | Save tags automatically on every edit |
+| `transform_type` | string | `"LSQ6"` | Tag transform: `LSQ6`, `LSQ7`, `LSQ9`, `LSQ10`, `LSQ12` or `TPS` |
+| `view_visible` | [bool, bool, bool] | `[true,true,true]` | Show the axial, sagittal and coronal views |
+| `font_path` | string | built-in font | TTF font file for the UI |
+| `font_size` | float | `13.0` | UI font size in pixels (at 1.0x scale) |
 
 ### Volume Config Fields
 
@@ -317,6 +327,9 @@ The "Save Local" button in the UI writes to the active config path.
 | `zoom` | [double, double, double] | `[1,1,1]` | Per-view zoom levels (sagittal, coronal, axial) |
 | `pan_u` | [double, double, double] | `[0.5,0.5,0.5]` | Per-view horizontal pan center |
 | `pan_v` | [double, double, double] | `[0.5,0.5,0.5]` | Per-view vertical pan center |
+| `is_label_volume` | bool | `false` | Treat the volume as a label/segmentation volume |
+| `label_description_file` | string | none | Label colour/name lookup table |
+| `use_log_transform` | bool | `false` | Apply log10 before colour mapping |
 
 All volume fields except `path` are optional; omitted fields use their defaults.
 
@@ -350,7 +363,7 @@ Any map can be inverted (`invert_colour_map`, or the invert control in the UI).
 
 QC mode is a batch review workflow for rating medical imaging datasets.
 Users step through rows of a CSV file, viewing the volumes for each row
-side by side, and marking each column as PASS or FAIL with optional
+side by side, and marking each column as PASS, WARN or FAIL with optional
 comments. Verdicts are auto-saved to the output CSV on every change.
 
 Use `--qc1` instead of `--qc` to record a single verdict per row rather than
@@ -359,6 +372,9 @@ one per column:
 ```bash
 ./new_register --qc1 input.csv --qc-output results.csv
 ```
+
+In `--qc1` mode the digit keys set the verdict and advance to the next row, and the
+output CSV has the simplified form `ID,verdict,comment`.
 
 ### QC Input CSV Format
 
@@ -391,7 +407,7 @@ sub-002,PASS,,PASS,
 sub-003,,,,
 ```
 
-- Verdict values: `PASS`, `FAIL`, or empty (unrated).
+- Verdict values: `PASS`, `WARN`, `FAIL`, or empty (unrated).
 - If the output file already exists when QC mode starts, previous verdicts
   are loaded and the viewer jumps to the first unrated row.
 
@@ -430,10 +446,9 @@ The keys under `qc_columns` must match the CSV column headers exactly.
 
 ### QC Mode Behavior
 
-- Tags are completely disabled (no creation, no list, no `T` key).
-- "Save Local" button is hidden.
+- Tags are completely disabled (no creation, no tag list).
 - The QC list panel on the left shows all rows with colour-coded status
-  (green = all pass, red = any fail, gray = unrated).
+  (green = all pass, amber = worst verdict WARN, red = any fail, uncoloured = not fully rated).
 - Navigate with `[`/`]` keys or by clicking rows in the QC list.
 - Verdict panels appear below each volume's slice views.
 - Clean mode (`C`) hides control panels but keeps verdict panels visible.

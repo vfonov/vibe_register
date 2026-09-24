@@ -15,8 +15,7 @@ background) lives in [`new_register/README.md`](new_register/README.md).
 | `new_register/mriv/` | Terminal slice viewer built on `nr_core`. **Read [`new_register/mriv/CLAUDE.md`](new_register/mriv/CLAUDE.md) before working there** — it has its own rules (TDD, cxxopts, reuse boundary) |
 
 Other docs: [`PLAN.md`](PLAN.md) — roadmap, including the C++23 migration ·
-[`problem.md`](problem.md) — record new bugs here ·
-[`research.md`](research.md) — architecture deep-dive (dated; verify against the code).
+[`problem.md`](problem.md) — record new bugs here.
 
 ---
 
@@ -29,7 +28,7 @@ Other docs: [`PLAN.md`](PLAN.md) — roadmap, including the C++23 migration ·
 5. **No reformatting** — match the file's existing style and leave unrelated lines alone. Lint (`cppcheck` / `clang-tidy`) only the files you changed.
 6. **Prefer the LSP tool** (go-to-definition, find-references, hover) over `grep` for symbol search in `new_register/`.
 7. **No absolute paths in source or tests.** Pass paths as arguments; use `CMAKE_CURRENT_SOURCE_DIR` for test data paths in CMake.
-8. **Hotkeys:** any change to a hotkey or mouse interaction must update `Interface::renderHotkeyPanel()` and the shortcut tables in `new_register/README.md`.
+8. **Hotkeys:** any change to a hotkey or mouse interaction must update `Interface::renderHotkeyPopup()` and the shortcut tables in `new_register/README.md`.
 9. **libminc/HDF5 are not thread-safe** — volume loading, including `Prefetcher`, stays on the main thread.
 10. **CLI flags go through `CliArgs.{h,cpp}`** so `main.cpp` and `main_macos.mm` stay in sync; update `printUsage()` and the README options table with them.
 11. **Don't reorder dependency detection** in `new_register/CMakeLists.txt` — see below.
@@ -42,7 +41,7 @@ Other docs: [`PLAN.md`](PLAN.md) — roadmap, including the C++23 migration ·
 cd new_register/build
 cmake ..
 make -j$(nproc)
-ctest --output-on-failure    # all tools enabled: 50 suites — 27 from new_register/tests/, 23 mriv_* from mriv/
+ctest --output-on-failure    # all tools enabled: 53 suites — 29 from tests/, headless_ui_tests, 23 mriv_*
 ctest -R OverlapTest         # one test by regex; -R "^mriv_" for the subproject
 ```
 
@@ -58,7 +57,7 @@ ctest -R OverlapTest         # one test by regex; -R "^mriv_" for the subproject
 |--------|-------|---------|
 | `tests/dump_vol` | `dump_vol <file.mnc> [...]` | Print dims, step, start, dirCos, voxelToWorld, corner world coords |
 | `tests/generate_overlap_refs` | `generate_overlap_refs <sq1.mnc> <sq2_tr.mnc> <out_dir>` | Render and save reference PNGs for OverlapTest |
-| `tests/generate_headless_baselines` | `generate_headless_baselines <tests_dir>` | Regenerate baseline PNGs for the headless UI tests |
+| `generate_headless_baselines` | `generate_headless_baselines <tests_dir>` | Regenerate baseline PNGs for the headless UI tests |
 | `tests/generate_test_mode_refs` | `generate_test_mode_refs <out_dir>` | Regenerate reference images for TestModeRenderTest |
 
 ---
@@ -92,11 +91,13 @@ src/AppState.cpp          Volume lifecycle, LRU cache, tags, transform dispatch
 src/Interface.cpp         ALL ImGui UI (~3000 lines; refactoring candidate): views, QC panels, tag list, hotkey panel
 src/ViewManager.cpp       Texture generation, overlay compositing, cursor sync
 src/Volume.cpp            Volume::load() — dispatches to MINC2 (minc2-simple) or NIfTI (NiftiVolume.cpp) by extension
+src/VolumeReorient.cpp    Shared file-order → Volume::data reorientation (MINC and NIfTI loaders)
 src/SliceRenderer.cpp     CPU slice extraction + colour mapping (shared with new_mincpik and mriv)
 src/Transform.cpp         Tag-based registration: LSQ6/7/9/10/12 + TPS (Eigen)
 src/QCState.cpp           QC CSV parsing (RFC 4180) + verdict state
 src/Prefetcher.cpp        QC row prefetching (main thread only)
 src/BackendFactory.cpp    Runtime backend selection + fallback chain
+src/WindowManager.cpp     GLFW window (non-macOS); src/WaylandTouchInput.cpp — Wayland touch gestures
 src/VulkanBackend.cpp, VulkanHelpers.cpp, OpenGL2Backend.cpp    GPU backends
 src/headless_test_main.cpp, src/backends/imgui_impl_osmesa.*    Headless (OSMesa) UI test harness
 src/mincpik/              new_mincpik — headless mosaic PNG generator
@@ -110,9 +111,9 @@ tests/                    CTest sources, reference PNGs, sq1/sq2 test volumes, d
 
 ## Architecture invariants
 
-- **`nr_core` stays GPU-free** (Volume, NiftiVolume, Transform, AppConfig, SliceRenderer, ColourMap, TagWrapper, CliArgs) — `new_mincpik` and `mriv` link it headless.
+- **`nr_core` stays GPU-free** (Volume, NiftiVolume, VolumeReorient, Transform, AppConfig, SliceRenderer, ColourMap, TagWrapper, CliArgs) — `new_mincpik` and `mriv` link it headless.
 - **`Interface` talks only to the abstract `GraphicsBackend`** (`createTexture`, `updateTexture`, `beginFrame`, `endFrame`, `captureScreenshot`, `requestClose`, `windowSize`, …), never to GLFW directly.
-- **Backend fallback chain:** Vulkan → OpenGL2 → OpenGL2-EGL (`BackendFactory.cpp`; `--backend` overrides). Vulkan texture uploads wait on a `VkFence`, not `vkQueueWaitIdle`; `VulkanHelpers` keeps a persistent staging buffer and a dedicated upload command pool.
+- **Backend fallback chain:** Vulkan → OpenGL2 → OpenGL2-EGL (`BackendFactory.cpp` orders backends; the EGL retry lives in `main.cpp`; `--backend` overrides). Vulkan texture uploads wait on a `VkFence`, not `vkQueueWaitIdle`; `VulkanHelpers` keeps a persistent staging buffer and a dedicated upload command pool.
 - **QC verdict state lives in `QCState`**, not `AppState`; `Interface` polls it.
 - **Dock layout** is rebuilt from scratch in `Interface::render()` whenever the viewport size changes; all splits are fractional.
 - `mriv` uses cxxopts while the parent hand-rolls CLI parsing — a deliberate choice; don't "align" them.
@@ -135,6 +136,6 @@ tests/                    CTest sources, reference PNGs, sq1/sq2 test volumes, d
 
 ## Known open issues
 
-**None currently.** All 50 CTest suites pass on Linux. Record new issues in [`problem.md`](problem.md)
+**None currently.** All 53 CTest suites pass on Linux. Record new issues in [`problem.md`](problem.md)
 and link them here. `problem.md` also keeps the resolved OverlapTest post-mortem — the reference for
 the `voxelToWorld` / `worldToVoxel` conventions.

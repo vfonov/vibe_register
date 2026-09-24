@@ -1,14 +1,12 @@
-# problem.md — Post-Mortem: OverlapTest Resampling Bug (RESOLVED)
+# problem.md — Issue Log
 
-## Status
-
-**RESOLVED** — OverlapTest passes; kept as a reference for the coordinate-transform conventions and as the template for recording future issues.
-
-> Everything below describes the bug **as it stood before the fix**, in the present tense of the original report. It is retained for the diagnostic reasoning, not as a description of current behaviour. Jump to [Resolution](#resolution) for what actually changed.
-
-OverlapTest now passes. The coordinate conversion bug in `renderOverlaySlice()` was fixed by rewriting the world-space transform chain in `Volume.cpp` and `SliceRenderer.cpp`. All reference PNGs now match.
+Record new issues here, newest last, and link open ones from `AGENTS.md` → *Known open issues*.
+The first entry (OverlapTest) is kept as the reference for the `voxelToWorld` / `worldToVoxel`
+conventions and the diagnosis workflow.
 
 ---
+
+# OverlapTest Resampling Bug (RESOLVED)
 
 ## What the test does
 
@@ -41,30 +39,17 @@ This approach is verified correct by an independent tool chain. The resulting PN
 
 ---
 
-## What was broken (historical)
+## What was broken
 
-`renderOverlaySlice()` performs its own world-space resampling:
-for each output pixel in `sq1`'s grid → compute world coordinates → map to `sq2_tr` voxel space → nearest-neighbor sample.
+`renderOverlaySlice()` (`new_register/src/SliceRenderer.cpp`) resamples in world space: for each
+output pixel in `sq1`'s grid → world coordinates (`refV2W`, from `ref.voxelToWorld`) → `sq2_tr` voxel
+space (`PerVolInfo::worldToVox`, from `vol.worldToVoxel`) → nearest-neighbour sample. Its output
+differed from the ground truth by hundreds of pixels per slice. `Overlap2Test` (identity direction
+cosines) passed throughout, which isolated the bug to the coordinate mapping for rotated volumes with
+different voxel sizes — not the LUT, blending or pixel format.
 
-The current implementation produces output that differs from the ground truth by **hundreds of pixels** per slice. The mismatch count was **unchanged** before and after the rendering was rewritten from a scanline-delta approach to a per-pixel world-space transform approach, which suggests the bug is systematic — likely in the coordinate transform chain itself, not the blending or LUT logic.
-
----
-
-## Where the bug lived (historical)
-
-The relevant code is entirely in:
-
-- **`new_register/src/SliceRenderer.cpp`** — function `renderOverlaySlice()`, specifically:
-  - The construction of `PerVolInfo::worldToVox` (populated from `vol.worldToVoxel`)
-  - The `refV2W` matrix (from `ref.voxelToWorld`)
-  - The per-pixel transform: `ref voxel → world → sq2_tr voxel`
-- **`new_register/src/Volume.cpp`** — how `voxelToWorld` and `worldToVoxel` are built from MINC2 metadata (step, start, direction cosines)
-
-Candidate causes:
-
-1. **Wrong matrix convention** — `voxelToWorld` or `worldToVoxel` may have incorrect column/row ordering, or may not account for MINC2's start offset correctly.
-2. **Origin/start mismatch** — MINC2 `start` encodes the world coordinate of voxel (0,0,0). If the affine is built as `R × diag(step)` without the start translation, all coordinates will be shifted.
-3. **Axis ordering** — MINC2 stores data as (Z, Y, X) in memory. If the affine maps (X,Y,Z) but the data is indexed as (Z,Y,X), the wrong voxels are sampled.
+Candidate causes checked: matrix row/column convention, a missing MINC2 `start` translation, and
+(Z,Y,X) storage vs (X,Y,Z) affine axis ordering.
 
 ---
 
@@ -77,9 +62,9 @@ cd new_register/build
 ./tests/dump_vol ../tests/sq1.mnc ../tests/sq2_tr.mnc
 ```
 
-This prints dims, step, start, direction cosines, the full `voxelToWorld` 4×4 matrix, and world coordinates of the volume corners. Cross-check the printed world corners against what an external MINC tool reports (e.g., `mincinfo`, `minc_modify_header`, or the resampling tool used to generate the references).
+This prints dims, step, start, direction cosines, the full `voxelToWorld` 4×4 matrix, and world coordinates of the volume corners. Cross-check the printed world corners against what an external MINC tool reports (e.g., `mincinfo`, or the resampling tool used to generate the references).
 
-A mismatch in corner world coordinates between `dump_vol` and external tools would pinpoint the affine construction bug in `Volume.cpp`.
+A mismatch in corner world coordinates between `dump_vol` and external tools pinpoints an affine construction bug in `Volume.cpp`.
 
 ---
 
@@ -94,14 +79,6 @@ The fix was verified by:
 - `dump_vol` debug tool confirming corner world coordinates match external MINC tools
 - All three reference PNGs (axial, sagittal, coronal) now matching pixel-perfect
 - `Overlap2Test` continues to pass (identity direction cosines)
-
----
-
-## What is NOT broken (historical)
-
-- `Overlap2Test` (sq1 + sq2.mnc, identity dirCos) **passes** — both volumes are axis-aligned, so coordinate mapping errors cancel out or are too small to cause mismatches at nearest-neighbor resolution.
-- The LUT, blending, and output pixel format are all correct (verified by Overlap2Test passing and by `generate_overlap_refs` + test round-trip).
-- ~~The bug is **specifically in the world-space coordinate mapping** for volumes with non-identity direction cosines and different voxel sizes.~~ (FIXED)
 
 ---
 

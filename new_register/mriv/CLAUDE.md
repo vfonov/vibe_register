@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for Claude Code working in this subproject. **Read `PLAN.md` for the design, scope and milestone status** — this file only covers *how* to work, not *what* to build. The subproject is implemented through milestone M5; M6 (macOS verification, standalone build, a mriv README) is still open.
+Guidance for Claude Code working in this subproject. **Read `PLAN.md` for the design, scope and milestone status** — this file only covers *how* to work, not *what* to build. The subproject is implemented through milestone M5. M6 is partly done: the self-built static binary (`MRIV_BUILD_NOTCURSES=ON`) is verified on macOS. Still open: the `mriv_*` suites and the system-notcurses path on macOS, a standalone build, and a mriv README.
 
 ## Context: this is a subproject
 
@@ -29,7 +29,7 @@ The rule to internalize: **if you find yourself writing MINC2 or NIfTI parsing, 
    - `new_register/include/ColourMap.h` — `ColourMapType`
    - `new_register/include/NiftiVolume.h` — for context on how `Volume::load()` dispatches
    Also skim `new_register/src/mincpik/` — it is the parent's other headless `nr_core` consumer and shows the intended usage pattern.
-3. Skim the existing code in this subproject for the module you're about to change. For tests, `PLAN_TESTING.md` describes the three layers (A: escape-sequence structure, B: decoded pixels, C: CLI integration) and the seams they rely on. `HANDOFF.md` §3 lists build and terminal traps verified the hard way.
+3. Skim the existing code in this subproject for the module you're about to change. For tests, `PLAN_TESTING.md` describes the three layers (A: escape-sequence structure, B: decoded pixels, C: CLI integration) and the seams they rely on. `HANDOFF.md` lists the build and terminal traps verified the hard way, plus the manual real-terminal checks still pending.
 4. If the task is ambiguous, or seems to conflict with `PLAN.md`, or would require duplicating parent-project code, ask before writing code. Do not silently reinterpret the spec or reinvent existing components.
 
 ## How to work: red-green-refactor TDD
@@ -48,7 +48,7 @@ Commit at the end of each green step (or each green-plus-refactor cycle). Small 
 - **Unit tests** for the code that genuinely lives here: the notcurses wrapper, CLI parsing, the resampler-to-terminal-cells math (including the `slicePixelAspect()` correction), the `--axis` → `viewIndex` mapping.
 - **Integration tests** using tiny sample volumes that exercise the full path from CLI invocation to encoded output. Capture the escape-sequence output to a buffer and assert on structure, not exact bytes.
 - **No test needs a real terminal.** `MRIV_TEST_RENDER` is the seam: when set, the one-shot path swaps the real ncdirect `Terminal` for a test-mode one that writes Kitty graphics escapes to a stream (`MRIV_TEST_RENDER=none` forces the no-pixel-support branch instead). The CLI integration tests (`tests/test_cli.cpp`) set it themselves. What a real emulator paints is checked by hand.
-- **Framework: the parent's.** Plain `assert` in a `main()`. Register with `add_mriv_test(<name> [ARGS ...])` in `tests/CMakeLists.txt`: it wraps the parent's `add_nr_test()` (`new_register/tests/CMakeLists.txt:25`), links `mriv_lib` + `mriv_test_support`, and adds the `mriv_<name>` CTest entry with `ARGS` forwarded (the parent macro accepts `ARGS` but ignores it). Do not add doctest, GoogleTest, Catch2, or anything else — the parent has none, and its 27 suites get along fine without one.
+- **Framework: the parent's.** Plain `assert` in a `main()`. Register with `add_mriv_test(<name> [ARGS ...])` in `tests/CMakeLists.txt`: it wraps the parent's `add_nr_test()` (`new_register/tests/CMakeLists.txt:25`), links `mriv_lib` + `mriv_test_support`, and adds the `mriv_<name>` CTest entry with `ARGS` forwarded (the parent macro accepts `ARGS` but ignores it). Do not add doctest, GoogleTest, Catch2, or anything else — the parent has none, and its suites get along fine without one.
 - **No absolute paths in test source.** Pass data paths as command-line arguments from CMake (`AGENTS.md`, "Hard rules").
 
 ### When TDD is genuinely awkward
@@ -116,7 +116,7 @@ Sample volumes for smoke testing live in `test_data/` at the repo root (tests re
 - Do not reimplement volume reading, slice extraction, intensity windowing, colour mapping, or metadata parsing. `nr_core` provides all of these.
 - Do not add niftilib, DCMTK, GDCM, MINC, or HDF5 to this subproject's link list. Link `nr_core`; it brings them transitively.
 - Do not replace cxxopts with a hand-rolled parser to "match the parent." See the divergence note above.
-- Do not add doctest, GoogleTest, or Catch2. Use `add_nr_test()` and plain `assert`.
+- Do not add doctest, GoogleTest, or Catch2. Use `add_mriv_test()` and plain `assert`.
 - Do not modify parent-project source from commits in this subproject unless explicitly tasked to.
 - Do not add a GUI here. Not Qt, not ImGui, not "just for previewing." The parent has ImGui; this subproject is the terminal path.
 - Do not swap notcurses for FTXUI, ncurses, or hand-rolled escape sequences.

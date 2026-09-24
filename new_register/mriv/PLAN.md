@@ -1,6 +1,6 @@
 # PLAN.md
 
-Design and scope of the terminal-based medical-image slice viewer, delivered as a **subproject** at `new_register/mriv/`, inside the parent ImGui-based application. `CLAUDE.md` covers *how* to work here; this document covers *what* it does and — critically — what **not** to build because the parent already provides it. Milestones M1–M5 are implemented; M6 is open (see [Milestones](#milestones)). `PLAN_TESTING.md` covers the test strategy; `HANDOFF.md` records the implementation traps referenced below.
+Design and scope of the terminal-based medical-image slice viewer, delivered as a **subproject** at `new_register/mriv/`, inside the parent ImGui-based application. `CLAUDE.md` covers *how* to work here; this document covers *what* it does and — critically — what **not** to build because the parent already provides it. Milestones M1–M5 are implemented; M6 is partly done (see [Milestones](#milestones)). `PLAN_TESTING.md` covers the test strategy; `HANDOFF.md` records the implementation traps referenced below.
 
 ## Project overview
 
@@ -36,17 +36,17 @@ This is the most important part of the spec. **This subproject exists to add a t
 
 ### What the parent already provides (do not reimplement)
 
-The parent is `new_register/`, the directory this subproject sits inside. Its GPU-free static library target is **`nr_core`** (`new_register/CMakeLists.txt:702`), which bundles exactly the layer this subproject needs: `Volume`, `SliceRenderer`, `ColourMap`, `Transform`, `TagWrapper`, `AppConfig`, `NiftiVolume` (plus the parent's own `CliArgs`, which mriv does not use). `new_mincpik` is an existing headless consumer of `nr_core` and is the closest working model for what `mriv` should be.
+The parent is `new_register/`, the directory this subproject sits inside. Its GPU-free static library target is **`nr_core`** (`add_library(nr_core …)` in `new_register/CMakeLists.txt`), which bundles exactly the layer this subproject needs: `Volume`, `VolumeReorient`, `SliceRenderer`, `ColourMap`, `Transform`, `TagWrapper`, `AppConfig`, `NiftiVolume` (plus the parent's own `CliArgs`, which mriv does not use). `new_mincpik` is an existing headless consumer of `nr_core` and is the closest working model for what `mriv` should be.
 
 The concrete API surface — this list replaces any need for a separate parent-API survey:
 
 **Volume loading — `include/Volume.h`**
 
 ```cpp
-void Volume::load(const std::string& filename);   // Volume.h:57, throws std::runtime_error
+void Volume::load(const std::string& filename);   // throws std::runtime_error
 ```
 
-One entry point for every supported format. It dispatches on the filename: `isNiftiFile()` → `loadNiftiFile()` for `.nii` / `.nii.gz` (`include/NiftiVolume.h`), otherwise the MINC2 path via minc2-simple (`src/Volume.cpp:189`). **`mriv` never sniffs formats, never opens a file itself, and never links a format library.**
+One entry point for every supported format. It dispatches on the filename: `isNiftiFile()` → `loadNiftiFile()` for `.nii` / `.nii.gz` (`include/NiftiVolume.h`), otherwise the MINC2 path via minc2-simple (`Volume::load()` in `src/Volume.cpp`). **`mriv` never sniffs formats, never opens a file itself, and never links a format library.**
 
 **Metadata — public members of `Volume`**
 
@@ -90,7 +90,7 @@ This is the percentile primitive behind `--auto-window`. Call it; do not write a
 **Pixel aspect — `include/Volume.h`**
 
 ```cpp
-double Volume::slicePixelAspect(int axisU, int axisV) const;   // Volume.h:76
+double Volume::slicePixelAspect(int axisU, int axisV) const;
 ```
 
 Returns `|step[axisU]| / |step[axisV]|`. Voxels are routinely anisotropic in this domain (2–5 mm slice thickness against 1 mm in-plane is normal). **The resampler must apply this factor or every non-isotropic volume renders visibly stretched.** This is a hard requirement, not a refinement.
@@ -138,13 +138,13 @@ This subproject adds exactly two things on top of `nr_core`:
 
 No test framework is fetched — we reuse the parent's (see [Testing](#testing)).
 
-Notably **not** dependencies of this subproject, because `nr_core` already links them transitively (`new_register/CMakeLists.txt:714`): minc2-simple, MINC2/libminc, HDF5, NetCDF, zlib, glm, nlohmann_json, Eigen, and the vendored niftilib (`nifti1_io.c`, `znzlib.c`).
+Notably **not** dependencies of this subproject, because `nr_core` already links them transitively (`target_link_libraries(nr_core …)` in `new_register/CMakeLists.txt`): minc2-simple, MINC2/libminc, HDF5, NetCDF, zlib, glm, nlohmann_json, Eigen, and the vendored niftilib (`nifti1_io.c`, `znzlib.c`).
 
 If you are about to add any of those to this subproject's `CMakeLists.txt`, stop — link `nr_core` and call its API instead.
 
 ### Platforms
 
-Whatever the parent supports: Linux and macOS. Do not extend or restrict that matrix. Linux is built and tested; macOS verification is still open (M6). The parent defaults `ENABLE_TESTS` to `OFF` on macOS (its headless UI tests need OSMesa), and `mriv/tests/` is gated on the same option, so the `mriv_*` suites are not built there by default.
+Whatever the parent supports: Linux and macOS. Do not extend or restrict that matrix. Linux is built and tested. On macOS the self-built static binary (`MRIV_BUILD_NOTCURSES=ON`) is verified; the rest of macOS verification is still open (M6). The parent defaults `ENABLE_TESTS` to `OFF` on macOS (its headless UI tests need OSMesa), and `mriv/tests/` is gated on the same option, so the `mriv_*` suites are not built there by default.
 
 ## Build integration
 
@@ -177,9 +177,13 @@ option is set; the default configure never touches it.
 - Downloads and builds notcurses (`v3.0.17`, pinned) and libunistring (`1.4.2`, pinned,
   sha256-verified tarball) from source via `ExternalProject_Add`, both statically linked.
   libunistring is built as its own contained `ExternalProject` (GNU autotools, static-only,
-  `--with-pic`) rather than required as a system package — unlike tinfo/zlib, it's a hard,
+  `--with-pic`) rather than required as a system package — unlike zlib, it's a hard,
   non-optional notcurses build dependency with no `USE_UNISTRING=OFF` escape hatch upstream,
   and is frequently absent even on otherwise well-provisioned hosts.
+- tinfo is built from source too (ncurses `--with-termlib`, static), and notcurses' vendored
+  `CMakeLists.txt` is patched (`cmake/patch_notcurses_tinfo.cmake`) to consume it directly —
+  upstream otherwise requires `pkg-config` just to locate tinfo, and macOS ships neither a
+  `tinfo.pc` nor a `pkg-config` executable. This path needs no `pkg-config` at all.
 - notcurses is configured with every optional feature off (`USE_MULTIMEDIA=none`,
   `USE_CXX=OFF`, `USE_DEFLATE=OFF`, `USE_QRCODEGEN=OFF`, `USE_GPM=OFF`, docs/tests/executables
   off) — mriv only uses the core C API (`ncdirect_*` for one-shot output, full `notcurses_*` for
@@ -190,15 +194,15 @@ option is set; the default configure never touches it.
   `ncdirect_init()` themselves are defined in `src/media/shim.c`, which upstream's CMakeLists
   glob places in the *multimedia* target, not core. With `USE_MULTIMEDIA=none` this only pulls
   in a harmless stub backend, not real media-decoding code.
-- Base-OS runtime libraries (`libm`, `librt`, `tinfo`) stay dynamic, same as any other Linux
-  binary — only notcurses and libunistring are statically linked. The parent project globally
+- Base-OS runtime libraries (`libm`, `librt`) stay dynamic, same as any other Linux
+  binary — notcurses, libunistring and tinfo are statically linked. The parent project globally
   prefers `.a` over `.so` in `find_library()` resolution (for libminc's own deps); this file
   overrides that back to `.so`-first in its own directory scope before resolving those three,
-  to avoid accidentally linking glibc's static `libm.a`/`librt.a` (which pulls in surprising
+  before resolving those, to avoid accidentally linking glibc's static `libm.a`/`librt.a` (which pulls in surprising
   extra undefined symbols and produces `DT_TEXTREL` in a PIE binary).
 - `-DBUILD_TERMINAL_VIEWER=OFF` (the pre-existing option gating `add_subdirectory(mriv)` in the
-  parent's `CMakeLists.txt`) skips this subproject — and therefore notcurses, cxxopts, and
-  libunistring — entirely; the rest of `new_register` builds and tests with zero exposure to
+  parent's `CMakeLists.txt`) skips this subproject — and therefore notcurses, cxxopts,
+  libunistring and tinfo — entirely; the rest of `new_register` builds and tests with zero exposure to
   any of mriv's dependencies either way.
 
 ### Standalone build (planned — M6)
@@ -542,7 +546,7 @@ sudo apt install -y libnotcurses-dev
 
 Install `libnotcurses-dev`, **not** `libnotcurses++-dev` — we use the C API only, and the C++ bindings package exists solely to provide `ncpp::`, which is banned here. `cxxopts` is fetched via CMake.
 
-No `libnotcurses-dev`? Configure with `-DMRIV_BUILD_NOTCURSES=ON` instead — it downloads and statically builds notcurses (and its libunistring dependency) from source, with no system notcurses package required. See "From-source notcurses" under [Build integration](#build-integration).
+No `libnotcurses-dev`? Configure with `-DMRIV_BUILD_NOTCURSES=ON` instead — it downloads and statically builds notcurses (and its libunistring and tinfo dependencies) from source, with no system notcurses package required. See "From-source notcurses" under [Build integration](#build-integration).
 
 For visual testing on the dev host, a pixel-capable terminal: `kitty`, `wezterm`, or Ghostty.
 
@@ -557,30 +561,18 @@ For visual testing: iTerm2, Kitty, Ghostty, or WezTerm. **Do not rely on the bui
 ### Sanity check
 
 ```bash
-pkg-config --modversion notcurses    # 3.0.7 on the current dev host
+pkg-config --modversion notcurses    # Linux; 3.0.7 on the current dev host
 ```
 
-This only reports the installed version; the build itself locates notcurses with `find_path`/`find_library` and does not need a `.pc` file.
+This only reports the installed version (macOS has no `pkg-config`; check the Homebrew formula version instead); the build itself locates notcurses with `find_path`/`find_library` and does not need a `.pc` file.
 
 ## Style and formatting
 
-Follow the parent's conventions (root `AGENTS.md`, "Coding standards"):
-
-| Aspect | Rule |
-|--------|------|
-| Standard | C++17 |
-| Types / classes | `PascalCase` |
-| Methods / variables | `camelCase` |
-| Braces | Allman (opening brace on its own line) |
-| Indentation | 4 spaces, no tabs |
-| Error output | `std::cerr` — never `printf` to stderr |
-| Includes | system → library → local |
-
-Namespace this subproject under `mriv::term`. No clash: the parent uses only one namespace, `QC::`, for `src/qc/`.
+See [`CLAUDE.md`](CLAUDE.md), "Coding conventions" — it follows the parent's `AGENTS.md` and adds the `mriv::term` namespace.
 
 ## Testing
 
-The parent has **no** doctest, Catch2, or GoogleTest — and we do not add one. Its 27 suites are plain `assert` + `main()` executables built by a small macro, `add_nr_test()` (`new_register/tests/CMakeLists.txt:25`), each followed by a separate `add_test()` that gives it its CTest name. The parent macro accepts an `ARGS` keyword but silently ignores it.
+The parent has **no** doctest, Catch2, or GoogleTest — and we do not add one. Its suites are plain `assert` + `main()` executables built by a small macro, `add_nr_test()` (`new_register/tests/CMakeLists.txt:25`), each followed by a separate `add_test()` that gives it its CTest name. The parent macro accepts an `ARGS` keyword but silently ignores it.
 
 This subproject wraps that in `add_mriv_test()` (`mriv/tests/CMakeLists.txt`). It adds the `src/` and stb include dirs, links `mriv_lib` and the `mriv_test_support` helper library (`tests/escapes`, `tests/decode`), and registers the CTest entry itself, forwarding `ARGS`:
 
@@ -592,26 +584,14 @@ add_mriv_test(test_bar ARGS <fixture-path>)     # arguments reach the test's arg
 CTest names are therefore always `mriv_`-prefixed, so `ctest -R "^mriv_"` selects this subproject's 23 suites.
 
 - **Prefer testing this subproject's logic** — CLI parsing, resampling math (including the `slicePixelAspect()` correction), terminal wrapping, axis→`viewIndex` mapping. Do not re-test `Volume::load()` or `renderSlice()`; the parent already does.
-- Where parent APIs are expensive in tests, a synthetic `Volume` is cheap: `Volume::generate_test_data()` (`Volume.h:67`) exists for exactly this, and `tests/sq1.mnc` / `sq2.mnc` are tiny real volumes.
+- Where parent APIs are expensive in tests, a synthetic `Volume` is cheap: `Volume::generate_test_data()` exists for exactly this, and `tests/sq1.mnc` / `sq2.mnc` are tiny real volumes.
 - Integration tests exercise the full path from CLI invocation to encoded output. Capture the escape-sequence output to a buffer and assert on structure, not exact bytes.
 - No test needs a real terminal. Setting `MRIV_TEST_RENDER` (the CLI integration tests do it themselves) swaps the one-shot path's ncdirect `Terminal` for a test-mode one that writes Kitty graphics escapes to a stream; `MRIV_TEST_RENDER=none` forces the no-pixel-support branch instead. What a real emulator paints is checked by hand. See `PLAN_TESTING.md`.
 - **No absolute paths in test source** (`AGENTS.md`, "Hard rules") — pass data paths as arguments (or environment) from CMake using `CMAKE_CURRENT_SOURCE_DIR` / `MRIV_TEST_DATA_DIR`.
 
 ## Things Claude should NOT do
 
-- Do not reimplement volume reading, slice extraction, intensity ranging, colour mapping, or metadata parsing. `nr_core` has all of these.
-- Do not add niftilib, DCMTK, GDCM, MINC, HDF5, or any format library to this subproject's link list. Link `nr_core`.
-- Do not replace cxxopts with a hand-rolled parser to "match the parent." That divergence is intentional and documented above.
-- Do not add doctest, Catch2, or GoogleTest. Use `add_nr_test()` and plain `assert`.
-- Do not modify parent-project source from commits in this subproject unless the task is explicitly to extend a parent API — and even then, do it in a separate commit.
-- Do not add a GUI. Not Qt, not ImGui, not "just a preview."
-- Do not add Boost or other header-heavy libraries.
-- Do not swap notcurses for FTXUI, ncurses, or hand-rolled escape sequences.
-- Do not use the `ncpp::` C++ bindings. Use the C API directly.
-- Do not build `--series`, `--list-series`, or `--time`. Nothing in the parent backs them; see below.
-- Do not let interactive-mode features leak into the one-shot path: piped or `--no-interactive` output stays the clean image (no crosshair, no caption for a single file).
-- Do not skip the `slicePixelAspect()` correction "for now." Anisotropic volumes are the common case, not the exception.
-- Do not paper over missing terminal image support with ASCII art unless explicitly asked. A clear error message beats a bad approximation.
+See [`CLAUDE.md`](CLAUDE.md), "Things not to do".
 
 ## Deferred work — blocked on the parent
 
@@ -627,19 +607,19 @@ Do not add DCMTK or GDCM to this subproject to work around this. That is precise
 
 ### 4D volumes and time navigation (`-t` / `--time`)
 
-**Status: blocked.** `Volume::dimensions` is a `glm::ivec3` (`Volume.h:21`) — the parent's volume model is strictly three-dimensional. The MINC2 path indexes only `MINC2_DIM_X/Y/Z` (`src/Volume.cpp:213-215`) and the NIfTI path reads only `nx, ny, nz` (`src/NiftiVolume.cpp:38`). A 4th dimension is silently dropped by both readers.
+**Status: blocked.** `Volume::dimensions` is a `glm::ivec3` (`Volume.h:21`) — the parent's volume model is strictly three-dimensional. The MINC2 path indexes only `MINC2_DIM_X/Y/Z` (`Volume::load()` in `src/Volume.cpp`) and the NIfTI path reads only `nx, ny, nz` (`src/NiftiVolume.cpp`). A 4th dimension is silently dropped by both readers.
 
 **Unblocked when:** the parent's `Volume` grows a time/vector dimension and `renderSlice()` accepts a time index. Until then there is no `-t` flag and no `h`/`l` interactive keys.
 
 ## Milestones
 
-The order the subproject was built in, keeping it runnable within the parent's build throughout. M1–M5 are done; M6 is open.
+The order the subproject was built in, keeping it runnable within the parent's build throughout. M1–M5 are done; M6 is partly done.
 
 1. **M1 — Skeleton and parent integration. Done.** `mriv/CMakeLists.txt` builds an empty `mriv` binary that prints `--help` via cxxopts and links `nr_core` + notcurses. Parent-side `add_subdirectory()` lands as its own commit. One trivial `mriv_`-prefixed test passes under the parent's `ctest`.
 2. **M2 — Non-interactive render path. Done.** `Terminal` wrapper around the notcurses C API, aspect-correct resampler, wired to `Volume::load()` + `renderSlice()`. `mriv file.mnc` displays the middle axial slice. Manual smoke test on Kitty against the volumes in `test_data/`.
 3. **M3 — CLI surface. Done.** `--info` mode (modelled on `tests/dump_vol.cpp`), `--axis` / `--slice` selection, `-R`/`--range` / `--auto-window` (replacing the originally planned `--window` / `--level`), `--colourmap`.
-4. **M4 — Multi-file rendering. Done.** Multi-file display (planned as a strip, now the [display grid](#the-display-grid)), `--max-width`, and the no-pixel-support fallback path. The planned `--require-pixels` flag became the `MRIV_REQUIRE_PIXELS` environment variable.
+4. **M4 — Multi-file rendering. Done.** Multi-file display (planned as a strip, now the [display grid](#the-display-grid)), `--max-width`, and the no-pixel-support fallback path. The `--require-pixels` flag shipped here and was later removed (`ce895c7`); the debug-only `MRIV_REQUIRE_PIXELS` environment variable replaces it.
 5. **M5 — Interactive TTY mode. Done.** Keyboard navigation minus time navigation, since extended with multi-file columns, `--views`, the crosshair, the range prompt and screenshots.
-6. **M6 — Open.** macOS build verification, standalone-build support (`MRIV_STANDALONE`), a mriv `README.md`, docs polish.
+6. **M6 — Partly done.** Done: the self-built static binary (`MRIV_BUILD_NOTCURSES=ON`) builds and runs on macOS (`700b3d6`). Open: the `mriv_*` suites and the system-notcurses path on macOS, standalone-build support (`MRIV_STANDALONE`), a mriv `README.md`, docs polish.
 
 Each milestone lands with tests and leaves the parent's build runnable.
