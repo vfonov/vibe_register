@@ -12,7 +12,7 @@ background) lives in [`new_register/README.md`](new_register/README.md).
 |------|------------|
 | `legacy/` | Original BIC `register`, `bicgl`, and related C sources — **read-only reference** |
 | `new_register/` | C++17 rewrite (ImGui + Vulkan/OpenGL2; Metal on macOS). Builds the `nr_core` library and the `new_register`, `new_mincpik`, `new_qc` executables |
-| `new_register/mriv/` | Terminal slice viewer built on `nr_core`. **Read [`new_register/mriv/CLAUDE.md`](new_register/mriv/CLAUDE.md) before working there** — it has its own rules (TDD, cxxopts, reuse boundary) |
+| `new_register/mriv/` | Terminal slice viewer built on `nr_core`, plus `mriv_qc` (terminal image QC; links `mriv_term` + `qc_csv`, not `nr_core`). **Read [`new_register/mriv/CLAUDE.md`](new_register/mriv/CLAUDE.md) before working there** — it has its own rules (TDD, cxxopts, reuse boundary) |
 
 Other docs: [`PLAN.md`](PLAN.md) — roadmap, including the C++23 migration ·
 [`problem.md`](problem.md) — record new bugs here.
@@ -41,7 +41,7 @@ Other docs: [`PLAN.md`](PLAN.md) — roadmap, including the C++23 migration ·
 cd new_register/build
 cmake ..
 make -j$(nproc)
-ctest --output-on-failure    # all tools enabled: 53 suites — 29 from tests/, headless_ui_tests, 23 mriv_*
+ctest --output-on-failure    # all tools enabled: 57 suites — 29 from tests/, headless_ui_tests, 27 mriv_*
 ctest -R OverlapTest         # one test by regex; -R "^mriv_" for the subproject
 ```
 
@@ -102,7 +102,7 @@ src/WindowManager.cpp     GLFW window (non-macOS); src/WaylandTouchInput.cpp —
 src/VulkanBackend.cpp, VulkanHelpers.cpp, OpenGL2Backend.cpp    GPU backends
 src/headless_test_main.cpp, src/backends/imgui_impl_osmesa.*    Headless (OSMesa) UI test harness
 src/mincpik/              new_mincpik — headless mosaic PNG generator
-src/qc/                   new_qc — standalone image QC viewer (namespace QC::, own backends)
+src/qc/                   new_qc — standalone image QC viewer (namespace QC::, own backends); CSVHandler is the qc_csv library, shared with mriv_qc
 include/                  Headers mirroring src/
 third_party/niftilib/     Vendored NIfTI reader, compiled into nr_core
 tests/                    CTest sources, reference PNGs, sq1/sq2 test volumes, debug tools
@@ -137,6 +137,6 @@ tests/                    CTest sources, reference PNGs, sq1/sq2 test volumes, d
 
 ## Known open issues
 
-**None currently.** All 53 CTest suites pass on Linux. Record new issues in [`problem.md`](problem.md)
+**None currently.** All 57 CTest suites pass on Linux. Record new issues in [`problem.md`](problem.md)
 and link them here. `problem.md` also keeps the resolved OverlapTest post-mortem — the reference for
 the `voxelToWorld` / `worldToVoxel` conventions.

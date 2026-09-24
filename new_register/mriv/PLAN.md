@@ -107,6 +107,7 @@ If the parent's version has bugs or limitations, we fix or extend it *in the par
 - **A CLI (cxxopts).** Argument parsing, file dispatch, output modes (one-shot render, interactive, info-only).
 - **Terminal-appropriate presentation.** Resampling the parent's RGBA slice into the terminal's pixel box *while honouring `slicePixelAspect()`*, arranging views and files in a grid, `--info` as plain text.
 - **An interactive mode.** Keyboard navigation, the default when stdout is a TTY, for any number of files.
+- **`mriv_qc`, a second executable.** Terminal image QC over PNG/JPG lists — see [mriv_qc](#mriv_qc--terminal-image-qc).
 
 That's it. Everything else comes from the parent.
 
@@ -247,6 +248,7 @@ The boundary sits one step later than you might assume: the parent owns everythi
 - **`src/render/`** — the one-shot ncdirect wrapper (`Terminal`) and the escape-sequence encoder its test mode uses (`Encode`, `PixelProtocol`); `--axis` → `viewIndex` mapping (`SliceGeometry`); the slice render + aspect-correct resample shared by both modes (`SlicePipeline`, `Resample`); grid layout and composition (`Layout`, `FrameBuilder`, `Compose`); the crosshair mark (`Crosshair`); PNG screenshots (`Screenshot`).
 - **`src/interactive/`** — the full-notcurses wrapper (`Screen`), cursor and key handling (`ViewState`), the session loop (`Session`), state → frame request (`FramePlan`), the range prompt (`RangeEditor`), the header/status/hotkey rows (`StatusLine`) and marker placement (`Overlay`).
 - **`src/util/`** — `Base64`, for the Kitty graphics payload.
+- **`src/qc/`** — `mriv_qc`: image decode and fit (`QcImage`), verdict/navigation state (`QcState`), text rows (`QcStatusLine`), CLI (`QcOptions`), and the terminal glue (`QcRun`, `main.cpp`).
 - **`src/main.cpp`** — the entry point. Short; logic lives in `cli/`, `render/` and `interactive/`.
 
 ### Components NOT in this subproject
@@ -502,11 +504,44 @@ alternate screen restores the cursor to wherever it was before the session start
 `--scale`-magnified image tall enough to nearly fill the pixel box can otherwise land with too little
 room before the terminal's bottom edge and scroll into the text below it (see `mriv/HANDOFF.md`).
 
+## mriv_qc — terminal image QC
+
+`new_qc`'s workflow — step through a list of PNG/JPG images and record a verdict per image into a CSV — for machines reached over SSH, where `new_qc`'s GUI cannot run. It reads and writes `new_qc`'s CSV formats, so the two tools can share a results file.
+
+```
+mriv_qc [options] <image>...           # positional PNG/JPG files
+mriv_qc [options] -i input.csv         # id,visit,picture
+find . -name '*.png' | mriv_qc -       # newline-separated list on stdin
+  -o, --output <csv>   results CSV (default qc_results.csv); resumed if it exists
+  --no-advance         stay on the image after a verdict
+  --scale <n>          integer pixel magnification (default: fit the window)
+```
+
+As in `new_qc`, an existing results CSV replaces the input on start-up, so a second run resumes where the first stopped. Every verdict is saved immediately. The results file has the columns `id,visit,picture,QC,notes`, where `QC` is `Pass`, `Warning`, `Fail`, or empty for unrated. `notes` is kept on load and save but cannot be edited here.
+
+| Key | Action |
+|---|---|
+| `p` / `w` / `f` (either case) | Pass / Warning / Fail, then save and move to the next image unless `--no-advance` is given |
+| `u`, Backspace | Clear the verdict |
+| `→` `↓` `l` `j` `n` Space PgDn / `←` `↑` `h` `k` `b` PgUp | Next / previous image |
+| `g` Home / `G` End | First / last image |
+| `]` / `[` | Next / previous unrated image, wrapping around |
+| `s` | Save now |
+| `S` | Screenshot of the displayed image (PNG) |
+| `q`, Esc | Save if needed, then quit and print the tallies |
+
+The screen has three text rows (position, id, visit, verdict and tallies; the path, or a one-key-press message; the key legend) above the image. The image is fitted to the remaining pixel box: a small image is magnified by the largest integer factor that fits, and a large one is shrunk. It is centred with a cell offset, not padded onto a canvas, so less bitmap data is sent over SSH. A file that fails to decode shows `cannot load <path>` and a blank frame. When the list is read from stdin, keys are read from `/dev/tty`.
+
+**Code boundary.** `mriv_qc` does not link `nr_core`. The MINC-free part of mriv — `Screen`, `Resample`, `Layout`, `Compose`, `Screenshot`, `Encode`, `Terminal`, `Base64` — is the `mriv_term` library. `mriv_lib` and `mriv_qc_lib` both build on it, and `runSession()` is a template over the state type. CSV handling is the parent's `QC::CSVHandler`, built as the `qc_csv` library that `new_qc` also links. `mriv_qc_lib` owns the one `stb_image` implementation, so the qc suites link it instead of `mriv_test_support`: they use `add_mriv_qc_test()` in `tests/CMakeLists.txt`.
+
+Out of scope for now: editing notes, prefetching the next image, zoom/pan, coloured status text, multi-image grids.
+
 ## Project layout
 
 ```
 new_register/mriv/               # this subproject, a child of the parent's build root
-├── CMakeLists.txt               # mriv_lib + mriv; notcurses lookup; cxxopts FetchContent
+├── CMakeLists.txt               # mriv_term, mriv_lib + mriv, mriv_qc_lib + mriv_qc;
+│                                #   notcurses lookup; cxxopts FetchContent
 ├── CLAUDE.md                    # how to work here
 ├── PLAN.md                      # this file
 ├── PLAN_TESTING.md              # test strategy (layers A/B/C)
@@ -523,13 +558,16 @@ new_register/mriv/               # this subproject, a child of the parent's buil
 │   │                            #   FrameBuilder, Compose, Crosshair, Screenshot
 │   ├── interactive/             # Screen (full notcurses), Session, ViewState, FramePlan,
 │   │                            #   RangeEditor, StatusLine, Overlay
-│   └── util/                    # Base64
-├── third_party/stb/             # stb_image.h, stb_image_write.h (PNG payload, screenshots)
+│   ├── util/                    # Base64
+│   └── qc/                      # mriv_qc: QcImage, QcState, QcStatusLine, QcOptions,
+│                                #   QcRun, main.cpp
+├── third_party/stb/             # stb_image.h, stb_image_write.h (PNG payload, screenshots,
+│                                #   mriv_qc image decode)
 └── tests/
     ├── CMakeLists.txt           # add_mriv_test(); mriv_test_support library
     ├── escapes.{hpp,cpp}        # escape-sequence parsing helpers
     ├── decode.{hpp,cpp}         # payload → pixels helpers
-    └── test_*.cpp               # 23 suites
+    └── test_*.cpp               # 27 suites (4 of them test_qc_*)
 ```
 
 Every module is a `.hpp`/`.cpp` pair unless noted. There is no `tests/data/`: the parent's tests use the reference volumes in the repository-root `test_data/` via `TEST_DATA_DIR` (`new_register/tests/CMakeLists.txt`), and this subproject's tests use the same directory via `MRIV_TEST_DATA_DIR` (`mriv/tests/CMakeLists.txt`). Reuse those for smoke testing rather than committing new ones.

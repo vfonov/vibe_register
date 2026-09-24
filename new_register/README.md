@@ -10,6 +10,7 @@ The same build also produces:
 - **`new_qc`** — a lightweight standalone viewer for QC review of arbitrary images (see [below](#new_qc--image-qc-viewer)).
 - **`new_mincpik`** — a headless mosaic PNG generator for MINC2 volumes (`new_mincpik --help`).
 - **`mriv`** — a terminal slice viewer (see `mriv/PLAN.md`).
+- **`mriv_qc`** — `new_qc` in the terminal, for use over SSH: rate PNG/JPG images Pass / Warning / Fail (see [below](#mriv_qc--terminal-image-qc)).
 
 ## Features
 
@@ -80,10 +81,10 @@ means `new_register`, `new_mincpik` and `mriv` — everything that links `nr_cor
 | Eigen | System package preferred (3.3+ or 5.x); ExternalProject 5.0.1 fallback | MINC tools. Transform math |
 | glm | System package preferred; FetchContent 1.0.1 fallback | MINC tools. Vector/matrix types |
 | niftilib | Vendored in `third_party/niftilib/` | MINC tools. NIfTI I/O |
-| stb | FetchContent | `new_qc` and the tests |
+| stb | FetchContent (vendored in `mriv/third_party/stb` for mriv) | `new_qc`, `mriv`, `mriv_qc` and the tests |
 | imgui_test_engine, OSMesa | FetchContent / system | Headless UI tests (`ENABLE_TESTS` with `new_register`) |
-| notcurses | System, or self-built with `MRIV_BUILD_NOTCURSES=ON` | `mriv` only |
-| cxxopts | FetchContent | `mriv` only |
+| notcurses | System, or self-built with `MRIV_BUILD_NOTCURSES=ON` | `mriv`, `mriv_qc` |
+| cxxopts | FetchContent | `mriv`, `mriv_qc` |
 | Catch2 v3 | System package preferred; FetchContent v3.16.0 fallback | Unit tests (`ENABLE_TESTS`) |
 
 ### Build Options
@@ -97,7 +98,7 @@ means `new_register`, `new_mincpik` and `mriv` — everything that links `nr_cor
 | `BUILD_NEW_REGISTER` | ON | Build `new_register` |
 | `BUILD_NEW_QC` | ON | Build `new_qc` |
 | `BUILD_NEW_MINCPIK` | ON | Build `new_mincpik` |
-| `BUILD_TERMINAL_VIEWER` | ON | Build the `mriv` terminal viewer (needs the MINC stack) |
+| `BUILD_TERMINAL_VIEWER` | ON | Build the `mriv` terminal viewer (needs the MINC stack) and `mriv_qc` |
 | `MRIV_BUILD_NOTCURSES` | OFF | Download, build, and statically link notcurses instead of using a system install |
 | `FETCH_GLFW` | OFF | Always fetch GLFW 3.4 from source, ignoring any system installation |
 
@@ -495,6 +496,8 @@ subject001,baseline,/path/to/image1.png,Pass,Good quality
 subject002,followup,/path/to/image2.jpg,Fail,Artifact present
 ```
 
+`QC` is `Pass`, `Warning`, `Fail`, or empty for unrated.
+
 If the output CSV already exists, earlier results are loaded and review resumes.
 
 ### Stdin (simplified) mode
@@ -517,8 +520,47 @@ current directory; resuming from an existing output CSV still takes precedence.
 | Key | Action |
 |---|---|
 | `P` | Pass (auto-advance) |
+| `W` | Warning (auto-advance) |
 | `F` | Fail (auto-advance) |
 | `←` / `Page Up` | Previous image |
 | `→` / `Page Down` | Next image |
 | `Ctrl+S` | Save |
 | `Esc` | Exit |
+
+## mriv_qc — Terminal Image QC
+
+`mriv_qc` does `new_qc`'s job in a terminal, for machines you reach over SSH
+where a GUI cannot run. It shows each image with a pixel graphics protocol
+(Kitty, sixel, iTerm2 — e.g. Kitty, Ghostty, WezTerm, iTerm2, Konsole) and
+reads and writes the same CSV files as `new_qc`, so either tool can pick up a
+review the other started. It does not link the MINC stack.
+
+```bash
+./mriv/mriv_qc [options] img1.png img2.jpg ...   # positional image files
+./mriv/mriv_qc [options] -i input.csv            # id,visit,picture
+find images/ -name '*.png' | ./mriv/mriv_qc -    # list on stdin
+```
+
+| Option | Description |
+|---|---|
+| `-o, --output <csv>` | Results CSV (default `qc_results.csv`). If it exists, review resumes from it |
+| `--no-advance` | Stay on the image after a verdict |
+| `--scale <n>` | Integer pixel magnification (default: fit the window) |
+| `-h, --help` / `--version` | Help / version |
+
+Every verdict is saved at once. On exit the tallies are printed, e.g.
+`rated 57/340 (P40 W10 F7) -> qc_results.csv`.
+
+### mriv_qc Keyboard
+
+| Key | Action |
+|---|---|
+| `p` / `w` / `f` | Pass / Warning / Fail (auto-advance unless `--no-advance`) |
+| `u` / Backspace | Clear the verdict |
+| `→` `↓` `l` `j` `n` Space `Page Down` | Next image |
+| `←` `↑` `h` `k` `b` `Page Up` | Previous image |
+| `g` / `Home`, `G` / `End` | First / last image |
+| `]` / `[` | Next / previous unrated image |
+| `s` | Save |
+| `S` | Screenshot (PNG) |
+| `q` / `Esc` | Save and exit |
