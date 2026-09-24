@@ -602,7 +602,8 @@ void QCApp::markAsFail()
 
 void QCApp::saveProgress()
 {
-    csvHandler_.saveOutputCSV(outputFile_);
+    if (csvHandler_.saveOutputCSV(outputFile_))
+        std::cout << "Saved " << csvHandler_.getRecordCount() << " records to " << outputFile_ << std::endl;
 }
 
 void QCApp::handleKeyboard()

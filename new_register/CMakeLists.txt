@@ -352,6 +352,17 @@ if(BUILD_NEW_QC OR ENABLE_TESTS)
     FetchContent_MakeAvailable(stb)
 endif()
 
+# 3.7. qc_csv: the QC CSV reader/writer shared by new_qc and mriv_qc (no
+# dependencies). Defined here, before add_subdirectory(tests), so the CSV
+# handler test can link it on a clean configure.
+if(BUILD_NEW_QC OR BUILD_TERMINAL_VIEWER)
+    add_library(qc_csv STATIC src/qc/CSVHandler.cpp)
+    target_include_directories(qc_csv PUBLIC src/qc)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 10)
+        target_link_libraries(qc_csv PUBLIC stdc++fs)
+    endif()
+endif()
+
 if(NR_NEED_CORE)
 
     # 3.75. GLM (Math library for vector/matrix operations) — system package preferred
@@ -922,7 +933,6 @@ if(BUILD_NEW_QC)
 
     set(QC_SOURCES
         src/qc/QCApp.cpp
-        src/qc/CSVHandler.cpp
         src/qc/BackendFactory.cpp
     )
 
@@ -1000,6 +1010,7 @@ if(BUILD_NEW_QC)
     endif()
 
     target_link_libraries(new_qc PRIVATE
+        qc_csv
         imgui
         ${CMAKE_DL_LIBS}
     )

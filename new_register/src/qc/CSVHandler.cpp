@@ -154,12 +154,23 @@ bool CSVHandler::loadInputCSV(const std::string& filename)
 
 bool CSVHandler::loadImageList(std::istream& input)
 {
-    records_.clear();
-
+    std::vector<std::string> paths;
     std::string line;
     while (std::getline(input, line))
+        paths.push_back(line);
+
+    bool loaded = loadImagePaths(paths);
+    std::cout << "Loaded " << records_.size() << " images from standard input" << std::endl;
+    return loaded;
+}
+
+bool CSVHandler::loadImagePaths(const std::vector<std::string>& paths)
+{
+    records_.clear();
+
+    for (const auto& rawPath : paths)
     {
-        line = trim(line);
+        std::string line = trim(rawPath);
         if (line.empty())
             continue;
 
@@ -180,7 +191,6 @@ bool CSVHandler::loadImageList(std::istream& input)
         records_.push_back(record);
     }
 
-    std::cout << "Loaded " << records_.size() << " images from standard input" << std::endl;
     return !records_.empty();
 }
 
@@ -271,7 +281,6 @@ bool CSVHandler::saveOutputCSV(const std::string& filename)
              << escapeCSVField(record.notes) << "\n";
     }
     
-    std::cout << "Saved " << records_.size() << " records to " << filename << std::endl;
     return true;
 }
 

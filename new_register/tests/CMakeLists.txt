@@ -386,14 +386,14 @@ endif() # NR_NEED_CORE
 # new_qc CSV handler unit tests
 # ------------------------------------------------------------------
 
-if(BUILD_NEW_QC)
+if(BUILD_NEW_QC OR BUILD_TERMINAL_VIEWER)
     add_executable(csv_handler_test
         ${CMAKE_CURRENT_SOURCE_DIR}/csv_test.cpp
-        ${PROJECT_SOURCE_DIR}/src/qc/CSVHandler.cpp
     )
     target_include_directories(csv_handler_test PRIVATE
         ${PROJECT_SOURCE_DIR}/src
     )
+    target_link_libraries(csv_handler_test PRIVATE qc_csv)
     add_test(NAME QCCsvHandlerTest COMMAND csv_handler_test
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
@@ -401,7 +401,4 @@ if(BUILD_NEW_QC)
         LABELS "unit"
         TIMEOUT 30
     )
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 10)
-        target_link_libraries(csv_handler_test PRIVATE stdc++fs)
-    endif()
 endif()

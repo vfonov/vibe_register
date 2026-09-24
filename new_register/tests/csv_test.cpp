@@ -313,6 +313,82 @@ void testLoadImageList()
     TEST_ASSERT(handler2.getRecordCount() == 0, "Empty stream leaves no records");
 }
 
+// Warning is the third verdict, shared by new_qc and mriv_qc
+void testWarningRoundTrip()
+{
+    std::cout << "\n=== Testing Warning Status Round-Trip ===" << std::endl;
+
+    TEST_ASSERT(std::string(QC::kStatusPass) == "Pass", "Pass status string");
+    TEST_ASSERT(std::string(QC::kStatusWarning) == "Warning", "Warning status string");
+    TEST_ASSERT(std::string(QC::kStatusFail) == "Fail", "Fail status string");
+
+    QC::CSVHandler handler;
+    QC::QCRecord record;
+    record.id = "sub01";
+    record.visit = "v1";
+    record.picture_path = "sub01.png";
+    record.qc_status = QC::kStatusWarning;
+    handler.getRecords().push_back(record);
+
+    std::string testFile = "test_warning.csv";
+    handler.saveOutputCSV(testFile);
+
+    QC::CSVHandler handler2;
+    handler2.loadOutputCSV(testFile);
+    TEST_ASSERT(handler2.getRecordCount() == 1, "Warning record reloaded");
+    TEST_ASSERT(handler2.getRecordCount() == 1 && handler2.getRecords()[0].qc_status == "Warning",
+                "Warning status preserved");
+
+    fs::remove(testFile);
+}
+
+// Positional image paths (mriv_qc's command line) build the same records as the stdin list
+void testLoadImagePaths()
+{
+    std::cout << "\n=== Testing Load Image Paths ===" << std::endl;
+
+    QC::CSVHandler handler;
+    bool loaded = handler.loadImagePaths({"/data/sub01_t1.png", "  ", "rel/sub02.jpg"});
+
+    TEST_ASSERT(loaded, "Image paths loaded successfully");
+    TEST_ASSERT(handler.getRecordCount() == 2, "2 records loaded (blank path skipped)");
+    if (handler.getRecordCount() == 2)
+    {
+        auto& records = handler.getRecords();
+        TEST_ASSERT(records[0].id == "sub01_t1", "id is the filename stem");
+        TEST_ASSERT(records[0].visit == "-", "visit is '-'");
+        TEST_ASSERT(records[1].picture_path == "rel/sub02.jpg", "path preserved");
+    }
+
+    QC::CSVHandler handler2;
+    TEST_ASSERT(!handler2.loadImagePaths({}), "Empty path list returns false");
+}
+
+// Saving must not write to stdout: mriv_qc autosaves while notcurses owns the screen
+void testSaveIsSilent()
+{
+    std::cout << "\n=== Testing Save Writes Nothing To Stdout ===" << std::endl;
+
+    QC::CSVHandler handler;
+    QC::QCRecord record;
+    record.id = "sub01";
+    record.visit = "v1";
+    record.picture_path = "sub01.png";
+    record.qc_status = QC::kStatusPass;
+    handler.getRecords().push_back(record);
+
+    std::string testFile = "test_silent.csv";
+    std::ostringstream captured;
+    std::streambuf* old = std::cout.rdbuf(captured.rdbuf());
+    bool saved = handler.saveOutputCSV(testFile);
+    std::cout.rdbuf(old);
+
+    TEST_ASSERT(saved, "Save succeeded");
+    TEST_ASSERT(captured.str().empty(), "Nothing written to stdout while saving");
+
+    fs::remove(testFile);
+}
+
 int main(int argc, char* argv[])
 {
     std::cout << "========================================" << std::endl;
@@ -328,6 +404,9 @@ int main(int argc, char* argv[])
     testSpecialCharacters();
     testEmptyFileHandling();
     testResumeFromOutput();
+    testWarningRoundTrip();
+    testLoadImagePaths();
+    testSaveIsSilent();
     
     // Summary
     std::cout << "\n========================================" << std::endl;
