@@ -224,9 +224,7 @@ static int setupAppCore(AppContext& ctx)
 
         if (!cliTagPath.empty())
         {
-            std::snprintf(ctx.state.combinedTagPath_,
-                          sizeof(ctx.state.combinedTagPath_),
-                          "%s", cliTagPath.c_str());
+            ctx.state.combinedTagPath_ = cliTagPath;
             ctx.state.loadCombinedTags(cliTagPath);
         }
         else

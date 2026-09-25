@@ -205,9 +205,7 @@ static void glfwErrorCallback(int error, const char* description)
             // Load tags: if --tags was specified, use combined tag file;
             // otherwise fall back to per-volume auto-discovery.
             if (!cliTagPath.empty()) {
-                std::snprintf(state.combinedTagPath_,
-                              sizeof(state.combinedTagPath_),
-                              "%s", cliTagPath.c_str());
+                state.combinedTagPath_ = cliTagPath;
                 state.loadCombinedTags(cliTagPath);
             } else {
                 for (size_t volIdx = 0; volIdx < state.volumeCount(); ++volIdx) {

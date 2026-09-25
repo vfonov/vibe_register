@@ -162,7 +162,7 @@ bool AppState::saveCombinedTags() {
     if (volumes_.size() < 2)
         return false;
 
-    std::string path(combinedTagPath_);
+    const std::string& path = combinedTagPath_;
     if (path.empty())
         return false;
 
@@ -205,8 +205,7 @@ bool AppState::loadCombinedTags(const std::string& path) {
         }
 
         // Store the path for future saves
-        std::snprintf(combinedTagPath_, sizeof(combinedTagPath_),
-                      "%s", path.c_str());
+        combinedTagPath_ = path;
 
         invalidateTransform();
         return true;
@@ -235,7 +234,7 @@ void AppState::saveTags() {
     }
 
     // If combined tag path is set and we have 2+ volumes, save combined
-    if (combinedTagPath_[0] != '\0' && volumes_.size() >= 2) {
+    if (!combinedTagPath_.empty() && volumes_.size() >= 2) {
         saveCombinedTags();
     } else {
         // Fall back to per-volume saving
@@ -306,7 +305,7 @@ void AppState::applyConfig(const AppConfig& cfg, int defaultWindowWidth, int def
     transformType_ = transformTypeFromString(cfg.global.transformType);
     transformOutOfDate_ = true;
     viewVisible = cfg.global.viewVisible;
-    std::snprintf(fontPath_, sizeof(fontPath_), "%s", cfg.global.fontPath.c_str());
+    fontPath_ = cfg.global.fontPath;
     fontSize_ = cfg.global.fontSize;
 
     for (int vi = 0; vi < static_cast<int>(volumes_.size()); ++vi) {

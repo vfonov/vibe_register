@@ -190,11 +190,11 @@ public:
 
     /// --- Combined tag file path ---
     /// When non-empty, tags are saved/loaded as a single two-volume .tag file
-    /// instead of separate per-volume files.  Set via --tags CLI or UI InputText.
-    char combinedTagPath_[512] = "";
+    /// instead of separate per-volume files.  Set via --tags CLI or the tag file dialog.
+    std::string combinedTagPath_;
 
     /// --- Font configuration (persisted in config JSON) ---
-    char fontPath_[512] = "";   ///< Path to .ttf file, or empty for built-in ProggyForever
+    std::string fontPath_;      ///< Path to .ttf file, or empty for built-in ProggyForever
     float fontSize_ = 13.0f;   ///< Base font size in pixels at 1.0x scale
 
     /// LRU volume cache for QC mode row switches.

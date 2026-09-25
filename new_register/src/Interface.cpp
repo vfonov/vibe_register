@@ -1714,11 +1714,11 @@ void Interface::renderTagListContent() {
                         ImGui::TextWrapped("  Vol %d: %s", vi, tagPath.filename().string().c_str());
                     }
                 }
-            } else if (state_.combinedTagPath_[0] != '\0') {
+            } else if (!state_.combinedTagPath_.empty()) {
                 std::filesystem::path p(state_.combinedTagPath_);
                 ImGui::TextWrapped("Tag file: %s", p.filename().string().c_str());
                 if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("%s", state_.combinedTagPath_);
+                    ImGui::SetTooltip("%s", state_.combinedTagPath_.c_str());
                 }
             } else {
                 ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.0f, 1.0f), "No tag file loaded");
@@ -2773,7 +2773,7 @@ void Interface::renderTagFileDialog() {
                             tagFileDialogFilename_ = name;
                         } else {
                             std::string fullPath = std::filesystem::path(tagFileDialogCurrentPath_) / name;
-                            std::snprintf(state_.combinedTagPath_, sizeof(state_.combinedTagPath_), "%s", fullPath.c_str());
+                            state_.combinedTagPath_ = fullPath;
                             if (state_.loadCombinedTags(fullPath)) {
                                 state_.recomputeTransform();
                                 for (int v = 0; v < state_.volumeCount(); ++v)
@@ -2802,7 +2802,7 @@ void Interface::renderTagFileDialog() {
             if (ImGui::Button("Save", ImVec2(80, btnH))) {
                 if (!tagFileDialogFilename_.empty()) {
                     std::string fullPath = std::filesystem::path(tagFileDialogCurrentPath_) / tagFileDialogFilename_;
-                    std::snprintf(state_.combinedTagPath_, sizeof(state_.combinedTagPath_), "%s", fullPath.c_str());
+                    state_.combinedTagPath_ = fullPath;
                     state_.saveTags();
                     tagFileDialogOpen_ = false;
                 }

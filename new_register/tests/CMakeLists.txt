@@ -222,6 +222,13 @@ add_nr_test(test_config_null CATCH2
 )
 add_test(NAME ConfigNullTest COMMAND test_config_null)
 
+add_nr_test(test_long_paths CATCH2
+    SOURCES   AppState.cpp
+    INCLUDES  ${INC_DIR} ${imgui_SOURCE_DIR}
+    LINKS     nr_core
+)
+add_test(NAME LongPathsTest COMMAND test_long_paths)
+
 # ------------------------------------------------------------------
 # AppConfig JSON round-trip test — nr_core provides AppConfig
 # ------------------------------------------------------------------
