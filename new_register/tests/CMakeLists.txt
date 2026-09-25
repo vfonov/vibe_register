@@ -131,6 +131,11 @@ add_nr_test(test_view_manager CATCH2
 )
 add_test(NAME ViewManagerTest COMMAND test_view_manager)
 
+add_nr_test(test_slice_coords CATCH2
+    INCLUDES  ${INC_DIR}
+)
+add_test(NAME SliceCoordsTest COMMAND test_slice_coords)
+
 # ------------------------------------------------------------------
 # Standalone MINC tests (no project source files)
 # ------------------------------------------------------------------

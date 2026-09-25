@@ -20,6 +20,7 @@
 #include "GraphicsBackend.h"
 #include "Prefetcher.h"
 #include "QCState.h"
+#include "SliceCoords.h"
 #include "Transform.h"
 #include "ViewManager.h"
 
@@ -1948,20 +1949,14 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
 
                     float normCrossU = 0.0f, normCrossV = 0.0f;
                     if (viewIndex == 0) {
-                        normCrossU = static_cast<float>(state.sliceIndices.x) /
-                                     static_cast<float>(std::max(vol.dimensions.x - 1, 1));
-                        normCrossV = static_cast<float>(state.sliceIndices.y) /
-                                     static_cast<float>(std::max(vol.dimensions.y - 1, 1));
+                        normCrossU = voxelToUv(state.sliceIndices.x, vol.dimensions.x);
+                        normCrossV = voxelToUv(state.sliceIndices.y, vol.dimensions.y);
                     } else if (viewIndex == 1) {
-                        normCrossU = static_cast<float>(state.sliceIndices.y) /
-                                     static_cast<float>(std::max(vol.dimensions.y - 1, 1));
-                        normCrossV = static_cast<float>(state.sliceIndices.z) /
-                                     static_cast<float>(std::max(vol.dimensions.z - 1, 1));
+                        normCrossU = voxelToUv(state.sliceIndices.y, vol.dimensions.y);
+                        normCrossV = voxelToUv(state.sliceIndices.z, vol.dimensions.z);
                     } else {
-                        normCrossU = static_cast<float>(state.sliceIndices.x) /
-                                     static_cast<float>(std::max(vol.dimensions.x - 1, 1));
-                        normCrossV = static_cast<float>(state.sliceIndices.z) /
-                                     static_cast<float>(std::max(vol.dimensions.z - 1, 1));
+                        normCrossU = voxelToUv(state.sliceIndices.x, vol.dimensions.x);
+                        normCrossV = voxelToUv(state.sliceIndices.z, vol.dimensions.z);
                     }
 
                     normCrossV = 1.0f - normCrossV;
@@ -2016,8 +2011,8 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                     normV = 1.0f - normV;
 
                     if (viewIndex == 0) {
-                        int voxX = static_cast<int>(normU * (vol.dimensions.x - 1) + 0.5f);
-                        int voxY = static_cast<int>(normV * (vol.dimensions.y - 1) + 0.5f);
+                        int voxX = uvToVoxel(normU, vol.dimensions.x);
+                        int voxY = uvToVoxel(normV, vol.dimensions.y);
                         state.sliceIndices.x = std::clamp(voxX, 0, vol.dimensions.x - 1);
                         state.sliceIndices.y = std::clamp(voxY, 0, vol.dimensions.y - 1);
                         dirtyMask |= (1 << 1) | (1 << 2);
@@ -2027,8 +2022,8 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                             state_.cursorSyncDirty_ = true;
                         }
                     } else if (viewIndex == 1) {
-                        int voxY = static_cast<int>(normU * (vol.dimensions.y - 1) + 0.5f);
-                        int voxZ = static_cast<int>(normV * (vol.dimensions.z - 1) + 0.5f);
+                        int voxY = uvToVoxel(normU, vol.dimensions.y);
+                        int voxZ = uvToVoxel(normV, vol.dimensions.z);
                         state.sliceIndices.y = std::clamp(voxY, 0, vol.dimensions.y - 1);
                         state.sliceIndices.z = std::clamp(voxZ, 0, vol.dimensions.z - 1);
                         dirtyMask |= (1 << 0) | (1 << 2);
@@ -2038,8 +2033,8 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                             state_.cursorSyncDirty_ = true;
                         }
                     } else {
-                        int voxX = static_cast<int>(normU * (vol.dimensions.x - 1) + 0.5f);
-                        int voxZ = static_cast<int>(normV * (vol.dimensions.z - 1) + 0.5f);
+                        int voxX = uvToVoxel(normU, vol.dimensions.x);
+                        int voxZ = uvToVoxel(normV, vol.dimensions.z);
                         state.sliceIndices.x = std::clamp(voxX, 0, vol.dimensions.x - 1);
                         state.sliceIndices.z = std::clamp(voxZ, 0, vol.dimensions.z - 1);
                         dirtyMask |= (1 << 0) | (1 << 1);
@@ -2285,20 +2280,14 @@ int Interface::renderOverlayView(int viewIndex, const ImVec2& childSize) {
 
                     float normCrossU = 0.0f, normCrossV = 0.0f;
                     if (viewIndex == 0) {
-                        normCrossU = static_cast<float>(refState.sliceIndices.x) /
-                                     static_cast<float>(std::max(ref.dimensions.x - 1, 1));
-                        normCrossV = static_cast<float>(refState.sliceIndices.y) /
-                                     static_cast<float>(std::max(ref.dimensions.y - 1, 1));
+                        normCrossU = voxelToUv(refState.sliceIndices.x, ref.dimensions.x);
+                        normCrossV = voxelToUv(refState.sliceIndices.y, ref.dimensions.y);
                     } else if (viewIndex == 1) {
-                        normCrossU = static_cast<float>(refState.sliceIndices.y) /
-                                     static_cast<float>(std::max(ref.dimensions.y - 1, 1));
-                        normCrossV = static_cast<float>(refState.sliceIndices.z) /
-                                     static_cast<float>(std::max(ref.dimensions.z - 1, 1));
+                        normCrossU = voxelToUv(refState.sliceIndices.y, ref.dimensions.y);
+                        normCrossV = voxelToUv(refState.sliceIndices.z, ref.dimensions.z);
                     } else {
-                        normCrossU = static_cast<float>(refState.sliceIndices.x) /
-                                     static_cast<float>(std::max(ref.dimensions.x - 1, 1));
-                        normCrossV = static_cast<float>(refState.sliceIndices.z) /
-                                     static_cast<float>(std::max(ref.dimensions.z - 1, 1));
+                        normCrossU = voxelToUv(refState.sliceIndices.x, ref.dimensions.x);
+                        normCrossV = voxelToUv(refState.sliceIndices.z, ref.dimensions.z);
                     }
 
                     normCrossV = 1.0f - normCrossV;
@@ -2351,24 +2340,24 @@ int Interface::renderOverlayView(int viewIndex, const ImVec2& childSize) {
                     normV = 1.0f - normV;
 
                     if (viewIndex == 0) {
-                        int voxX = static_cast<int>(normU * (ref.dimensions.x - 1) + 0.5f);
-                        int voxY = static_cast<int>(normV * (ref.dimensions.y - 1) + 0.5f);
+                        int voxX = uvToVoxel(normU, ref.dimensions.x);
+                        int voxY = uvToVoxel(normV, ref.dimensions.y);
                         for (auto& st : state_.viewStates_) {
                             st.sliceIndices.x = std::clamp(voxX, 0, ref.dimensions.x - 1);
                             st.sliceIndices.y = std::clamp(voxY, 0, ref.dimensions.y - 1);
                         }
                         dirtyMask |= (1 << 1) | (1 << 2);
                     } else if (viewIndex == 1) {
-                        int voxY = static_cast<int>(normU * (ref.dimensions.y - 1) + 0.5f);
-                        int voxZ = static_cast<int>(normV * (ref.dimensions.z - 1) + 0.5f);
+                        int voxY = uvToVoxel(normU, ref.dimensions.y);
+                        int voxZ = uvToVoxel(normV, ref.dimensions.z);
                         for (auto& st : state_.viewStates_) {
                             st.sliceIndices.y = std::clamp(voxY, 0, ref.dimensions.y - 1);
                             st.sliceIndices.z = std::clamp(voxZ, 0, ref.dimensions.z - 1);
                         }
                         dirtyMask |= (1 << 0) | (1 << 2);
                     } else {
-                        int voxX = static_cast<int>(normU * (ref.dimensions.x - 1) + 0.5f);
-                        int voxZ = static_cast<int>(normV * (ref.dimensions.z - 1) + 0.5f);
+                        int voxX = uvToVoxel(normU, ref.dimensions.x);
+                        int voxZ = uvToVoxel(normV, ref.dimensions.z);
                         for (auto& st : state_.viewStates_) {
                             st.sliceIndices.x = std::clamp(voxX, 0, ref.dimensions.x - 1);
                             st.sliceIndices.z = std::clamp(voxZ, 0, ref.dimensions.z - 1);
@@ -2512,13 +2501,13 @@ bool Interface::drawTagsOnSlice(int viewIndex, const ImVec2& imgPos,
         }
         ++tagIdx;
 
-        float pixelsPerVoxelU = imgSize.x / static_cast<float>(std::max(vol.dimensions[dimU] - 1, 1));
-        float pixelsPerVoxelV = imgSize.y / static_cast<float>(std::max(vol.dimensions[dimV] - 1, 1));
+        float pixelsPerVoxelU = imgSize.x / static_cast<float>(std::max(vol.dimensions[dimU], 1));
+        float pixelsPerVoxelV = imgSize.y / static_cast<float>(std::max(vol.dimensions[dimV], 1));
         float avgPixelsPerVoxel = (pixelsPerVoxelU + pixelsPerVoxelV) * 0.5f;
         float circleRadius = (diameterVoxels * avgPixelsPerVoxel * 0.5f) * state_.dpiScale_;
 
-        float normU = static_cast<float>(voxel[dimU]) / static_cast<float>(std::max(vol.dimensions[dimU] - 1, 1));
-        float normV = static_cast<float>(voxel[dimV]) / static_cast<float>(std::max(vol.dimensions[dimV] - 1, 1));
+        float normU = voxelToUv(voxel[dimU], vol.dimensions[dimU]);
+        float normV = voxelToUv(voxel[dimV], vol.dimensions[dimV]);
 
         normV = 1.0f - normV;
 
