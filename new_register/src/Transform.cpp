@@ -79,19 +79,20 @@ static Eigen::Matrix3d eulerToRotation(double rx, double ry, double rz)
 /// Returns (rx, ry, rz) in radians.
 static Eigen::Vector3d rotationToEuler(const Eigen::Matrix3d& R)
 {
-    double ry = std::asin(std::clamp(R(0, 2), -1.0, 1.0));
+    // R = Rz*Ry*Rx:  R(2,0) = -sin(ry),  R(2,1)/R(2,2) = tan(rx),  R(1,0)/R(0,0) = tan(rz)
+    double ry = std::asin(std::clamp(-R(2, 0), -1.0, 1.0));
     double cy = std::cos(ry);
 
     double rx, rz;
     if (std::abs(cy) > 1e-12)
     {
-        rx = std::atan2(-R(1, 2) / cy, R(2, 2) / cy);
-        rz = std::atan2(-R(0, 1) / cy, R(0, 0) / cy);
+        rx = std::atan2(R(2, 1), R(2, 2));
+        rz = std::atan2(R(1, 0), R(0, 0));
     }
     else
     {
-        // Gimbal lock
-        rx = std::atan2(R(2, 1), R(1, 1));
+        // Gimbal lock: only rx +/- rz is defined; take rz = 0, so R = Ry*Rx
+        rx = std::atan2(-R(1, 2), R(1, 1));
         rz = 0.0;
     }
 

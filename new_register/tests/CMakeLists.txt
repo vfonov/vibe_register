@@ -214,6 +214,12 @@ add_nr_test(test_transform
 )
 add_test(NAME TransformTest COMMAND test_transform)
 
+add_nr_test(test_transform_lsq CATCH2
+    INCLUDES  ${INC_DIR} ${glm_SOURCE_DIR}
+    LINKS     nr_core
+)
+add_test(NAME TransformLsqTest COMMAND test_transform_lsq)
+
 # ------------------------------------------------------------------
 # SliceRenderer / mincpik rendering test
 # ------------------------------------------------------------------
