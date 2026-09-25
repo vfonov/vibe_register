@@ -1,5 +1,8 @@
 #include "CliArgs.h"
 
+#include <cerrno>
+#include <cmath>
+#include <cstdlib>
 #include <iostream>
 #include <string_view>
 
@@ -27,7 +30,7 @@ void printUsage()
         "      --lut <name>     Named colour map (see list below)\n"
         "      --range <min,max>  Value range for next volume\n"
         "  -l, --label          Mark next volume as label volume\n"
-        "  -L, --labels <file>  Label description file for next volume\n"
+        "  -L, --labels <file>  Label description file for next volume (implies -l)\n"
         "\n"
         "General:\n"
         "  -c, --config <path>  Load config from <path>\n"
@@ -62,6 +65,20 @@ void printUsage()
 
     std::cout << "\nLUT and range flags apply to the next volume file on the command line.\n"
               << "Example: new_register --gray --range 0,100 vol1.mnc -r vol2.mnc\n";
+}
+
+/// Parse a whole string as a finite number. Returns nullopt for empty input,
+/// trailing characters, overflow, NaN or infinity.
+static std::optional<double> parseFiniteNumber(const std::string& text)
+{
+    if (text.empty())
+        return std::nullopt;
+    errno = 0;
+    char* end = nullptr;
+    double value = std::strtod(text.c_str(), &end);
+    if (end != text.c_str() + text.size() || errno == ERANGE || !std::isfinite(value))
+        return std::nullopt;
+    return value;
 }
 
 /// Require a value argument after a flag, printing an error and returning
@@ -147,8 +164,15 @@ std::optional<ParsedArgs> parseArgs(int argc, char** argv)
                 std::cerr << "Error: --range must be in format <min>,<max> (e.g., --range 0,100)\n";
                 return std::nullopt;
             }
-            pendingMin = std::stod(rangeStr.substr(0, commaPos));
-            pendingMax = std::stod(rangeStr.substr(commaPos + 1));
+            auto lo = parseFiniteNumber(rangeStr.substr(0, commaPos));
+            auto hi = parseFiniteNumber(rangeStr.substr(commaPos + 1));
+            if (!lo || !hi)
+            {
+                std::cerr << "Error: --range values must be numbers, got: " << rangeStr << "\n";
+                return std::nullopt;
+            }
+            pendingMin = *lo;
+            pendingMax = *hi;
             continue;
         }
 
@@ -221,7 +245,13 @@ std::optional<ParsedArgs> parseArgs(int argc, char** argv)
             ++i;
             if (!requireValue(i, argc, "--scale"))
                 return std::nullopt;
-            args.scaleFactor = std::stof(argv[i]);
+            auto scale = parseFiniteNumber(argv[i]);
+            if (!scale || *scale <= 0.0)
+            {
+                std::cerr << "Error: --scale must be a positive number, got: " << argv[i] << "\n";
+                return std::nullopt;
+            }
+            args.scaleFactor = static_cast<float>(*scale);
             continue;
         }
 
@@ -250,6 +280,8 @@ std::optional<ParsedArgs> parseArgs(int argc, char** argv)
         }
         if (pendingLabelDesc)
         {
+            // A description file is only used by label volumes, so it implies -l.
+            pvo.isLabel = true;
             pvo.labelDescFile = *pendingLabelDesc;
             pendingLabelDesc.reset();
         }

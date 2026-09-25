@@ -210,6 +210,12 @@ add_nr_test(test_qc_csv_io CATCH2
 )
 add_test(NAME QCCsvIoTest COMMAND test_qc_csv_io)
 
+add_nr_test(test_cli_args CATCH2
+    INCLUDES  ${INC_DIR}
+    LINKS     nr_core
+)
+add_test(NAME CliArgsTest COMMAND test_cli_args)
+
 # ------------------------------------------------------------------
 # AppConfig JSON round-trip test — nr_core provides AppConfig
 # ------------------------------------------------------------------

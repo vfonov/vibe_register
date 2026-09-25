@@ -176,7 +176,7 @@ new_register [options] [volume1.mnc volume2.nii.gz ...]
 | `--lut` | `<name>` | Named colour map for the next volume (see [Available Colour Maps](#available-colour-maps)) |
 | `--range` | `<min,max>` | Display value range for the next volume |
 | `-l`, `--label` | | Mark the next volume as a label volume |
-| `-L`, `--labels` | `<file>` | Label description file for the next volume |
+| `-L`, `--labels` | `<file>` | Label description file for the next volume (implies `-l`) |
 | `-c`, `--config` | `<path>` | Load config JSON from `<path>` |
 | `-B`, `--backend` | `<name>` | Graphics backend: `auto` (default), `vulkan`, `opengl2`, `metal` (macOS) |
 | `-t`, `--tags` | `<file>` | Load a combined two-volume `.tag` file |
