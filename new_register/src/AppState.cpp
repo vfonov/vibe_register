@@ -281,6 +281,20 @@ void AppState::initializeViewStates() {
     }
 }
 
+/// Absolute, normalised form of a path for comparing config entries with
+/// loaded volumes; falls back to the path as given if it cannot be resolved.
+static std::string normalisedPath(const std::string& path)
+{
+    if (path.empty())
+        return path;
+    std::error_code ec;
+    auto abs = std::filesystem::absolute(path, ec);
+    if (ec)
+        return path;
+    auto p = std::filesystem::weakly_canonical(abs, ec);
+    return ec ? abs.lexically_normal().string() : p.string();
+}
+
 void AppState::applyConfig(const AppConfig& cfg, int defaultWindowWidth, int defaultWindowHeight) {
     syncCursors_ = cfg.global.syncCursors;
     syncZoom_ = cfg.global.syncZoom;
@@ -299,9 +313,12 @@ void AppState::applyConfig(const AppConfig& cfg, int defaultWindowWidth, int def
         VolumeViewState& state = viewStates_[vi];
         const Volume& vol = volumes_[vi];
 
+        // Match config entries to volumes by file, not spelling:
+        // "./a.mnc", "a.mnc" and "/abs/a.mnc" name the same volume.
         const VolumeConfig* vc = nullptr;
+        const std::string volKey = normalisedPath(volumePaths_[vi]);
         for (const auto& v : cfg.volumes) {
-            if (v.path == volumePaths_[vi]) {
+            if (v.path == volumePaths_[vi] || normalisedPath(v.path) == volKey) {
                 vc = &v;
                 break;
             }

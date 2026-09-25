@@ -83,3 +83,15 @@ TEST_CASE("Non-finite config pan falls back to the centre", "[config][pan]")
         CHECK(state.viewStates_[0].panV[v] == 0.5);
     }
 }
+
+TEST_CASE("Config volume paths match the same file spelled differently", "[config][path]")
+{
+    const std::string spelling = GENERATE(std::string("./a.mnc"), std::string("sub/../a.mnc"));
+    INFO("config path " << spelling);
+    AppState state;
+    addOneVolume(state);  // loaded as "a.mnc"
+    AppConfig cfg = configWithView(2.5, 0.25);
+    cfg.volumes[0].path = spelling;
+    state.applyConfig(cfg, 800, 600);
+    CHECK(state.viewStates_[0].zoom[0] == 2.5);
+}
