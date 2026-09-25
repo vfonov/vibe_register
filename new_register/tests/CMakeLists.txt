@@ -293,6 +293,12 @@ add_nr_test(test_volume_index CATCH2
 )
 add_test(NAME VolumeIndexTest COMMAND test_volume_index)
 
+add_nr_test(test_minc_nonspatial CATCH2
+    INCLUDES  ${INC_DIR} ${glm_SOURCE_DIR} ${minc2-simple-static_INCLUDE_DIR}
+    LINKS     nr_core
+)
+add_test(NAME MincNonSpatialTest COMMAND test_minc_nonspatial)
+
 add_nr_test(test_volume_reorient
     INCLUDES  ${INC_DIR}
     LINKS     nr_core

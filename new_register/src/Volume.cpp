@@ -324,6 +324,15 @@ void Volume::load(const std::string& filename)
     }
     else
     {
+        // Vector-valued (e.g. RGB) volumes would be interleaved in `data`.
+        for (int i = 0; i < ndim; ++i)
+        {
+            if (storeDims[i].id == MINC2_DIM_VEC)
+                throw std::runtime_error("Volumes with a vector dimension (" +
+                                         std::to_string(storeDims[i].length) +
+                                         " components) are not supported: " + filename);
+        }
+
         if (minc2_setup_standard_order(h.get()) != MINC2_SUCCESS)
             throw std::runtime_error("Failed to setup standard dimension order: " + filename);
 
@@ -382,6 +391,15 @@ void Volume::load(const std::string& filename)
 
         if (minc2_load_complete_volume(h.get(), data.data(), MINC2_FLOAT) != MINC2_SUCCESS)
             throw std::runtime_error("Failed to load volume data: " + filename);
+
+        // Standard order puts time slowest, so frame 0 comes first; keep
+        // only that frame (as the NIfTI loader does).
+        size_t frameVoxels = static_cast<size_t>(dimensions.x) * dimensions.y * dimensions.z;
+        if (data.size() > frameVoxels)
+        {
+            data.resize(frameVoxels);
+            data.shrink_to_fit();
+        }
     }
 
     computeValueRange(*this, filename);

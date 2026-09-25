@@ -193,6 +193,8 @@ new_register [options] [volume1.mnc volume2.nii.gz ...]
 | `--sync-pan` | | Synchronize pan position across volumes |
 
 Positional arguments are volume file paths: `.mnc`, `.mnc.gz`, `.nii`, `.nii.gz`.
+4-D volumes (MINC or NIfTI) show only their first frame. MINC volumes with a vector
+dimension, such as RGB, are rejected.
 Colour-map, range and label flags apply to the next volume on the command line.
 
 Running with no volume arguments (and no QC CSV) prints an error and a usage hint and
