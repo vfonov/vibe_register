@@ -203,6 +203,13 @@ add_nr_test(test_qc_csv
 )
 add_test(NAME QCCsvTest COMMAND test_qc_csv)
 
+add_nr_test(test_qc_csv_io CATCH2
+    SOURCES   QCState.cpp
+    INCLUDES  ${INC_DIR}
+    LINKS     nr_core
+)
+add_test(NAME QCCsvIoTest COMMAND test_qc_csv_io)
+
 # ------------------------------------------------------------------
 # AppConfig JSON round-trip test — nr_core provides AppConfig
 # ------------------------------------------------------------------
@@ -470,7 +477,7 @@ target_link_libraries(generate_test_mode_refs PRIVATE nr_core)
 
 # --- GCC < 10 needs -lstdc++fs for std::filesystem ---
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 10)
-    foreach(_tgt test_qc_csv test_app_config test_matrix_debug test_world_to_voxel test_coordinate_sync)
+    foreach(_tgt test_qc_csv test_qc_csv_io test_app_config test_matrix_debug test_world_to_voxel test_coordinate_sync)
         target_link_libraries(${_tgt} PRIVATE stdc++fs)
     endforeach()
 endif()

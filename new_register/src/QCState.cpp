@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 #include <stdexcept>
 
@@ -13,24 +14,41 @@
 namespace
 {
 
-/// Parse a single CSV line into fields, respecting double-quote escaping.
-/// RFC 4180: fields may be enclosed in double quotes; a literal double quote
-/// inside a quoted field is represented as two consecutive double quotes.
-std::vector<std::string> parseCsvLine(const std::string& line)
+/// Parse CSV text into records of fields (RFC 4180). Fields may be enclosed
+/// in double quotes; a literal quote inside a quoted field is written as two
+/// quotes, and a quoted field may span line breaks. A leading UTF-8 BOM is
+/// skipped, CRLF line endings are accepted and blank lines are dropped.
+std::vector<std::vector<std::string>> parseCsv(const std::string& text)
 {
+    std::vector<std::vector<std::string>> records;
     std::vector<std::string> fields;
     std::string field;
     bool inQuotes = false;
+    bool recordHasContent = false;
 
-    for (size_t i = 0; i < line.size(); ++i)
+    size_t i = 0;
+    if (text.compare(0, 3, "\xEF\xBB\xBF") == 0)
+        i = 3;
+
+    auto endRecord = [&]()
     {
-        char c = line[i];
+        fields.push_back(std::move(field));
+        field.clear();
+        if (recordHasContent)
+            records.push_back(std::move(fields));
+        fields.clear();
+        recordHasContent = false;
+    };
+
+    for (; i < text.size(); ++i)
+    {
+        char c = text[i];
         if (inQuotes)
         {
             if (c == '"')
             {
                 // Peek ahead: doubled quote is an escaped literal quote
-                if (i + 1 < line.size() && line[i + 1] == '"')
+                if (i + 1 < text.size() && text[i + 1] == '"')
                 {
                     field += '"';
                     ++i; // skip the second quote
@@ -44,26 +62,36 @@ std::vector<std::string> parseCsvLine(const std::string& line)
             {
                 field += c;
             }
+            continue;
+        }
+
+        if (c == '"')
+        {
+            inQuotes = true;
+            recordHasContent = true;
+        }
+        else if (c == ',')
+        {
+            fields.push_back(std::move(field));
+            field.clear();
+            recordHasContent = true;
+        }
+        else if (c == '\n')
+        {
+            endRecord();
+        }
+        else if (c == '\r' && i + 1 < text.size() && text[i + 1] == '\n')
+        {
+            // CR of a CRLF line ending; the LF ends the record
         }
         else
         {
-            if (c == '"')
-            {
-                inQuotes = true;
-            }
-            else if (c == ',')
-            {
-                fields.push_back(std::move(field));
-                field.clear();
-            }
-            else
-            {
-                field += c;
-            }
+            field += c;
+            recordHasContent = true;
         }
     }
-    fields.push_back(std::move(field));
-    return fields;
+    endRecord();
+    return records;
 }
 
 /// Quote a CSV field if it contains commas, quotes, or newlines.
@@ -97,24 +125,15 @@ void writeCsvRow(std::ostream& os, const std::vector<std::string>& fields)
     os << '\n';
 }
 
-/// Read all non-empty lines from a file, stripping trailing \r.
-std::vector<std::string> readLines(const std::string& path)
+/// Read a whole CSV file into records.
+std::vector<std::vector<std::string>> readCsvFile(const std::string& path)
 {
-    std::ifstream ifs(path);
+    std::ifstream ifs(path, std::ios::binary);
     if (!ifs)
         throw std::runtime_error("Cannot open file: " + path);
-
-    std::vector<std::string> lines;
-    std::string line;
-    while (std::getline(ifs, line))
-    {
-        // Strip trailing \r (Windows line endings)
-        if (!line.empty() && line.back() == '\r')
-            line.pop_back();
-        if (!line.empty())
-            lines.push_back(std::move(line));
-    }
-    return lines;
+    std::stringstream ss;
+    ss << ifs.rdbuf();
+    return parseCsv(ss.str());
 }
 
 } // anonymous namespace
@@ -125,12 +144,12 @@ std::vector<std::string> readLines(const std::string& path)
 
 void QCState::loadInputCsv(const std::string& path)
 {
-    auto lines = readLines(path);
-    if (lines.empty())
+    auto records = readCsvFile(path);
+    if (records.empty())
         throw std::runtime_error("QC input CSV is empty: " + path);
 
     // Parse header
-    auto header = parseCsvLine(lines[0]);
+    const auto& header = records[0];
     if (header.empty())
         throw std::runtime_error("QC input CSV is empty: " + path);
 
@@ -153,9 +172,9 @@ void QCState::loadInputCsv(const std::string& path)
     rowPaths.clear();
     results.clear();
 
-    for (size_t li = 1; li < lines.size(); ++li)
+    for (size_t li = 1; li < records.size(); ++li)
     {
-        auto fields = parseCsvLine(lines[li]);
+        const auto& fields = records[li];
         if (fields.empty())
             continue;
 
@@ -190,25 +209,37 @@ void QCState::loadInputCsv(const std::string& path)
 
 void QCState::loadOutputCsv(const std::string& path)
 {
+    otherOutputRows.clear();
     if (!std::filesystem::exists(path))
         return;
 
-    std::vector<std::string> lines;
+    std::vector<std::vector<std::string>> records;
     try
     {
-        lines = readLines(path);
+        records = readCsvFile(path);
     }
     catch (...)
     {
         return; // Can't read output file — treat as absent
     }
-    if (lines.empty())
+    if (records.empty())
         return;
 
     // Parse header
-    auto outCols = parseCsvLine(lines[0]);
+    const auto& outCols = records[0];
     if (outCols.empty())
         return;
+
+    // Keep rows for IDs that are not in the input CSV, so that saving
+    // does not drop verdicts made with a different input list.
+    auto keepOtherRow = [&](const std::vector<std::string>& fields)
+    {
+        std::map<std::string, std::string> row;
+        for (size_t i = 0; i < outCols.size() && i < fields.size(); ++i)
+            row[outCols[i]] = fields[i];
+        row["ID"] = fields[0];
+        otherOutputRows.push_back(std::move(row));
+    };
 
     // Single-verdict mode: expect ID,verdict,comment
     if (singleVerdictMode)
@@ -231,16 +262,19 @@ void QCState::loadOutputCsv(const std::string& path)
         size_t vIdx = verdictIt->second;
         size_t cIdx = commentIt != hdrIdx.end() ? commentIt->second : SIZE_MAX;
 
-        for (size_t li = 1; li < lines.size(); ++li)
+        for (size_t li = 1; li < records.size(); ++li)
         {
-            auto fields = parseCsvLine(lines[li]);
+            const auto& fields = records[li];
             if (fields.empty())
                 continue;
 
             std::string id = fields[0];
             auto it = idMap.find(id);
             if (it == idMap.end())
+            {
+                keepOtherRow(fields);
                 continue;
+            }
 
             int rowIdx = it->second;
             auto& result = results[rowIdx];
@@ -287,16 +321,19 @@ void QCState::loadOutputCsv(const std::string& path)
         idMap[rowIds[i]] = static_cast<int>(i);
 
     // Parse data rows
-    for (size_t li = 1; li < lines.size(); ++li)
+    for (size_t li = 1; li < records.size(); ++li)
     {
-        auto fields = parseCsvLine(lines[li]);
+        const auto& fields = records[li];
         if (fields.empty())
             continue;
 
         std::string id = fields[0];
         auto it = idMap.find(id);
         if (it == idMap.end())
-            continue; // Unknown ID, skip
+        {
+            keepOtherRow(fields);
+            continue;
+        }
 
         int rowIdx = it->second;
         auto& result = results[rowIdx];
@@ -324,19 +361,25 @@ void QCState::loadOutputCsv(const std::string& path)
     }
 }
 
-void QCState::saveOutputCsv() const
+bool QCState::saveOutputCsv() const
 {
     if (outputCsvPath.empty())
-        return;
+        return true;
 
-    std::ofstream ofs(outputCsvPath, std::ios::trunc);
+    const std::string tmpPath = outputCsvPath + ".tmp";
+    std::ofstream ofs(tmpPath, std::ios::trunc | std::ios::binary);
     if (!ofs)
-        return;
+    {
+        std::cerr << "Cannot write QC output CSV: " << tmpPath << "\n";
+        return false;
+    }
 
+    std::vector<std::string> header;
     if (singleVerdictMode)
     {
         // Simplified output: ID,verdict,comment
-        writeCsvRow(ofs, {"ID", "verdict", "comment"});
+        header = {"ID", "verdict", "comment"};
+        writeCsvRow(ofs, header);
         for (size_t i = 0; i < results.size(); ++i)
         {
             const char* verdictStr = "";
@@ -349,45 +392,72 @@ void QCState::saveOutputCsv() const
             std::string comment = results[i].comments.empty() ? "" : results[i].comments[0];
             writeCsvRow(ofs, {rowIds[i], verdictStr, comment});
         }
-        ofs.flush();
-        return;
     }
-
-    // Write header: ID, col1_verdict, col1_comment, ...
-    std::vector<std::string> header;
-    header.push_back("ID");
-    for (const auto& col : columnNames)
+    else
     {
-        header.push_back(col + "_verdict");
-        header.push_back(col + "_comment");
-    }
-    writeCsvRow(ofs, header);
+        // Write header: ID, col1_verdict, col1_comment, ...
+        header.push_back("ID");
+        for (const auto& col : columnNames)
+        {
+            header.push_back(col + "_verdict");
+            header.push_back(col + "_comment");
+        }
+        writeCsvRow(ofs, header);
 
-    // Write rows
-    for (size_t i = 0; i < results.size(); ++i)
+        // Write rows
+        for (size_t i = 0; i < results.size(); ++i)
+        {
+            std::vector<std::string> row;
+            row.push_back(rowIds[i]);
+            for (size_t ci = 0; ci < columnNames.size(); ++ci)
+            {
+                const char* verdictStr = "";
+                if (ci < results[i].verdicts.size())
+                {
+                    int v = results[i].verdicts[ci];
+                    if (v >= 0 && v < static_cast<int>(verdictOptions.size()))
+                        verdictStr = verdictOptions[v].c_str();
+                }
+                row.push_back(verdictStr);
+
+                std::string comment;
+                if (ci < results[i].comments.size())
+                    comment = results[i].comments[ci];
+                row.push_back(comment);
+            }
+            writeCsvRow(ofs, row);
+        }
+    }
+
+    // Rows for IDs outside the current input list, mapped onto this header
+    for (const auto& other : otherOutputRows)
     {
         std::vector<std::string> row;
-        row.push_back(rowIds[i]);
-        for (size_t ci = 0; ci < columnNames.size(); ++ci)
+        for (const auto& name : header)
         {
-            const char* verdictStr = "";
-            if (ci < results[i].verdicts.size())
-            {
-                int v = results[i].verdicts[ci];
-                if (v >= 0 && v < static_cast<int>(verdictOptions.size()))
-                    verdictStr = verdictOptions[v].c_str();
-            }
-            row.push_back(verdictStr);
-
-            std::string comment;
-            if (ci < results[i].comments.size())
-                comment = results[i].comments[ci];
-            row.push_back(comment);
+            auto it = other.find(name);
+            row.push_back(it != other.end() ? it->second : "");
         }
         writeCsvRow(ofs, row);
     }
 
-    ofs.flush();
+    ofs.close();
+    std::error_code ec;
+    if (!ofs)
+    {
+        std::cerr << "Failed writing QC output CSV: " << tmpPath << "\n";
+        std::filesystem::remove(tmpPath, ec);
+        return false;
+    }
+    std::filesystem::rename(tmpPath, outputCsvPath, ec);
+    if (ec)
+    {
+        std::cerr << "Cannot replace QC output CSV " << outputCsvPath
+                  << ": " << ec.message() << "\n";
+        std::filesystem::remove(tmpPath, ec);
+        return false;
+    }
+    return true;
 }
 
 // ---------------------------------------------------------------------------

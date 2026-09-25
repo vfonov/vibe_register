@@ -40,6 +40,10 @@ public:
     /// Per-row results (parallel with rowIds).
     std::vector<QCRowResult> results;
 
+    /// Rows of the output CSV whose ID is not in the input CSV, keyed by
+    /// output header name. Written back unchanged by saveOutputCsv().
+    std::vector<std::map<std::string, std::string>> otherOutputRows;
+
     /// Per-column display config (from JSON config, keyed by column name).
     std::map<std::string, QCColumnConfig> columnConfigs;
 
@@ -69,8 +73,12 @@ public:
     /// If the file does not exist, returns silently (results stay UNRATED).
     void loadOutputCsv(const std::string& path);
 
-    /// Write all results to outputCsvPath (truncate mode, immediate flush).
-    void saveOutputCsv() const;
+    /// Write all results, followed by otherOutputRows, to outputCsvPath.
+    /// The file is written to a temporary name and renamed into place, so an
+    /// interrupted save never leaves a truncated file.
+    /// @return false (after printing the reason to std::cerr) if the file
+    ///         could not be written; true on success or with no output path.
+    bool saveOutputCsv() const;
 
     // --- Accessors ---
 
