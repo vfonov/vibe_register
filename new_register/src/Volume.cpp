@@ -223,6 +223,7 @@ void Volume::load(const std::string& filename)
     // Detect NIfTI files by extension
     if (isNiftiFile(filename)) {
         loadNiftiFile(filename, *this);
+        computeValueRange(*this, filename);
         return;
     }
 

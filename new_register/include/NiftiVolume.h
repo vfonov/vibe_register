@@ -4,7 +4,7 @@
 
 class Volume;
 
-/// Check if a filename indicates a NIfTI file (.nii or .nii.gz)
+/// Check if a filename indicates a NIfTI file (.nii, .nii.gz, or a .hdr/.img pair; case-insensitive)
 bool isNiftiFile(const std::string& filename);
 
 /// Load a NIfTI file into a Volume object

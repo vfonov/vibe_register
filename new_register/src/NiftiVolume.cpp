@@ -9,39 +9,62 @@
 #include <cmath>
 #include <limits>
 #include <algorithm>
+#include <cctype>
+#include <cstdint>
+#include <memory>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
 
-// Helper: determine if file is NIfTI by extension
+namespace
+{
+
+bool endsWithNoCase(const std::string& s, const std::string& suffix)
+{
+    if (s.size() < suffix.size())
+        return false;
+    return std::equal(suffix.begin(), suffix.end(), s.end() - static_cast<std::ptrdiff_t>(suffix.size()),
+                      [](char a, char b)
+                      {
+                          return std::tolower(static_cast<unsigned char>(a)) ==
+                                 std::tolower(static_cast<unsigned char>(b));
+                      });
+}
+
+/// Convert the first `count` voxels of type T to float.
+template <typename T>
+void convertVoxels(const void* src, size_t count, std::vector<float>& dst)
+{
+    const T* in = static_cast<const T*>(src);
+    for (size_t i = 0; i < count; ++i)
+        dst[i] = static_cast<float>(in[i]);
+}
+
+} // namespace
+
+// Helper: determine if file is NIfTI (or an ANALYZE-style .hdr/.img pair) by extension
 bool isNiftiFile(const std::string& filename)
 {
-    if (filename.size() >= 7) {
-        std::string ext7 = filename.substr(filename.size() - 7);
-        if (ext7 == ".nii.gz") return true;
-    }
-    if (filename.size() >= 4) {
-        std::string ext4 = filename.substr(filename.size() - 4);
-        if (ext4 == ".nii") return true;
-    }
-    return false;
+    return endsWithNoCase(filename, ".nii.gz") || endsWithNoCase(filename, ".nii") ||
+           endsWithNoCase(filename, ".hdr") || endsWithNoCase(filename, ".img");
 }
 
 // Internal helper: load NIfTI data into Volume structure
 void loadNiftiIntoVolume(const std::string& filename, Volume& vol)
 {
-    // Read NIfTI image with data
-    nifti_image* nii_ptr = nifti_image_read(filename.c_str(), 1);
-    
-    if (!nii_ptr) {
+    // Read NIfTI image with data; freed on every exit path.
+    std::unique_ptr<nifti_image, decltype(&nifti_image_free)> nii(
+        nifti_image_read(filename.c_str(), 1), &nifti_image_free);
+
+    if (!nii) {
         throw std::runtime_error("Failed to read NIfTI file: " + filename);
     }
-    
+    nifti_image* nii_ptr = nii.get();
+
     // NIfTI file dimensions (before any axis permutation)
     int nii_dims[3] = { nii_ptr->nx, nii_ptr->ny, nii_ptr->nz };
 
     if (nii_dims[0] <= 0 || nii_dims[1] <= 0 || nii_dims[2] <= 0)
     {
-        nifti_image_free(nii_ptr);
         throw std::runtime_error("Invalid NIfTI dimensions: " + filename);
     }
 
@@ -94,20 +117,37 @@ void loadNiftiIntoVolume(const std::string& filename, Volume& vol)
 
     // Stage 1: Spatial axis permutation.
     // For each NIfTI file axis j, determine which MINC spatial dimension
-    // (0=xspace, 1=yspace, 2=zspace) it most closely aligns with by
-    // finding the largest absolute component in column j of the affine.
-    int spatial_axes[3];
-    for (int j = 0; j < 3; ++j)
+    // (0=xspace, 1=yspace, 2=zspace) it most closely aligns with. Assign
+    // greedily by the largest absolute component still available, so the
+    // result is always a permutation even for oblique affines with ties.
+    int spatial_axes[3] = { 0, 1, 2 };
+    bool rowUsed[3] = { false, false, false };
+    bool colUsed[3] = { false, false, false };
+    for (int n = 0; n < 3; ++n)
     {
-        float cx = std::fabs(nii_xfm.m[0][j]);
-        float cy = std::fabs(nii_xfm.m[1][j]);
-        float cz = std::fabs(nii_xfm.m[2][j]);
-        if (cy > cx && cy > cz)
-            spatial_axes[j] = 1;
-        else if (cz > cx && cz > cy)
-            spatial_axes[j] = 2;
-        else
-            spatial_axes[j] = 0;
+        int bestRow = -1;
+        int bestCol = -1;
+        float best = -1.0f;
+        for (int j = 0; j < 3; ++j)
+        {
+            if (colUsed[j])
+                continue;
+            for (int row = 0; row < 3; ++row)
+            {
+                if (rowUsed[row])
+                    continue;
+                float c = std::fabs(nii_xfm.m[row][j]);
+                if (c > best)
+                {
+                    best = c;
+                    bestRow = row;
+                    bestCol = j;
+                }
+            }
+        }
+        spatial_axes[bestCol] = bestRow;
+        rowUsed[bestRow] = true;
+        colUsed[bestCol] = true;
     }
 
     // Stage 2: Permute columns into MINC canonical order.
@@ -201,88 +241,35 @@ void loadNiftiIntoVolume(const std::string& filename, Volume& vol)
     );
     vol.worldToVoxel = glm::inverse(vol.voxelToWorld);
 
-    // Extract voxel data
-    size_t total_voxels = nii_ptr->nvox;
+    // Extract voxel data: only the first 3-D frame of a 4-D (or higher) image.
+    const size_t total_voxels = static_cast<size_t>(nii_dims[0]) * nii_dims[1] * nii_dims[2];
     vol.data.resize(total_voxels);
-    
+
     // Convert NIfTI data type to float
-    // NIfTI stores data in various formats; we convert to float
     switch (nii_ptr->datatype) {
-    case DT_INT8:
-    case DT_UINT8:
-        {
-            unsigned char* src = static_cast<unsigned char*>(nii_ptr->data);
-            for (size_t i = 0; i < total_voxels; ++i) {
-                vol.data[i] = static_cast<float>(src[i]);
-            }
-        }
-        break;
-    
-    case DT_INT16:
-    case DT_UINT16:
-        {
-            unsigned short* src = static_cast<unsigned short*>(nii_ptr->data);
-            for (size_t i = 0; i < total_voxels; ++i) {
-                vol.data[i] = static_cast<float>(src[i]);
-            }
-        }
-        break;
-    
-    case DT_INT32:
-    case DT_UINT32:
-        {
-            unsigned int* src = static_cast<unsigned int*>(nii_ptr->data);
-            for (size_t i = 0; i < total_voxels; ++i) {
-                vol.data[i] = static_cast<float>(src[i]);
-            }
-        }
-        break;
-    
-    case DT_FLOAT32:
-        {
-            float* src = static_cast<float*>(nii_ptr->data);
-            for (size_t i = 0; i < total_voxels; ++i) {
-                vol.data[i] = src[i];
-            }
-        }
-        break;
-    
-    case DT_FLOAT64:
-        {
-            double* src = static_cast<double*>(nii_ptr->data);
-            for (size_t i = 0; i < total_voxels; ++i) {
-                vol.data[i] = static_cast<float>(src[i]);
-            }
-        }
-        break;
-    
+    case DT_INT8:    convertVoxels<int8_t>(nii_ptr->data, total_voxels, vol.data);   break;
+    case DT_UINT8:   convertVoxels<uint8_t>(nii_ptr->data, total_voxels, vol.data);  break;
+    case DT_INT16:   convertVoxels<int16_t>(nii_ptr->data, total_voxels, vol.data);  break;
+    case DT_UINT16:  convertVoxels<uint16_t>(nii_ptr->data, total_voxels, vol.data); break;
+    case DT_INT32:   convertVoxels<int32_t>(nii_ptr->data, total_voxels, vol.data);  break;
+    case DT_UINT32:  convertVoxels<uint32_t>(nii_ptr->data, total_voxels, vol.data); break;
+    case DT_INT64:   convertVoxels<int64_t>(nii_ptr->data, total_voxels, vol.data);  break;
+    case DT_UINT64:  convertVoxels<uint64_t>(nii_ptr->data, total_voxels, vol.data); break;
+    case DT_FLOAT32: convertVoxels<float>(nii_ptr->data, total_voxels, vol.data);    break;
+    case DT_FLOAT64: convertVoxels<double>(nii_ptr->data, total_voxels, vol.data);   break;
     default:
-        nifti_image_free(nii_ptr);
-        throw std::runtime_error("Unsupported NIfTI datatype: " + 
+        throw std::runtime_error("Unsupported NIfTI datatype: " +
                                  std::to_string(nii_ptr->datatype));
     }
-    
-    // Calculate min/max for visualization
-    vol.min_value = std::numeric_limits<float>::max();
-    vol.max_value = std::numeric_limits<float>::lowest();
-    
-    for (float v : vol.data) {
-        if (v < vol.min_value) vol.min_value = v;
-        if (v > vol.max_value) vol.max_value = v;
-    }
-    
-    if (vol.min_value >= vol.max_value) {
-        vol.max_value = vol.min_value + 1.0f;
-    }
-    
-    // Apply scl_slope/scl_inter if present
-    if (nii_ptr->scl_slope != 0.0f) {
+
+    // Apply scl_slope/scl_inter if present (slope 0 means "no scaling").
+    // The value range is computed afterwards by Volume::load().
+    if (nii_ptr->scl_slope != 0.0f && std::isfinite(nii_ptr->scl_slope) &&
+        std::isfinite(nii_ptr->scl_inter))
+    {
         for (float& v : vol.data) {
             v = v * nii_ptr->scl_slope + nii_ptr->scl_inter;
         }
-        // Recalculate min/max
-        vol.min_value = vol.min_value * nii_ptr->scl_slope + nii_ptr->scl_inter;
-        vol.max_value = vol.max_value * nii_ptr->scl_slope + nii_ptr->scl_inter;
     }
 
     // Stage 6: Transpose and/or flip voxel data to match MINC axis order.
@@ -297,24 +284,10 @@ void loadNiftiIntoVolume(const std::string& filename, Volume& vol)
     const std::array<bool, 3> flip{flipAxis[0], flipAxis[1], flipAxis[2]};
     if (!isIdentityReorient(fileAxisToSpatial, flip))
     {
-        std::vector<float> reordered;
-        try
-        {
-            reordered = reorientToStandard(vol.data.data(),
-                                           {nii_dims[0], nii_dims[1], nii_dims[2]},
-                                           fileAxisToSpatial, flip);
-        }
-        catch (...)
-        {
-            nifti_image_free(nii_ptr);
-            throw;
-        }
-        // Keep the historical buffer size (nvox): only the first 3-D frame is reordered.
-        reordered.resize(total_voxels);
-        vol.data = std::move(reordered);
+        vol.data = reorientToStandard(vol.data.data(),
+                                      {nii_dims[0], nii_dims[1], nii_dims[2]},
+                                      fileAxisToSpatial, flip);
     }
-
-    nifti_image_free(nii_ptr);
 }
 
 // Wrapper function for Volume::load()

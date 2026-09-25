@@ -177,6 +177,23 @@ add_test(NAME NiftiLoadTest COMMAND test_nifti_load
 )
 
 # ------------------------------------------------------------------
+# NIfTI datatypes, scaling, geometry — synthetic images written at run time
+# ------------------------------------------------------------------
+add_nr_test(test_nifti_datatypes CATCH2
+    INCLUDES  ${INC_DIR}
+    LINKS     nr_core
+)
+add_test(NAME NiftiDatatypesTest COMMAND test_nifti_datatypes)
+# Memory errors in the loader (e.g. use-after-free on error paths) only show up
+# under a checker; run the datatype cases under valgrind when it is installed.
+find_program(VALGRIND_EXECUTABLE valgrind)
+if(VALGRIND_EXECUTABLE)
+    add_test(NAME NiftiDatatypesMemcheck
+        COMMAND ${VALGRIND_EXECUTABLE} --error-exitcode=9 --leak-check=full
+                $<TARGET_FILE:test_nifti_datatypes> "[datatype]")
+endif()
+
+# ------------------------------------------------------------------
 # NIfTI vs MINC coordinate matching test
 # ------------------------------------------------------------------
 add_nr_test(test_nifti_mnc_match
