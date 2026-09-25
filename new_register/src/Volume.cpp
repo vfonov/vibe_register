@@ -625,6 +625,14 @@ const std::vector<int>& Volume::getUniqueLabelIds() const {
         uniqueLabelIds_.assign(uniqueIds.begin(), uniqueIds.end());
         std::sort(uniqueLabelIds_.begin(), uniqueLabelIds_.end());
     }
+    labelIndexMap_.clear();
+    for (size_t i = 0; i < uniqueLabelIds_.size(); ++i)
+        labelIndexMap_[uniqueLabelIds_[i]] = static_cast<int>(i);
     uniqueLabelIdsValid_ = true;
     return uniqueLabelIds_;
+}
+
+const std::unordered_map<int, int>& Volume::getLabelIndexMap() const {
+    getUniqueLabelIds();
+    return labelIndexMap_;
 }

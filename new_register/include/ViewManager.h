@@ -33,7 +33,6 @@ public:
     static void worldToSliceIndices(const Volume& vol, const double world[3], int indices[3]);
 
     /// Invalidate label-to-index cache for a volume (call when colour map changes)
-    void invalidateLabelCache(int volumeIndex);
 
 private:
     AppState& state_;
@@ -41,9 +40,4 @@ private:
 
     /// Reusable pixel buffer to avoid per-call allocation.
     std::vector<uint32_t> pixelBuf_;
-
-    /// Cache for label-to-index mapping in label mode with colour map
-    /// Key: volume index, Value: map of labelId -> index in colour map
-    std::unordered_map<int, std::unordered_map<int, int>> labelToIndexCache_;
-    std::unordered_map<int, size_t> labelCacheSize_;
 };

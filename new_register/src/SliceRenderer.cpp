@@ -55,11 +55,13 @@ RenderedSlice renderSlice(
         rangeMax = 1.0f;
     }
 
-    // Log-transform the range if log transform is enabled
+    // Log-transform the range if log transform is enabled. Label ids are
+    // categories, not intensities: the log transform never applies to them.
+    const bool useLog = params.useLogTransform && !vol.isLabelVolume();
     float logRangeMin = rangeMin;
     float logRangeMax = rangeMax;
 
-    if (params.useLogTransform)
+    if (useLog)
     {
         // Prevent crash when rangeMin <= 0.0 (log10 undefined for non-positive values)
         // Set lower threshold to -10 (corresponds to log10(1e-10))
@@ -139,14 +141,12 @@ RenderedSlice renderSlice(
     // mapping so labels are rendered via the colour map LUT. With a
     // description file, its per-label RGBA is used instead.
     bool useColourMapForLabel = vol.isLabelVolume() && vol.getLabelLUT().empty();
-    std::unordered_map<int, int> labelToIndex;
+    const std::unordered_map<int, int>* labelToIndex = nullptr;
     size_t labelCount = 0;
     if (useColourMapForLabel)
     {
-        const std::vector<int>& uniqueLabels = vol.getUniqueLabelIds();
-        for (size_t i = 0; i < uniqueLabels.size(); ++i)
-            labelToIndex[uniqueLabels[i]] = static_cast<int>(i);
-        labelCount = uniqueLabels.size();
+        labelToIndex = &vol.getLabelIndexMap();
+        labelCount = vol.getUniqueLabelIds().size();
     }
 
     // Lambda: map a raw voxel value to a packed 0xAABBGGRR colour.
@@ -164,7 +164,7 @@ RenderedSlice renderSlice(
         float displayVal = val;
 
         // Log transform (applied before colour mapping)
-        if (params.useLogTransform)
+        if (useLog)
         {
             // Values <= 0 use under-colour setting
             if (val <= 0.0f)
@@ -185,8 +185,8 @@ RenderedSlice renderSlice(
 
             if (useColourMapForLabel)
             {
-                auto it = labelToIndex.find(labelId);
-                if (it != labelToIndex.end() && labelCount > 0)
+                auto it = labelToIndex->find(labelId);
+                if (it != labelToIndex->end() && labelCount > 0)
                 {
                     int idx = (it->second + 1) * 255 / static_cast<int>(labelCount);
                     if (idx < 0)   return underColour;
@@ -350,7 +350,7 @@ RenderedSlice renderOverlaySlice(
         bool isLabelVolume = false;
         const std::unordered_map<int, LabelInfo>* labelLUT = nullptr;
         bool useColourMapForLabel = false;
-        std::unordered_map<int, int> labelToIndex;
+        const std::unordered_map<int, int>* labelToIndex = nullptr;
         size_t labelCacheSize = 0;
         bool useLogTransform = false;
     };
@@ -400,7 +400,9 @@ RenderedSlice renderOverlaySlice(
         // Log-transform the range if log transform is enabled
         float logRangeMin = info.rangeMin;
         float logRangeMax = info.rangeMax;
-        if (p.useLogTransform)
+        // Label ids are categories: the log transform never applies to them.
+        const bool useLog = p.useLogTransform && !vol.isLabelVolume();
+        if (useLog)
         {
             float logLowerThreshold = -10.0f;
             logRangeMin = (info.rangeMin <= 0.0f) ? logLowerThreshold : std::log10(info.rangeMin);
@@ -490,17 +492,18 @@ RenderedSlice renderOverlaySlice(
             if (info.labelLUT->empty())
             {
                 info.useColourMapForLabel = true;
-                const std::vector<int>& uniqueLabels = vol.getUniqueLabelIds();
-                for (size_t i = 0; i < uniqueLabels.size(); ++i)
-                    info.labelToIndex[uniqueLabels[i]] = static_cast<int>(i);
-                info.labelCacheSize = uniqueLabels.size();
+                info.labelToIndex = &vol.getLabelIndexMap();
+                info.labelCacheSize = vol.getUniqueLabelIds().size();
             }
         }
 
         // Log transform setting
-        info.useLogTransform = p.useLogTransform;
+        info.useLogTransform = useLog;
 
         infos.push_back(std::move(info));
+        // ownedLut moved with the element: re-point mainLut at the copy.
+        if (p.invertColourMap)
+            infos.back().mainLut = infos.back().ownedLut.data();
     }
 
     result.pixels.resize(w * h);
@@ -615,7 +618,7 @@ RenderedSlice renderOverlaySlice(
                 {
                     packed = logSkipColour;
                 }
-                else if (info.isLabelVolume && !info.useLogTransform)
+                else if (info.isLabelVolume)
                 {
                     int labelId = static_cast<int>(displayVal + 0.5f);
                     if (labelId == 0)
@@ -623,8 +626,8 @@ RenderedSlice renderOverlaySlice(
 
                     if (info.useColourMapForLabel)
                     {
-                        auto it = info.labelToIndex.find(labelId);
-                        if (it != info.labelToIndex.end() && info.labelCacheSize > 0)
+                        auto it = info.labelToIndex->find(labelId);
+                        if (it != info.labelToIndex->end() && info.labelCacheSize > 0)
                         {
                             int idx = (it->second + 1) * 255 / static_cast<int>(info.labelCacheSize);
                             if (idx < 0)        packed = info.underColour;

@@ -119,7 +119,14 @@ public:
     /// setLabelVolume() reset the cache; call invalidateLabelIdCache() after
     /// writing `data` directly. Not thread-safe — call from the main thread.
     const std::vector<int>& getUniqueLabelIds() const;
-    void invalidateLabelIdCache() { uniqueLabelIds_.clear(); uniqueLabelIdsValid_ = false; }
+    /// Label ID -> its position in getUniqueLabelIds(); cached with it.
+    const std::unordered_map<int, int>& getLabelIndexMap() const;
+    void invalidateLabelIdCache()
+    {
+        uniqueLabelIds_.clear();
+        labelIndexMap_.clear();
+        uniqueLabelIdsValid_ = false;
+    }
     std::string getLabelNameAtVoxel(int x, int y, int z) const;
 
 private:
@@ -127,6 +134,7 @@ private:
     std::string labelDescriptionFile_;
     std::unordered_map<int, LabelInfo> labelLUT_;
     mutable std::vector<int> uniqueLabelIds_;
+    mutable std::unordered_map<int, int> labelIndexMap_;
     mutable bool uniqueLabelIdsValid_ = false;
 
 public:

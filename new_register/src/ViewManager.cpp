@@ -1,6 +1,7 @@
 #include "ViewManager.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 
@@ -61,11 +62,13 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
         rangeMax = 1.0f;
     }
 
-    // Log-transform the range if log transform is enabled
+    // Log-transform the range if log transform is enabled. Label ids are
+    // categories, not intensities: the log transform never applies to them.
+    const bool useLog = state.useLogTransform && !vol.isLabelVolume();
     float logRangeMin = rangeMin;
     float logRangeMax = rangeMax;
 
-    if (state.useLogTransform)
+    if (useLog)
     {
         // Prevent crash when rangeMin <= 0.0 (log10 undefined for non-positive values)
         // Set lower threshold to -10 (corresponds to log10(1e-10))
@@ -103,21 +106,8 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
     const std::unordered_map<int, int>* labelToIndexPtr = nullptr;
     size_t labelCount = 0;
     if (useColourMapForLabel) {
-        auto cacheIt = labelToIndexCache_.find(volumeIndex);
-        if (cacheIt == labelToIndexCache_.end()) {
-            const std::vector<int>& uniqueLabels = vol.getUniqueLabelIds();
-            std::unordered_map<int, int> mapping;
-            for (size_t i = 0; i < uniqueLabels.size(); ++i) {
-                mapping[uniqueLabels[i]] = static_cast<int>(i);
-            }
-            labelCount = uniqueLabels.size();
-            labelToIndexCache_[volumeIndex] = std::move(mapping);
-            labelCacheSize_[volumeIndex] = labelCount;
-            cacheIt = labelToIndexCache_.find(volumeIndex);
-        } else {
-            labelCount = labelCacheSize_[volumeIndex];
-        }
-        labelToIndexPtr = &cacheIt->second;
+        labelToIndexPtr = &vol.getLabelIndexMap();
+        labelCount = vol.getUniqueLabelIds().size();
     }
 
     auto voxelToColour = [&](float val) -> uint32_t {
@@ -134,7 +124,7 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
         float displayVal = val;
 
         // Apply log transform if enabled
-        if (state.useLogTransform)
+        if (useLog)
         {
             // Values <= 0 use under-colour setting
             if (val <= 0.0f)
@@ -304,6 +294,7 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         float rangeMin, rangeMax, invSpan;
         float logRangeMin, logRangeMax;  // Log-transformed range values
         const uint32_t* mainLut;
+        std::array<uint32_t, 256> ownedLut{};  // storage when invertColourMap
         uint32_t underColour, overColour;
         bool underTransparent, overTransparent;
         float alpha;
@@ -313,7 +304,7 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         bool useLogTransform = false;  // Apply log10 transform before colour mapping
         const std::unordered_map<int, LabelInfo>* labelLUT = nullptr;  // label colour lookup
         bool useColourMapForLabel = false;  // use colour map instead of label LUT
-        std::unordered_map<int, int> labelToIndex;  // label ID to colour map index
+        const std::unordered_map<int, int>* labelToIndex = nullptr;  // label ID to colour map index
         size_t labelCacheSize = 0;  // number of unique labels
     };
 
@@ -392,7 +383,11 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         info.logRangeMax = logRangeMax;
         info.useLogTransform = st.useLogTransform;
 
-        info.mainLut = colourMapLut(st.colourMap).table.data();
+        // Use inverted LUT if invert flag is enabled
+        if (st.invertColourMap)
+            info.ownedLut = invertColourLut(colourMapLut(st.colourMap)).table;
+        else
+            info.mainLut = colourMapLut(st.colourMap).table.data();
         info.alpha = st.overlayAlpha;
 
         // Pre-resolve under/over colours
@@ -414,23 +409,15 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
             // Use the colour map unless a description file provides colours
             if (info.labelLUT->empty()) {
                 info.useColourMapForLabel = true;
-                auto cacheIt = labelToIndexCache_.find(vi);
-                if (cacheIt == labelToIndexCache_.end()) {
-                    const std::vector<int>& uniqueLabels = vol.getUniqueLabelIds();
-                    std::unordered_map<int, int> mapping;
-                    for (size_t i = 0; i < uniqueLabels.size(); ++i) {
-                        mapping[uniqueLabels[i]] = static_cast<int>(i);
-                    }
-                    labelCacheSize_[vi] = uniqueLabels.size();
-                    labelToIndexCache_[vi] = std::move(mapping);
-                    cacheIt = labelToIndexCache_.find(vi);
-                }
-                info.labelToIndex = cacheIt->second;
-                info.labelCacheSize = labelCacheSize_[vi];
+                info.labelToIndex = &vol.getLabelIndexMap();
+                info.labelCacheSize = vol.getUniqueLabelIds().size();
             }
         }
 
-        infos.push_back(info);
+        infos.push_back(std::move(info));
+        // Point at the stored element's own copy of the inverted LUT.
+        if (st.invertColourMap)
+            infos.back().mainLut = infos.back().ownedLut.data();
     }
 
     pixelBuf_.resize(w * h);
@@ -564,8 +551,8 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
                     }
                     // Use colour map if selected
                     if (info.useColourMapForLabel) {
-                        auto it = info.labelToIndex.find(labelId);
-                        if (it != info.labelToIndex.end() && info.labelCacheSize > 0) {
+                        auto it = info.labelToIndex->find(labelId);
+                        if (it != info.labelToIndex->end() && info.labelCacheSize > 0) {
                             int idx = (it->second + 1) * 255 / static_cast<int>(info.labelCacheSize);
                             packed = info.mainLut[idx];
                         } else {
@@ -687,6 +674,9 @@ void ViewManager::updateAllOverlayTextures() {
 
 void ViewManager::syncCursors() {
     if (!state_.syncCursors_ || state_.volumes_.size() < 2)
+        return;
+    // Overlay pan/zoom clears the source (-1): nothing to sync from.
+    if (state_.lastSyncSource_ < 0 || state_.lastSyncSource_ >= state_.volumeCount())
         return;
 
     const Volume& refVol = state_.volumes_[state_.lastSyncSource_];
@@ -839,9 +829,4 @@ void ViewManager::worldToSliceIndices(const Volume& vol, const double world[3], 
     indices[0] = std::clamp(indices[0], 0, vol.dimensions.x - 1);
     indices[1] = std::clamp(indices[1], 0, vol.dimensions.y - 1);
     indices[2] = std::clamp(indices[2], 0, vol.dimensions.z - 1);
-}
-
-void ViewManager::invalidateLabelCache(int volumeIndex) {
-    labelToIndexCache_.erase(volumeIndex);
-    labelCacheSize_.erase(volumeIndex);
 }

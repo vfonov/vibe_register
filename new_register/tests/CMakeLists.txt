@@ -124,6 +124,13 @@ add_nr_test(test_label_lut CATCH2
 )
 add_test(NAME LabelLutTest COMMAND test_label_lut)
 
+add_nr_test(test_view_manager CATCH2
+    SOURCES   ViewManager.cpp AppState.cpp
+    INCLUDES  ${INC_DIR} ${imgui_SOURCE_DIR}
+    LINKS     nr_core
+)
+add_test(NAME ViewManagerTest COMMAND test_view_manager)
+
 # ------------------------------------------------------------------
 # Standalone MINC tests (no project source files)
 # ------------------------------------------------------------------
@@ -209,6 +216,9 @@ if(VALGRIND_EXECUTABLE)
         COMMAND ${VALGRIND_EXECUTABLE} --error-exitcode=9 --leak-check=full
                 $<TARGET_FILE:test_tag_wrapper> "[memcheck]"
                 --src-dir ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME ViewManagerMemcheck
+        COMMAND ${VALGRIND_EXECUTABLE} --error-exitcode=9
+                $<TARGET_FILE:test_view_manager> "[sync]")
 endif()
 
 # ------------------------------------------------------------------
