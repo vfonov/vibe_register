@@ -26,6 +26,10 @@ constexpr int kClampRed = -6;
 constexpr int kClampGreen = -7;
 constexpr int kClampBlue = -8;
 
+/// Zoom range allowed in the slice and overlay views.
+constexpr double kMinZoom = 0.1;
+constexpr double kMaxZoom = 50.0;
+
 /// Resolve a clamp mode to a packed 0xAABBGGRR colour.
 /// @param mode        One of the kClamp* constants or a ColourMapType index.
 /// @param currentMap  The colour map currently applied to the volume.

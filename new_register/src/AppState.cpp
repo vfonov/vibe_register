@@ -1,6 +1,7 @@
 #include "AppState.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <iostream>
@@ -327,15 +328,15 @@ void AppState::applyConfig(const AppConfig& cfg, int defaultWindowWidth, int def
             if (vc->sliceIndices[2] >= 0)
                 state.sliceIndices.z = std::clamp(vc->sliceIndices[2], 0, vol.dimensions.z - 1);
 
-            state.zoom[0] = vc->zoom[0];
-            state.zoom[1] = vc->zoom[1];
-            state.zoom[2] = vc->zoom[2];
-            state.panU[0] = vc->panU[0];
-            state.panU[1] = vc->panU[1];
-            state.panU[2] = vc->panU[2];
-            state.panV[0] = vc->panV[0];
-            state.panV[1] = vc->panV[1];
-            state.panV[2] = vc->panV[2];
+            // Keep hand-edited values usable: zoom within the UI range,
+            // non-finite values back to the defaults.
+            for (int v = 0; v < 3; ++v)
+            {
+                const double z = vc->zoom[v];
+                state.zoom[v] = std::isfinite(z) ? std::clamp(z, kMinZoom, kMaxZoom) : 1.0;
+                state.panU[v] = std::isfinite(vc->panU[v]) ? vc->panU[v] : 0.5;
+                state.panV[v] = std::isfinite(vc->panV[v]) ? vc->panV[v] : 0.5;
+            }
 
             state.useLogTransform = vc->useLogTransform;
             state.invertColourMap = vc->invertColourMap;

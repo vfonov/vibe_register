@@ -2054,7 +2054,7 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
                     if (dragY != 0.0f) {
                         double factor = 1.0 - dragY * 0.005;
                         state.zoom[viewIndex] = std::clamp(
-                            state.zoom[viewIndex] * factor, 0.1, 50.0);
+                            state.zoom[viewIndex] * factor, kMinZoom, kMaxZoom);
                         if (state_.syncZoom_) {
                             state_.lastSyncSource_ = vi;
                             state_.lastSyncView_ = viewIndex;
@@ -2109,7 +2109,7 @@ int Interface::renderSliceView(int vi, int viewIndex, const ImVec2& childSize) {
 
                         double factor = (wheel > 0) ? 1.1 : 1.0 / 1.1;
                         double newZoom = std::clamp(
-                            state.zoom[viewIndex] * factor, 0.1, 50.0);
+                            state.zoom[viewIndex] * factor, kMinZoom, kMaxZoom);
 
                         double zOld = state.zoom[viewIndex];
                         state.panU[viewIndex] = cursorU +
@@ -2364,7 +2364,7 @@ int Interface::renderOverlayView(int viewIndex, const ImVec2& childSize) {
                     if (dragY != 0.0f) {
                         double factor = 1.0 - dragY * 0.005;
                         state_.overlay_.zoom[viewIndex] = std::clamp(
-                            state_.overlay_.zoom[viewIndex] * factor, 0.1, 50.0);
+                            state_.overlay_.zoom[viewIndex] * factor, kMinZoom, kMaxZoom);
                         if (state_.syncZoom_) {
                             state_.lastSyncSource_ = -1;
                             state_.lastSyncView_ = viewIndex;
@@ -2411,7 +2411,7 @@ int Interface::renderOverlayView(int viewIndex, const ImVec2& childSize) {
 
                         double factor = (wheel > 0) ? 1.1 : 1.0 / 1.1;
                         double newZoom = std::clamp(
-                            state_.overlay_.zoom[viewIndex] * factor, 0.1, 50.0);
+                            state_.overlay_.zoom[viewIndex] * factor, kMinZoom, kMaxZoom);
 
                         double zOld = state_.overlay_.zoom[viewIndex];
                         state_.overlay_.panU[viewIndex] = cursorU +
