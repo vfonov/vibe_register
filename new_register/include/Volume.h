@@ -16,6 +16,15 @@ struct LabelInfo {
     std::string name;
 };
 
+/// Linear index of voxel (x, y, z) in Volume::data (x varies fastest).
+/// Computed in size_t: int arithmetic overflows past INT_MAX voxels.
+inline size_t voxelIndex(const glm::ivec3& dims, int x, int y, int z)
+{
+    return (static_cast<size_t>(z) * static_cast<size_t>(dims.y) + static_cast<size_t>(y)) *
+               static_cast<size_t>(dims.x) +
+           static_cast<size_t>(x);
+}
+
 class Volume {
 public:
     glm::ivec3 dimensions{0, 0, 0};  // X, Y, Z voxel counts

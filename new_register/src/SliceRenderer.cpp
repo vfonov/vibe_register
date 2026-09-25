@@ -336,7 +336,7 @@ RenderedSlice renderOverlaySlice(
         glm::dmat4 worldToVox;       // vol.worldToVoxel, applied per-pixel
         const float* vdata;
         glm::ivec3 dims;
-        int dimXY;
+        size_t dimXY;
         float rangeMin, rangeMax, invSpan;
         float logRangeMin, logRangeMax;  // Log-transformed range values
         const uint32_t* mainLut;
@@ -384,7 +384,7 @@ RenderedSlice renderOverlaySlice(
 
         info.vdata = vol.data.data();
         info.dims = vol.dimensions;
-        info.dimXY = vol.dimensions.x * vol.dimensions.y;
+        info.dimXY = static_cast<size_t>(vol.dimensions.x) * vol.dimensions.y;
         info.rangeMin = static_cast<float>(p.valueMin);
         info.rangeMax = static_cast<float>(p.valueMax);
 
@@ -566,7 +566,7 @@ RenderedSlice renderOverlaySlice(
                     int tx = std::clamp(static_cast<int>(std::round(tv.x)), 0, info.dims.x - 1);
                     int ty = std::clamp(static_cast<int>(std::round(tv.y)), 0, info.dims.y - 1);
                     int tz = std::clamp(static_cast<int>(std::round(tv.z)), 0, info.dims.z - 1);
-                    raw = info.vdata[tz * info.dimXY + ty * info.dims.x + tx];
+                    raw = info.vdata[tz * info.dimXY + static_cast<size_t>(ty) * info.dims.x + tx];
                 }
 
                 uint32_t packed;

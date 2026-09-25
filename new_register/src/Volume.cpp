@@ -393,7 +393,7 @@ float Volume::get(int x, int y, int z) const
         y < 0 || y >= dimensions.y ||
         z < 0 || z >= dimensions.z) return 0.0f;
 
-    return data[z * dimensions.y * dimensions.x + y * dimensions.x + x];
+    return data[voxelIndex(dimensions, x, y, z)];
 }
 
 float Volume::computeQuantile(double q) const

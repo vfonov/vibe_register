@@ -287,6 +287,12 @@ add_nr_test(test_volume_core
 )
 add_test(NAME VolumeCoreTest COMMAND test_volume_core)
 
+add_nr_test(test_volume_index CATCH2
+    INCLUDES  ${INC_DIR} ${glm_SOURCE_DIR}
+    LINKS     nr_core
+)
+add_test(NAME VolumeIndexTest COMMAND test_volume_index)
+
 add_nr_test(test_volume_reorient
     INCLUDES  ${INC_DIR}
     LINKS     nr_core

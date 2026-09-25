@@ -300,7 +300,7 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         glm::dmat4 combined;         // ref-voxel -> target-voxel transform
         const float* vdata;          // pointer to volume data
         glm::ivec3 dims;             // target volume dimensions
-        int dimXY;                   // dims.x * dims.y
+        size_t dimXY;                // dims.x * dims.y
         float rangeMin, rangeMax, invSpan;
         float logRangeMin, logRangeMax;  // Log-transformed range values
         const uint32_t* mainLut;
@@ -361,7 +361,7 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
 
         info.vdata = vol.data.data();
         info.dims = vol.dimensions;
-        info.dimXY = vol.dimensions.x * vol.dimensions.y;
+        info.dimXY = static_cast<size_t>(vol.dimensions.x) * vol.dimensions.y;
         info.rangeMin = static_cast<float>(st.valueRange[0]);
         info.rangeMax = static_cast<float>(st.valueRange[1]);
 
@@ -543,7 +543,7 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
                     tz < 0 || tz >= info.dims.z)
                     continue;
 
-                float raw = info.vdata[tz * info.dimXY + ty * info.dims.x + tx];
+                float raw = info.vdata[tz * info.dimXY + static_cast<size_t>(ty) * info.dims.x + tx];
 
                 uint32_t packed;
                 // Non-finite voxels: +Inf -> over, -Inf/NaN -> under.
