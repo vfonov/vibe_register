@@ -41,7 +41,7 @@ Other docs: [`PLAN.md`](PLAN.md) — roadmap, including the C++23 migration ·
 cd new_register/build
 cmake ..
 make -j$(nproc)
-ctest --output-on-failure    # all tools enabled: 57 suites — 29 from tests/, headless_ui_tests, 27 mriv_*
+ctest --output-on-failure    # all tools enabled: 76 suites — 48 from tests/, headless_ui_tests, 27 mriv_*
 ctest -R OverlapTest         # one test by regex; -R "^mriv_" for the subproject
 ```
 
@@ -137,6 +137,6 @@ tests/                    CTest sources, reference PNGs, sq1/sq2 test volumes, d
 
 ## Known open issues
 
-**None currently.** All 57 CTest suites pass on Linux. Record new issues in [`problem.md`](problem.md)
+**None currently.** All 76 CTest suites pass on Linux. Record new issues in [`problem.md`](problem.md)
 and link them here. `problem.md` also keeps the resolved OverlapTest post-mortem — the reference for
 the `voxelToWorld` / `worldToVoxel` conventions.

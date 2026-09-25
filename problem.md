@@ -90,3 +90,24 @@ The fix was verified by:
 `push_back(std::move(vol))`, losing it. `AppState`'s LRU cache copy (`volumeCache_.put(path, vol)`) lost it too.
 **Fix:** removed the special member functions (rule of zero), so every member is copied/moved.
 **Test:** `VolumeCoreTest` (`tests/test_volume_core.cpp`).
+
+---
+
+# Review follow-ups (2026-09) — deferred / by design
+
+Left open after the red-green review of `new_register` (all found bugs fixed with tests):
+
+- **`VolumeCache::get` pointer lifetime (latent).** The returned `Volume*` is invalidated by a later
+  `put`/`clear`. Current callers copy or use it at once; documented in `AppState.h`. Switch to
+  `shared_ptr<const Volume>` if a caller ever needs to hold it.
+- **`int` voxel offsets in `SliceRenderer`.** Per-slice offsets such as `z * dimY * dimX` are `int`;
+  fine up to ~2^31 voxels (1290³). Move to `size_t` if larger volumes appear.
+- **Per-volume `.tag` files.** A corrupt `.tag` loads as 0 tags, and a later auto-save with an empty tag
+  set removes the file (an empty set removes the file by design).
+- **QC row switch keeps the value range** of the previous row (by design, R9); only slice indices are
+  clamped to the new volume.
+- **Vector MINC volumes** (`vector_dimension`) are rejected with an error rather than loading component 0.
+- **niftilib NaN handling.** niftilib zeroes NaN voxels on read when `scl_slope` is applied, so a
+  scaled NIfTI never shows NaN as the under colour; MINC keeps NaN.
+- **Overlay tie-break change (D1).** `ViewManager` now uses `SliceRenderer`'s half-open
+  `[-0.5, dim-0.5)` voxel extent, so a sample exactly at `-0.5` is drawn (previously dropped).
