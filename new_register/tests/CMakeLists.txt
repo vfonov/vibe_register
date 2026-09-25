@@ -168,7 +168,6 @@ add_test(NAME AppConfigTest COMMAND test_app_config)
 # NIfTI file loading test
 # ------------------------------------------------------------------
 add_nr_test(test_nifti_load
-    SOURCES   NiftiVolume.cpp
     INCLUDES  ${INC_DIR}
     LINKS     nr_core
 )
@@ -197,7 +196,6 @@ endif()
 # NIfTI vs MINC coordinate matching test
 # ------------------------------------------------------------------
 add_nr_test(test_nifti_mnc_match
-    SOURCES   NiftiVolume.cpp
     INCLUDES  ${INC_DIR}
     LINKS     nr_core
 )
