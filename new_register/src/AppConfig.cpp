@@ -9,6 +9,20 @@
 
 // ---- nlohmann/json serialization for custom JSON field names ----------------
 
+namespace
+{
+
+/// Read an optional field; a missing key or an explicit null leaves it unset.
+template <typename T>
+void getOptional(const nlohmann::json& j, const char* key, std::optional<T>& out)
+{
+    auto it = j.find(key);
+    if (it != j.end() && !it->is_null())
+        out = it->get<T>();
+}
+
+}  // namespace
+
 void to_json(nlohmann::json& j, const VolumeConfig& v)
 {
     j["path"] = v.path;
@@ -29,14 +43,14 @@ void from_json(const nlohmann::json& j, VolumeConfig& v)
 {
     if (j.contains("path"))          j.at("path").get_to(v.path);
     if (j.contains("colour_map"))    j.at("colour_map").get_to(v.colourMap);
-    if (j.contains("value_min"))     v.valueMin = j.at("value_min").get<double>();
-    if (j.contains("value_max"))     v.valueMax = j.at("value_max").get<double>();
+    getOptional(j, "value_min", v.valueMin);
+    getOptional(j, "value_max", v.valueMax);
     if (j.contains("slice_indices")) j.at("slice_indices").get_to(v.sliceIndices);
     if (j.contains("zoom"))          j.at("zoom").get_to(v.zoom);
     if (j.contains("pan_u"))         j.at("pan_u").get_to(v.panU);
     if (j.contains("pan_v"))         j.at("pan_v").get_to(v.panV);
     if (j.contains("is_label_volume")) j.at("is_label_volume").get_to(v.isLabelVolume);
-    if (j.contains("label_description_file")) v.labelDescriptionFile = j.at("label_description_file").get<std::string>();
+    getOptional(j, "label_description_file", v.labelDescriptionFile);
     if (j.contains("use_log_transform")) j.at("use_log_transform").get_to(v.useLogTransform);
     if (j.contains("invert_colour_map")) j.at("invert_colour_map").get_to(v.invertColourMap);
 }
@@ -51,8 +65,8 @@ void to_json(nlohmann::json& j, const QCColumnConfig& c)
 void from_json(const nlohmann::json& j, QCColumnConfig& c)
 {
     if (j.contains("colour_map")) j.at("colour_map").get_to(c.colourMap);
-    if (j.contains("value_min"))  c.valueMin = j.at("value_min").get<double>();
-    if (j.contains("value_max"))  c.valueMax = j.at("value_max").get<double>();
+    getOptional(j, "value_min", c.valueMin);
+    getOptional(j, "value_max", c.valueMax);
 }
 
 void to_json(nlohmann::json& j, const GlobalConfig& g)
@@ -76,8 +90,8 @@ void to_json(nlohmann::json& j, const GlobalConfig& g)
 void from_json(const nlohmann::json& j, GlobalConfig& g)
 {
     if (j.contains("default_colour_map")) j.at("default_colour_map").get_to(g.defaultColourMap);
-    if (j.contains("window_width"))       g.windowWidth = j.at("window_width").get<int>();
-    if (j.contains("window_height"))      g.windowHeight = j.at("window_height").get<int>();
+    getOptional(j, "window_width", g.windowWidth);
+    getOptional(j, "window_height", g.windowHeight);
     if (j.contains("sync_cursors"))       j.at("sync_cursors").get_to(g.syncCursors);
     if (j.contains("sync_zoom"))          j.at("sync_zoom").get_to(g.syncZoom);
     if (j.contains("sync_pan"))           j.at("sync_pan").get_to(g.syncPan);
@@ -102,8 +116,7 @@ void from_json(const nlohmann::json& j, AppConfig& c)
 {
     if (j.contains("global"))     j.at("global").get_to(c.global);
     if (j.contains("volumes"))    j.at("volumes").get_to(c.volumes);
-    if (j.contains("qc_columns"))
-        c.qcColumns = j.at("qc_columns").get<std::map<std::string, QCColumnConfig>>();
+    getOptional(j, "qc_columns", c.qcColumns);
 }
 
 // ---- Implementation --------------------------------------------------------

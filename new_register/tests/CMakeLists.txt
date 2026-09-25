@@ -216,6 +216,12 @@ add_nr_test(test_cli_args CATCH2
 )
 add_test(NAME CliArgsTest COMMAND test_cli_args)
 
+add_nr_test(test_config_null CATCH2
+    INCLUDES  ${INC_DIR}
+    LINKS     nr_core
+)
+add_test(NAME ConfigNullTest COMMAND test_config_null)
+
 # ------------------------------------------------------------------
 # AppConfig JSON round-trip test — nr_core provides AppConfig
 # ------------------------------------------------------------------
