@@ -57,7 +57,7 @@ struct TransformResult
 
     /// --- TPS-specific data ---
 
-    /// Source points (vol1 positions) used to build the TPS.
+    /// Source points (vol2 positions) used to build the TPS; it maps vol2 -> vol1.
     /// Size: n_points.
     std::vector<glm::dvec3> tpsSourcePoints;
 

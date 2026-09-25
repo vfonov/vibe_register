@@ -220,6 +220,12 @@ add_nr_test(test_transform_lsq CATCH2
 )
 add_test(NAME TransformLsqTest COMMAND test_transform_lsq)
 
+add_nr_test(test_xfm_direction CATCH2
+    INCLUDES  ${INC_DIR} ${glm_SOURCE_DIR} ${minc2-simple-static_INCLUDE_DIR}
+    LINKS     nr_core
+)
+add_test(NAME XfmDirectionTest COMMAND test_xfm_direction)
+
 # ------------------------------------------------------------------
 # SliceRenderer / mincpik rendering test
 # ------------------------------------------------------------------

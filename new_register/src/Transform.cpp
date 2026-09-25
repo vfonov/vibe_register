@@ -1022,8 +1022,8 @@ bool writeXfmFile(const std::string& path, const TransformResult& result)
         int nDims = 3;
 
         out << "MNI Transform File\n";
+        // Forward TPS (vol2 -> vol1), the same direction as the linear .xfm.
         out << "\nTransform_Type = Thin_Plate_Spline_Transform;\n";
-        out << "Invert_Flag = True;\n";
         out << "Number_Dimensions = " << nDims << ";\n";
 
         out << "Points =\n";
