@@ -339,6 +339,12 @@ void AppState::applyConfig(const AppConfig& cfg, int defaultWindowWidth, int def
 
             state.useLogTransform = vc->useLogTransform;
             state.invertColourMap = vc->invertColourMap;
+
+            if (vc->isLabelVolume)
+                volumes_[vi].setLabelVolume(true);
+            // A missing or bad description file only warns (see Volume.cpp).
+            if (vc->labelDescriptionFile.has_value())
+                volumes_[vi].loadLabelDescriptionFile(*vc->labelDescriptionFile);
         }
     }
 }

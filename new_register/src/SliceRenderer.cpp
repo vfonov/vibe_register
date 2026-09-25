@@ -135,10 +135,10 @@ RenderedSlice renderSlice(
         }
     }
 
-    // For label volumes: build label-to-index mapping if a non-default colour
-    // map is selected, so labels are rendered via the colour map LUT instead
-    // of per-label RGBA.
-    bool useColourMapForLabel = vol.isLabelVolume();
+    // For label volumes without a description file: build a label-to-index
+    // mapping so labels are rendered via the colour map LUT. With a
+    // description file, its per-label RGBA is used instead.
+    bool useColourMapForLabel = vol.isLabelVolume() && vol.getLabelLUT().empty();
     std::unordered_map<int, int> labelToIndex;
     size_t labelCount = 0;
     if (useColourMapForLabel)
@@ -487,6 +487,7 @@ RenderedSlice renderOverlaySlice(
         if (info.isLabelVolume)
         {
             info.labelLUT = &vol.getLabelLUT();
+            if (info.labelLUT->empty())
             {
                 info.useColourMapForLabel = true;
                 const std::vector<int>& uniqueLabels = vol.getUniqueLabelIds();

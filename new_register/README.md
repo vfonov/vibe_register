@@ -335,6 +335,21 @@ to write or read a config file.
 
 All volume fields except `path` are optional; omitted fields use their defaults.
 
+### Label description files
+
+`-L` / `label_description_file` read an ITK-SNAP label description file, one label per line:
+
+```
+# IDX   R    G    B      A  VIS MSH  LABEL
+    1   255    0    0    1   1   1   "Left Hippocampus"
+    2     0    0  255  0.5   1   1   "Right Hippocampus"
+```
+
+`A` is the opacity, from 0 to 1. Values above 1 are read on a 0..255 scale. Colours are
+clamped to 0..255. `VIS 0` hides the label. The quoted name may contain spaces. When a
+description file is loaded, the labels use its colours. Otherwise the volume's colour
+map is spread across the label IDs that are present.
+
 ### Available Colour Maps
 
 Use these display names in the `colour_map` JSON field and the `--lut` CLI flag.

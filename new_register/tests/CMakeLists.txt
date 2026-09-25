@@ -117,6 +117,13 @@ add_test(NAME TagWrapperTest COMMAND test_tag_wrapper
     --src-dir ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+add_nr_test(test_label_lut CATCH2
+    SOURCES   AppState.cpp
+    INCLUDES  ${INC_DIR} ${imgui_SOURCE_DIR}
+    LINKS     nr_core
+)
+add_test(NAME LabelLutTest COMMAND test_label_lut)
+
 # ------------------------------------------------------------------
 # Standalone MINC tests (no project source files)
 # ------------------------------------------------------------------

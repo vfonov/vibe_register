@@ -2998,6 +2998,12 @@ void Interface::renderConfigFileDialog() {
                                 vc.zoom = {st.zoom[0], st.zoom[1], st.zoom[2]};
                                 vc.panU = {st.panU[0], st.panU[1], st.panU[2]};
                                 vc.panV = {st.panV[0], st.panV[1], st.panV[2]};
+                                vc.useLogTransform = st.useLogTransform;
+                                vc.invertColourMap = st.invertColourMap;
+                                const Volume& vol = state_.volumes_[vi];
+                                vc.isLabelVolume = vol.isLabelVolume();
+                                if (!vol.labelDescriptionFile().empty())
+                                    vc.labelDescriptionFile = vol.labelDescriptionFile();
                                 cfg.volumes.push_back(std::move(vc));
                             }
                         }

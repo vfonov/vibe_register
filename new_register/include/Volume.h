@@ -101,6 +101,7 @@ public:
     bool isLabelVolume() const { return isLabelVolume_; }
     void setLabelVolume(bool val) { isLabelVolume_ = val; invalidateLabelIdCache(); }
     void setLabelDescriptionFile(const std::string& path);
+    const std::string& labelDescriptionFile() const { return labelDescriptionFile_; }
     const std::unordered_map<int, LabelInfo>& getLabelLUT() const { return labelLUT_; }
     const LabelInfo* getLabelInfo(int labelId) const;
 

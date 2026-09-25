@@ -11,6 +11,7 @@
 #include <sstream>
 #include <iostream>
 #include <fstream>
+#include <iomanip>
 #include <unordered_set>
 
 #include <glm/glm.hpp>
@@ -507,12 +508,21 @@ void Volume::loadLabelDescriptionFile(const std::string& path) {
         if (firstNonSpace == std::string::npos) continue;
         if (line[firstNonSpace] == '#') continue;
 
-        // Parse line: split by both tabs and spaces, skip empty tokens
+        // ITK-SNAP format: IDX R G B A VIS MSH "LABEL" (tabs or spaces).
+        // The label name is quoted and may contain spaces.
         std::istringstream iss(line);
         std::string token;
         std::vector<std::string> tokens;
-        while (iss >> token) {
+        while (tokens.size() < 7 && iss >> token) {
             tokens.push_back(token);
+        }
+        std::string name;
+        if (tokens.size() == 7) {
+            iss >> std::ws;
+            if (iss.peek() == '"')
+                iss >> std::quoted(name);
+            else
+                iss >> name;
         }
 
         if (tokens.size() < 5) {
@@ -521,22 +531,24 @@ void Volume::loadLabelDescriptionFile(const std::string& path) {
         }
 
         try {
-            int labelId = std::stoi(tokens[0]);
+            auto toByte = [](double v) {
+                return static_cast<uint8_t>(std::lround(std::clamp(v, 0.0, 255.0)));
+            };
+            int labelId = static_cast<int>(std::lround(std::stod(tokens[0])));
             LabelInfo info;
-            info.r = static_cast<uint8_t>(std::stoi(tokens[1]));
-            info.g = static_cast<uint8_t>(std::stoi(tokens[2]));
-            info.b = static_cast<uint8_t>(std::stoi(tokens[3]));
-            info.a = static_cast<uint8_t>(std::stoi(tokens[4]));
+            info.r = toByte(std::stod(tokens[1]));
+            info.g = toByte(std::stod(tokens[2]));
+            info.b = toByte(std::stod(tokens[3]));
+            // ITK-SNAP stores opacity as 0..1; values above 1 are 0..255.
+            double alpha = std::stod(tokens[4]);
+            info.a = toByte(alpha <= 1.0 ? alpha * 255.0 : alpha);
 
             if (tokens.size() >= 6) {
                 info.visible = (std::stoi(tokens[5]) != 0);
             }
 
-            if (tokens.size() >= 8) {
-                info.name = tokens[7];
-            } else if (tokens.size() >= 7) {
-                // mesh visibility column exists but we don't use it
-            }
+            // Column 7 (mesh visibility) is not used.
+            info.name = name;
 
             labelLUT_[labelId] = info;
         } catch (const std::exception& e) {

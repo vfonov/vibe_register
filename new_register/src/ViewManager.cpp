@@ -97,8 +97,9 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
     uint32_t overColour = overTransparent ? 0x00000000
         : resolveClampColour(overMode, state.colourMap, true, state.invertColourMap);
 
-    // For label volumes: check if we should use colour map instead of label LUT
-    bool useColourMapForLabel = vol.isLabelVolume();
+    // For label volumes: use the colour map unless a description file
+    // provides per-label colours
+    bool useColourMapForLabel = vol.isLabelVolume() && vol.getLabelLUT().empty();
     const std::unordered_map<int, int>* labelToIndexPtr = nullptr;
     size_t labelCount = 0;
     if (useColourMapForLabel) {
@@ -410,8 +411,8 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         info.isLabelVolume = vol.isLabelVolume();
         if (info.isLabelVolume) {
             info.labelLUT = &vol.getLabelLUT();
-            // Check if we should use colour map instead of label LUT
-            {
+            // Use the colour map unless a description file provides colours
+            if (info.labelLUT->empty()) {
                 info.useColourMapForLabel = true;
                 auto cacheIt = labelToIndexCache_.find(vi);
                 if (cacheIt == labelToIndexCache_.end()) {
