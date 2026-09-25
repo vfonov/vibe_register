@@ -85,6 +85,21 @@ struct VolumeViewState {
     bool invertColourMap = false;
 };
 
+/// Display settings of one view, carried over from one QC row to the next.
+struct ViewDisplaySettings {
+    ColourMapType colourMap = ColourMapType::GrayScale;
+    std::array<double, 2> valueRange = {0.0, 1.0};
+    glm::ivec3 sliceIndices{0, 0, 0};
+    glm::dvec3 zoom{1.0, 1.0, 1.0};
+    glm::dvec3 panU{0.5, 0.5, 0.5};
+    glm::dvec3 panV{0.5, 0.5, 0.5};
+    int underColourMode = kClampCurrent;
+    int overColourMode = kClampCurrent;
+    float overlayAlpha = 1.0f;
+    bool useLogTransform = false;
+    bool invertColourMap = false;
+};
+
 struct OverlayState {
     std::unique_ptr<Texture> textures[3];
     glm::dvec3 zoom{1.0, 1.0, 1.0};
@@ -248,4 +263,12 @@ public:
     /// Caller must call ViewManager::initializeAllTextures() afterward.
     /// Uses volumeCache_ to avoid re-reading previously loaded files.
     void loadVolumeSet(const std::vector<std::string>& paths);
+
+    /// Snapshot the display settings of every view (one entry per volume).
+    std::vector<ViewDisplaySettings> captureDisplaySettings() const;
+
+    /// Re-apply settings from captureDisplaySettings() to the current volumes,
+    /// clamping slice indices to the new dimensions. Placeholder volumes
+    /// (no data) keep their defaults.
+    void restoreDisplaySettings(const std::vector<ViewDisplaySettings>& saved);
 };

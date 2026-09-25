@@ -131,6 +131,13 @@ add_nr_test(test_apply_config CATCH2
 )
 add_test(NAME ApplyConfigTest COMMAND test_apply_config)
 
+add_nr_test(test_qc_row_switch CATCH2
+    SOURCES   AppState.cpp
+    INCLUDES  ${INC_DIR} ${imgui_SOURCE_DIR}
+    LINKS     nr_core
+)
+add_test(NAME QCRowSwitchTest COMMAND test_qc_row_switch)
+
 add_nr_test(test_view_manager CATCH2
     SOURCES   ViewManager.cpp AppState.cpp
     INCLUDES  ${INC_DIR} ${imgui_SOURCE_DIR}

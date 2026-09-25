@@ -2526,25 +2526,7 @@ void Interface::switchQCRow(int newRow, GraphicsBackend& backend) {
         return;
 
     // Capture per-column display settings before destroying the old volumes
-    struct ColumnDisplay {
-        ColourMapType colourMap = ColourMapType::GrayScale;
-        std::array<double, 2> valueRange = {0.0, 1.0};
-        glm::ivec3 sliceIndices{0, 0, 0};
-        glm::dvec3 zoom{1.0, 1.0, 1.0};
-        glm::dvec3 panU{0.5, 0.5, 0.5};
-        glm::dvec3 panV{0.5, 0.5, 0.5};
-        int underColourMode = kClampCurrent;
-        int overColourMode = kClampCurrent;
-        float overlayAlpha = 1.0f;
-    };
-    std::vector<ColumnDisplay> saved;
-    for (int ci = 0; ci < state_.volumeCount(); ++ci)
-    {
-        const auto& vs = state_.viewStates_[ci];
-        saved.push_back({vs.colourMap, vs.valueRange, vs.sliceIndices,
-                         vs.zoom, vs.panU, vs.panV,
-                         vs.underColourMode, vs.overColourMode, vs.overlayAlpha});
-    }
+    const std::vector<ViewDisplaySettings> saved = state_.captureDisplaySettings();
 
     qcState_.currentRowIndex = newRow;
 
@@ -2556,24 +2538,7 @@ void Interface::switchQCRow(int newRow, GraphicsBackend& backend) {
     state_.loadVolumeSet(paths);
 
     // Restore per-column display settings from previous row
-    for (int ci = 0; ci < state_.volumeCount() && ci < static_cast<int>(saved.size()); ++ci)
-    {
-        if (state_.volumes_[ci].data.empty())
-            continue;
-        VolumeViewState& vs = state_.viewStates_[ci];
-        vs.colourMap = saved[ci].colourMap;
-        vs.valueRange = saved[ci].valueRange;
-        const Volume& vol = state_.volumes_[ci];
-        vs.sliceIndices.x = std::clamp(saved[ci].sliceIndices.x, 0, vol.dimensions.x - 1);
-        vs.sliceIndices.y = std::clamp(saved[ci].sliceIndices.y, 0, vol.dimensions.y - 1);
-        vs.sliceIndices.z = std::clamp(saved[ci].sliceIndices.z, 0, vol.dimensions.z - 1);
-        vs.zoom = saved[ci].zoom;
-        vs.panU = saved[ci].panU;
-        vs.panV = saved[ci].panV;
-        vs.underColourMode = saved[ci].underColourMode;
-        vs.overColourMode = saved[ci].overColourMode;
-        vs.overlayAlpha = saved[ci].overlayAlpha;
-    }
+    state_.restoreDisplaySettings(saved);
 
     viewManager_.initializeAllTextures();
 

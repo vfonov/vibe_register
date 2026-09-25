@@ -454,6 +454,43 @@ void AppState::loadVolumeSet(const std::vector<std::string>& paths) {
     initializeViewStates();
 }
 
+std::vector<ViewDisplaySettings> AppState::captureDisplaySettings() const
+{
+    std::vector<ViewDisplaySettings> saved;
+    for (const auto& vs : viewStates_)
+    {
+        saved.push_back({vs.colourMap, vs.valueRange, vs.sliceIndices,
+                         vs.zoom, vs.panU, vs.panV,
+                         vs.underColourMode, vs.overColourMode, vs.overlayAlpha,
+                         vs.useLogTransform, vs.invertColourMap});
+    }
+    return saved;
+}
+
+void AppState::restoreDisplaySettings(const std::vector<ViewDisplaySettings>& saved)
+{
+    for (int ci = 0; ci < volumeCount() && ci < static_cast<int>(saved.size()); ++ci)
+    {
+        if (volumes_[ci].data.empty())
+            continue;
+        VolumeViewState& vs = viewStates_[ci];
+        vs.colourMap = saved[ci].colourMap;
+        vs.valueRange = saved[ci].valueRange;
+        const Volume& vol = volumes_[ci];
+        vs.sliceIndices.x = std::clamp(saved[ci].sliceIndices.x, 0, vol.dimensions.x - 1);
+        vs.sliceIndices.y = std::clamp(saved[ci].sliceIndices.y, 0, vol.dimensions.y - 1);
+        vs.sliceIndices.z = std::clamp(saved[ci].sliceIndices.z, 0, vol.dimensions.z - 1);
+        vs.zoom = saved[ci].zoom;
+        vs.panU = saved[ci].panU;
+        vs.panV = saved[ci].panV;
+        vs.underColourMode = saved[ci].underColourMode;
+        vs.overColourMode = saved[ci].overColourMode;
+        vs.overlayAlpha = saved[ci].overlayAlpha;
+        vs.useLogTransform = saved[ci].useLogTransform;
+        vs.invertColourMap = saved[ci].invertColourMap;
+    }
+}
+
 // --- Transform computation ---
 
 int AppState::getTagPairs(std::vector<glm::dvec3>& vol1Tags,
