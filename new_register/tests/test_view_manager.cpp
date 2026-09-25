@@ -319,3 +319,33 @@ TEST_CASE("syncCursors without a sync source does nothing", "[viewmanager][sync]
     REQUIRE_NOTHROW(vm.syncCursors());
     CHECK(state.viewStates_[1].sliceIndices == glm::ivec3(0, 0, 0));
 }
+
+TEST_CASE("An overlay click moves other volumes through world space", "[viewmanager][sync]")
+{
+    FakeBackend backend;
+    AppState state;
+    addVolume(state, makeVolume(ramp), "a.mnc");
+    addVolume(state, makeVolume(ramp, {1.0, 0.0, 0.0}), "b.mnc");  // world = voxel + (1,0,0)
+    state.initializeViewStates();
+    state.viewStates_[0].sliceIndices = {0, 0, 0};
+    state.viewStates_[1].sliceIndices = {4, 3, 2};
+
+    ViewManager vm(state, backend);
+
+    SECTION("with cursor sync on, the others follow the same world point")
+    {
+        state.syncCursors_ = true;
+        vm.setOverlayCursor({3, 2, 1});
+        if (state.cursorSyncDirty_)  // end of frame, as in Interface::render()
+            vm.syncCursors();
+        CHECK(state.viewStates_[0].sliceIndices == glm::ivec3(3, 2, 1));
+        CHECK(state.viewStates_[1].sliceIndices == glm::ivec3(2, 2, 1));
+    }
+    SECTION("with cursor sync off, only the reference cursor moves")
+    {
+        state.syncCursors_ = false;
+        vm.setOverlayCursor({3, 2, 1});
+        CHECK(state.viewStates_[0].sliceIndices == glm::ivec3(3, 2, 1));
+        CHECK(state.viewStates_[1].sliceIndices == glm::ivec3(4, 3, 2));
+    }
+}

@@ -707,6 +707,23 @@ void ViewManager::syncCursors() {
     updateAllOverlayTextures();
 }
 
+void ViewManager::setOverlayCursor(const glm::ivec3& refIndices) {
+    if (state_.viewStates_.empty() || state_.volumes_.empty())
+        return;
+    const glm::ivec3& dims = state_.volumes_[0].dimensions;
+    glm::ivec3& cursor = state_.viewStates_[0].sliceIndices;
+    cursor.x = std::clamp(refIndices.x, 0, std::max(dims.x - 1, 0));
+    cursor.y = std::clamp(refIndices.y, 0, std::max(dims.y - 1, 0));
+    cursor.z = std::clamp(refIndices.z, 0, std::max(dims.z - 1, 0));
+
+    // Other volumes may have a different grid: they follow the same world
+    // point via syncCursors() (end of frame), and only when sync is on.
+    if (state_.syncCursors_) {
+        state_.lastSyncSource_ = 0;
+        state_.cursorSyncDirty_ = true;
+    }
+}
+
 void ViewManager::syncZoom(int sourceVolume, int viewIndex) {
     if (!state_.syncZoom_ || state_.volumes_.size() < 2)
         return;

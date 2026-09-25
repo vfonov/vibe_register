@@ -2339,31 +2339,21 @@ int Interface::renderOverlayView(int viewIndex, const ImVec2& childSize) {
                     normV = std::clamp(normV, 0.0f, 1.0f);
                     normV = 1.0f - normV;
 
+                    glm::ivec3 cursor = refState.sliceIndices;
                     if (viewIndex == 0) {
-                        int voxX = uvToVoxel(normU, ref.dimensions.x);
-                        int voxY = uvToVoxel(normV, ref.dimensions.y);
-                        for (auto& st : state_.viewStates_) {
-                            st.sliceIndices.x = std::clamp(voxX, 0, ref.dimensions.x - 1);
-                            st.sliceIndices.y = std::clamp(voxY, 0, ref.dimensions.y - 1);
-                        }
+                        cursor.x = uvToVoxel(normU, ref.dimensions.x);
+                        cursor.y = uvToVoxel(normV, ref.dimensions.y);
                         dirtyMask |= (1 << 1) | (1 << 2);
                     } else if (viewIndex == 1) {
-                        int voxY = uvToVoxel(normU, ref.dimensions.y);
-                        int voxZ = uvToVoxel(normV, ref.dimensions.z);
-                        for (auto& st : state_.viewStates_) {
-                            st.sliceIndices.y = std::clamp(voxY, 0, ref.dimensions.y - 1);
-                            st.sliceIndices.z = std::clamp(voxZ, 0, ref.dimensions.z - 1);
-                        }
+                        cursor.y = uvToVoxel(normU, ref.dimensions.y);
+                        cursor.z = uvToVoxel(normV, ref.dimensions.z);
                         dirtyMask |= (1 << 0) | (1 << 2);
                     } else {
-                        int voxX = uvToVoxel(normU, ref.dimensions.x);
-                        int voxZ = uvToVoxel(normV, ref.dimensions.z);
-                        for (auto& st : state_.viewStates_) {
-                            st.sliceIndices.x = std::clamp(voxX, 0, ref.dimensions.x - 1);
-                            st.sliceIndices.z = std::clamp(voxZ, 0, ref.dimensions.z - 1);
-                        }
+                        cursor.x = uvToVoxel(normU, ref.dimensions.x);
+                        cursor.z = uvToVoxel(normV, ref.dimensions.z);
                         dirtyMask |= (1 << 0) | (1 << 1);
                     }
+                    viewManager_.setOverlayCursor(cursor);
                 }
 
                 if (imageHovered && shiftHeld &&
@@ -2395,14 +2385,14 @@ int Interface::renderOverlayView(int viewIndex, const ImVec2& childSize) {
                                             : (viewIndex == 1) ? refState.sliceIndices.x
                                                                : refState.sliceIndices.y;
                             int newSlice = std::clamp(refSlice + steps, 0, maxSliceVal - 1);
-                            for (auto& st : state_.viewStates_) {
-                                if (viewIndex == 0)
-                                    st.sliceIndices.z = newSlice;
-                                else if (viewIndex == 1)
-                                    st.sliceIndices.x = newSlice;
-                                else
-                                    st.sliceIndices.y = newSlice;
-                            }
+                            glm::ivec3 cursor = refState.sliceIndices;
+                            if (viewIndex == 0)
+                                cursor.z = newSlice;
+                            else if (viewIndex == 1)
+                                cursor.x = newSlice;
+                            else
+                                cursor.y = newSlice;
+                            viewManager_.setOverlayCursor(cursor);
                             dirtyMask |= (1 << viewIndex);
                         }
                     }

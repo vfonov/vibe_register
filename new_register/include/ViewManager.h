@@ -18,6 +18,9 @@ public:
     void updateOverlayTexture(int viewIndex);
     void updateAllOverlayTextures();
     void syncCursors();
+    /// Move the overlay cursor: `refIndices` are voxel indices in the
+    /// reference volume (volume 0), whose grid the overlay is drawn in.
+    void setOverlayCursor(const glm::ivec3& refIndices);
     void syncZoom(int sourceVolume, int viewIndex);
     void syncPan(int sourceVolume, int viewIndex);
     void resetViews();
@@ -31,8 +34,6 @@ public:
 
     static void sliceIndicesToWorld(const Volume& vol, const int indices[3], double world[3]);
     static void worldToSliceIndices(const Volume& vol, const double world[3], int indices[3]);
-
-    /// Invalidate label-to-index cache for a volume (call when colour map changes)
 
 private:
     AppState& state_;
