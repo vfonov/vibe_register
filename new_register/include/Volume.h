@@ -47,7 +47,8 @@ public:
     float max_value = 1.0f;
 
     /// 4x4 transformation matrix from voxel coordinates to world coordinates.
-    /// The voxel (i,j,k) is centered, so position = start + (i+0.5, j+0.5, k+0.5).
+    /// Integer voxel indices are voxel centres (MINC convention):
+    /// world = dirCos * (start + (i,j,k) * step), with no half-voxel offset.
     glm::dmat4 voxelToWorld{1.0};  // Identity by default
 
     /// Inverse matrix: world coordinates to voxel coordinates.

@@ -115,9 +115,10 @@ public:
     explicit VolumeCache(size_t maxEntries = 8) : maxEntries_(maxEntries) {}
 
     /// Try to retrieve a cached volume.  On hit, moves the entry to the
-    /// front of the LRU list and returns a copy.  On miss, returns nullptr
-    /// wrapped in std::optional (empty optional).
-    /// Thread-safe: acquires internal mutex.
+    /// front of the LRU list and returns a pointer to the cached Volume;
+    /// on miss, returns nullptr.  The pointer is only valid until the next
+    /// put() or clear() (either may evict the entry), so copy the Volume
+    /// out immediately.  Thread-safe: acquires internal mutex.
     Volume* get(const std::string& path);
 
     /// Insert a volume into the cache, evicting the least-recently-used
