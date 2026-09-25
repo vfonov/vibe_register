@@ -7,7 +7,10 @@ extern "C" {
 #include "minc2-simple.h" // path relative to include directories set in CMake
 }
 
+#include <algorithm>
 #include <cstring> // for strdup if needed
+#include <filesystem>
+#include <iostream>
 #include <stdexcept> // for exceptions
 
 TagWrapper::TagWrapper() : tags_(nullptr), n_volumes_(0) {}
@@ -139,18 +142,40 @@ void TagWrapper::load(const std::string& path) {
 
 void TagWrapper::save(const std::string& path) {
     if (points_.empty()) {
-        throw std::runtime_error("No tags to save");
-    }
-
-    if (!tags_) {
-        tags_ = minc2_tags_allocate0();
-        if (!tags_) {
-            throw std::runtime_error("Failed to allocate tag structure");
+        // libminc cannot read back a tag file with zero points (its reader
+        // leaves the output arrays uninitialised), so "no tags" is stored as
+        // no file.
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+        if (ec) {
+            throw std::runtime_error("Failed to remove empty tag file " + path +
+                                     ": " + ec.message());
         }
+        return;
     }
 
-    int count = static_cast<int>(points_.size());
+    // minc2_tags_init() allocates fresh arrays without freeing old ones, so
+    // start from a new handle every time.
+    if (tags_) {
+        minc2_tags_free(tags_);
+        tags_ = nullptr;
+    }
+    tags_ = minc2_tags_allocate0();
+    if (!tags_) {
+        throw std::runtime_error("Failed to allocate tag structure");
+    }
+
     int nVols = points2_.empty() ? 1 : 2;
+    size_t n = points_.size();
+    if (nVols == 2 && points2_.size() != points_.size()) {
+        // Only complete pairs are meaningful in a two-volume tag file.
+        n = std::min(points_.size(), points2_.size());
+        std::cerr << "Warning: volume 1 has " << points_.size()
+                  << " tags and volume 2 has " << points2_.size()
+                  << "; saving only the " << n << " complete pairs to "
+                  << path << "\n";
+    }
+    int count = static_cast<int>(n);
 
     if (minc2_tags_init(tags_, count, nVols, 0, 0, 0, 1) != MINC2_SUCCESS) {
         throw std::runtime_error("Failed to initialize tag structure");
@@ -166,20 +191,13 @@ void TagWrapper::save(const std::string& path) {
     // Write volume 2 points if present
     if (nVols == 2 && tags_->tags_volume2) {
         for (int i = 0; i < count; ++i) {
-            // If points2_ is shorter than points_, pad with zeros
-            if (i < static_cast<int>(points2_.size())) {
-                tags_->tags_volume2[i * 3 + 0] = points2_[i].x;
-                tags_->tags_volume2[i * 3 + 1] = points2_[i].y;
-                tags_->tags_volume2[i * 3 + 2] = points2_[i].z;
-            } else {
-                tags_->tags_volume2[i * 3 + 0] = 0.0;
-                tags_->tags_volume2[i * 3 + 1] = 0.0;
-                tags_->tags_volume2[i * 3 + 2] = 0.0;
-            }
+            tags_->tags_volume2[i * 3 + 0] = points2_[i].x;
+            tags_->tags_volume2[i * 3 + 1] = points2_[i].y;
+            tags_->tags_volume2[i * 3 + 2] = points2_[i].z;
         }
     }
 
-    if (!labels_.empty() && labels_.size() == static_cast<size_t>(count)) {
+    if (labels_.size() >= static_cast<size_t>(count)) {
         for (int i = 0; i < count; ++i) {
             if (!labels_[i].empty()) {
                 tags_->labels[i] = strdup(labels_[i].c_str());

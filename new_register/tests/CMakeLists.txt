@@ -109,6 +109,14 @@ add_test(NAME TagLoadTest COMMAND test_tag_load
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+add_nr_test(test_tag_wrapper CATCH2
+    INCLUDES  ${INC_DIR}
+    LINKS     nr_core
+)
+add_test(NAME TagWrapperTest COMMAND test_tag_wrapper
+    --src-dir ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
 # ------------------------------------------------------------------
 # Standalone MINC tests (no project source files)
 # ------------------------------------------------------------------
@@ -190,6 +198,10 @@ if(VALGRIND_EXECUTABLE)
     add_test(NAME NiftiDatatypesMemcheck
         COMMAND ${VALGRIND_EXECUTABLE} --error-exitcode=9 --leak-check=full
                 $<TARGET_FILE:test_nifti_datatypes> "[datatype]")
+    add_test(NAME TagWrapperMemcheck
+        COMMAND ${VALGRIND_EXECUTABLE} --error-exitcode=9 --leak-check=full
+                $<TARGET_FILE:test_tag_wrapper> "[memcheck]"
+                --src-dir ${CMAKE_CURRENT_SOURCE_DIR})
 endif()
 
 # ------------------------------------------------------------------

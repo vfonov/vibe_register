@@ -59,6 +59,8 @@ public:
     int volumeCount() const { return n_volumes_; }
 
     /** Save tags to a .tag file.
+     * With no points the file is removed instead (libminc cannot read a
+     * zero-point tag file). For two volumes only complete pairs are written.
      * @param path Path to the tag file to save.
      * @throws std::runtime_error on failure.
      */
