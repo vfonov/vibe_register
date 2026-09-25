@@ -349,3 +349,72 @@ TEST_CASE("An overlay click moves other volumes through world space", "[viewmana
         CHECK(state.viewStates_[1].sliceIndices == glm::ivec3(4, 3, 2));
     }
 }
+
+TEST_CASE("Overlay textures match SliceRenderer with a tag transform", "[viewmanager][overlay][transform]")
+{
+    const TransformType type = GENERATE(TransformType::LSQ6, TransformType::LSQ12, TransformType::TPS);
+    const int view = GENERATE(0, 1, 2);
+    INFO("transform " << transformTypeName(type) << ", view " << view);
+
+    // vol 2 tags: vol 1 tags shifted and slightly bent, so every type
+    // yields a non-identity mapping.
+    std::vector<glm::dvec3> tags1, tags2;
+    for (int i = 0; i < 8; ++i)
+    {
+        glm::dvec3 p((i & 1) * 4.0, ((i >> 1) & 1) * 3.0, ((i >> 2) & 1) * 2.0);
+        tags1.push_back(p);
+        tags2.push_back(p + glm::dvec3(0.6, -0.4, 0.3) + glm::dvec3(0.05 * p.y * p.y, 0.0, 0.0));
+    }
+
+    FakeBackend backend;
+    AppState state;
+    addVolume(state, makeVolume(ramp), "a.mnc");
+    addVolume(state, makeVolume(ramp, {0.5, 0.0, 0.0}), "b.mnc");
+    state.initializeViewStates();
+    state.viewStates_[1].overlayAlpha = 0.7f;
+    state.viewStates_[1].colourMap = ColourMapType::HotMetal;
+    state.transformResult_ = computeTransform(tags1, tags2, type);
+    REQUIRE(state.transformResult_.valid);
+
+    ViewManager vm(state, backend);
+    vm.updateOverlayTexture(view);
+
+    RenderedSlice ref = renderOverlaySlice(
+        {&state.volumes_[0], &state.volumes_[1]},
+        {paramsOf(state.viewStates_[0]), paramsOf(state.viewStates_[1])},
+        view, sliceFor(state.viewStates_[0], view), &state.transformResult_);
+    CHECK(backend.of(state.overlay_.textures[view]) == ref.pixels);
+}
+
+TEST_CASE("Label textures with a description file match SliceRenderer", "[viewmanager][label]")
+{
+    const int view = GENERATE(0, 1, 2);
+    INFO("view " << view);
+    TempDir tmp;
+    // Label 7 is hidden (visibility 0); label 9 is missing from the file.
+    const std::string lut = tmp.write("lut.txt",
+        "5 255 0 0 1 1 1 \"A\"\n7 0 255 0 1 0 1 \"B\"\n");
+
+    FakeBackend backend;
+    AppState state;
+    addVolume(state, makeVolume(ramp), "t1.mnc");
+    Volume labels = makeVolume(labelsCDE, {0.5, 0.0, 0.0});
+    labels.setLabelVolume(true);
+    labels.loadLabelDescriptionFile(lut);
+    addVolume(state, std::move(labels), "labels.mnc");
+    state.initializeViewStates();
+    state.viewStates_[1].overlayAlpha = 0.6f;
+
+    ViewManager vm(state, backend);
+    vm.updateSliceTexture(1, view);
+    vm.updateOverlayTexture(view);
+
+    const VolumeViewState& st = state.viewStates_[1];
+    CHECK(backend.of(st.sliceTextures[view]) ==
+          renderSlice(state.volumes_[1], paramsOf(st), view, sliceFor(st, view)).pixels);
+    RenderedSlice ref = renderOverlaySlice(
+        {&state.volumes_[0], &state.volumes_[1]},
+        {paramsOf(state.viewStates_[0]), paramsOf(st)},
+        view, sliceFor(state.viewStates_[0], view));
+    CHECK(backend.of(state.overlay_.textures[view]) == ref.pixels);
+}

@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 
 #include "AppState.h"
+#include "SliceRenderer.h"
 
 class GraphicsBackend;
 
@@ -39,6 +40,6 @@ private:
     AppState& state_;
     GraphicsBackend& backend_;
 
-    /// Reusable pixel buffer to avoid per-call allocation.
-    std::vector<uint32_t> pixelBuf_;
+    /// Create, resize or update a texture with a rendered slice.
+    void uploadTexture(std::unique_ptr<Texture>& tex, const RenderedSlice& slice);
 };

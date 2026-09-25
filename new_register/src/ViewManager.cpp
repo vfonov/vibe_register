@@ -1,17 +1,63 @@
 #include "ViewManager.h"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
-#include <cstdio>
 
 #include "ColourMap.h"
 #include "GraphicsBackend.h"
+#include "SliceRenderer.h"
 #include "Transform.h"
 #include "Volume.h"
 
 ViewManager::ViewManager(AppState& state, GraphicsBackend& backend)
     : state_(state), backend_(backend) {}
+
+namespace {
+
+/// SliceRenderer parameters for one view state.
+VolumeRenderParams renderParamsOf(const VolumeViewState& st) {
+    VolumeRenderParams p;
+    p.valueMin = st.valueRange[0];
+    p.valueMax = st.valueRange[1];
+    p.colourMap = st.colourMap;
+    p.overlayAlpha = st.overlayAlpha;
+    p.underColourMode = st.underColourMode;
+    p.overColourMode = st.overColourMode;
+    p.useLogTransform = st.useLogTransform;
+    p.invertColourMap = st.invertColourMap;
+    return p;
+}
+
+/// Slice index along the slicing axis of a view (0=axial Z, 1=sagittal X, 2=coronal Y).
+int sliceAlong(const glm::ivec3& indices, int viewIndex) {
+    if (viewIndex == 0)
+        return indices.z;
+    if (viewIndex == 1)
+        return indices.x;
+    return indices.y;
+}
+
+} // namespace
+
+// The kClamp* modes in VolumeViewState are passed straight to SliceRenderer.
+static_assert(kClampCurrent == kSliceClampCurrent && kClampTransparent == kSliceClampTransparent &&
+              kClampBlack == kSliceClampBlack && kClampYellow == kSliceClampYellow &&
+              kClampWhite == kSliceClampWhite && kClampRed == kSliceClampRed &&
+              kClampGreen == kSliceClampGreen && kClampBlue == kSliceClampBlue,
+              "AppState and SliceRenderer clamp modes must agree");
+
+void ViewManager::uploadTexture(std::unique_ptr<Texture>& tex, const RenderedSlice& slice) {
+    const int w = slice.width;
+    const int h = slice.height;
+    if (!tex) {
+        tex = backend_.createTexture(w, h, slice.pixels.data());
+    } else if (tex->width != w || tex->height != h) {
+        backend_.destroyTexture(tex.get());
+        tex = backend_.createTexture(w, h, slice.pixels.data());
+    } else {
+        backend_.updateTexture(tex.get(), slice.pixels.data());
+    }
+}
 
 void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
     if (volumeIndex < 0 ||
@@ -25,226 +71,9 @@ void ViewManager::updateSliceTexture(int volumeIndex, int viewIndex) {
         return;
 
     VolumeViewState& state = state_.viewStates_[volumeIndex];
-
-    // Hoist LUT pointers and colour count outside the pixel loop
-    // Use inverted LUT if invert flag is enabled
-    const ColourLut& baseLut = colourMapLut(state.colourMap);
-    ColourLut invertedLut;
-    const uint32_t* mainLut;
-    
-    if (state.invertColourMap)
-    {
-        invertedLut = invertColourLut(baseLut);
-        mainLut = invertedLut.table.data();
-    }
-    else
-    {
-        mainLut = baseLut.table.data();
-    }
-    
-    int numMaps = colourMapCount();
-
-    int w, h;
-
-    int dimX = vol.dimensions.x;
-    int dimY = vol.dimensions.y;
-    int dimZ = vol.dimensions.z;
-
-    float rangeMin = static_cast<float>(state.valueRange[0]);
-    float rangeMax = static_cast<float>(state.valueRange[1]);
-
-    // Defense in depth against non-finite range values from caller.
-    if (!std::isfinite(rangeMin)) rangeMin = 0.0f;
-    if (!std::isfinite(rangeMax)) rangeMax = 1.0f;
-    if (rangeMin >= rangeMax)
-    {
-        rangeMin = 0.0f;
-        rangeMax = 1.0f;
-    }
-
-    // Log-transform the range if log transform is enabled. Label ids are
-    // categories, not intensities: the log transform never applies to them.
-    const bool useLog = state.useLogTransform && !vol.isLabelVolume();
-    float logRangeMin = rangeMin;
-    float logRangeMax = rangeMax;
-
-    if (useLog)
-    {
-        // Prevent crash when rangeMin <= 0.0 (log10 undefined for non-positive values)
-        // Set lower threshold to -10 (corresponds to log10(1e-10))
-        float logLowerThreshold = -10.0f;
-        if (rangeMin <= 0.0f)
-            logRangeMin = logLowerThreshold;
-        else
-            logRangeMin = std::log10(rangeMin);
-
-        if (rangeMax <= 0.0f)
-            logRangeMax = logLowerThreshold;
-        else
-            logRangeMax = std::log10(rangeMax);
-    }
-
-    float rangeSpan = logRangeMax - logRangeMin;
-    if (!std::isfinite(rangeSpan) || rangeSpan < 1e-12f)
-        rangeSpan = 1e-12f;
-    float invSpan = 1.0f / rangeSpan;
-
-    // Pre-resolve under/over LUT pointers to avoid per-pixel lookups
-    int underMode = state.underColourMode;
-    bool underTransparent = (underMode == kClampTransparent);
-    uint32_t underColour = underTransparent ? 0x00000000
-        : resolveClampColour(underMode, state.colourMap, false, state.invertColourMap);
-
-    int overMode = state.overColourMode;
-    bool overTransparent = (overMode == kClampTransparent);
-    uint32_t overColour = overTransparent ? 0x00000000
-        : resolveClampColour(overMode, state.colourMap, true, state.invertColourMap);
-
-    // For label volumes: use the colour map unless a description file
-    // provides per-label colours
-    bool useColourMapForLabel = vol.isLabelVolume() && vol.getLabelLUT().empty();
-    const std::unordered_map<int, int>* labelToIndexPtr = nullptr;
-    size_t labelCount = 0;
-    if (useColourMapForLabel) {
-        labelToIndexPtr = &vol.getLabelIndexMap();
-        labelCount = vol.getUniqueLabelIds().size();
-    }
-
-    auto voxelToColour = [&](float val) -> uint32_t {
-        // Non-finite voxels: +Inf -> over colour, -Inf and NaN -> under
-        // colour. Handled before any arithmetic / int cast (label volumes
-        // would otherwise hit `static_cast<int>(NaN)` UB).
-        if (!std::isfinite(val))
-        {
-            if (val > 0.0f)  // +Inf (NaN > 0 is false, so NaN falls to under)
-                return overTransparent ? 0x00000000 : overColour;
-            return underTransparent ? 0x00000000 : underColour;
-        }
-
-        float displayVal = val;
-
-        // Apply log transform if enabled
-        if (useLog)
-        {
-            // Values <= 0 use under-colour setting
-            if (val <= 0.0f)
-            {
-                if (underTransparent)
-                    return 0x00000000;
-                return underColour;
-            }
-            displayVal = std::log10(val);
-        }
-
-        // Handle label volumes: use colour map if selected, otherwise use label LUT
-        if (vol.isLabelVolume()) {
-            int labelId = static_cast<int>(displayVal + 0.5f);
-            if (labelId == 0) {
-                return 0x00000000;  // transparent background
-            }
-            // Use colour map if a non-default one is selected
-            if (useColourMapForLabel && labelToIndexPtr) {
-                auto it = labelToIndexPtr->find(labelId);
-                if (it != labelToIndexPtr->end()) {
-                    int idx = (it->second + 1) * 255 / static_cast<int>(labelCount);
-                    if (idx < 0)   return underColour;
-                    if (idx > 255) return overColour;
-                    return mainLut[idx];
-                }
-                return 0x00000000;  // unknown label
-            }
-            // Default: use label LUT
-            const auto& labelLUT = vol.getLabelLUT();
-            auto it = labelLUT.find(labelId);
-            if (it != labelLUT.end()) {
-                const LabelInfo& info = it->second;
-                if (!info.visible) {
-                    return 0x00000000;  // invisible label
-                }
-                // Pack RGBA: R in bits 0-7, G in 8-15, B in 16-23, A in 24-31
-                return static_cast<uint32_t>(info.r) |
-                       (static_cast<uint32_t>(info.g) << 8) |
-                       (static_cast<uint32_t>(info.b) << 16) |
-                       (static_cast<uint32_t>(info.a) << 24);
-            }
-            // Label not in LUT: use grayscale based on label ID
-            int gray = (labelId * 17) % 256;
-            return static_cast<uint32_t>(gray) |
-                   (static_cast<uint32_t>(gray) << 8) |
-                   (static_cast<uint32_t>(gray) << 16) |
-                   0xFF000000;  // fully opaque
-        }
-
-        // Regular volume: use colour map
-        if (displayVal < logRangeMin)
-            return underTransparent ? 0x00000000 : underColour;
-        if (displayVal > logRangeMax)
-            return overTransparent ? 0x00000000 : overColour;
-        int idx = static_cast<int>((displayVal - logRangeMin) * invSpan * 255.0f + 0.5f);
-        if (idx < 0)
-            idx = 0;
-        if (idx > 255)
-            idx = 255;
-        return mainLut[idx];
-    };
-
-    // Direct pointer to volume data for unchecked linear indexing
-    const float* vdata = vol.data.data();
-
-    if (viewIndex == 0) {
-        w = dimX;
-        h = dimY;
-        int z = std::clamp(state.sliceIndices.z, 0, dimZ - 1);
-
-        pixelBuf_.resize(w * h);
-        int zOff = z * dimY * dimX;
-        for (int y = 0; y < h; ++y) {
-            int rowOff = zOff + y * dimX;
-            int dstOff = (h - 1 - y) * w;
-            for (int x = 0; x < w; ++x) {
-                pixelBuf_[dstOff + x] = voxelToColour(vdata[rowOff + x]);
-            }
-        }
-    } else if (viewIndex == 1) {
-        w = dimY;
-        h = dimZ;
-        int x = std::clamp(state.sliceIndices.x, 0, dimX - 1);
-
-        pixelBuf_.resize(w * h);
-        for (int z = 0; z < h; ++z) {
-            int zOff = z * dimY * dimX + x;
-            int dstOff = (h - 1 - z) * w;
-            for (int y = 0; y < w; ++y) {
-                pixelBuf_[dstOff + y] = voxelToColour(vdata[zOff + y * dimX]);
-            }
-        }
-    } else {
-        w = dimX;
-        h = dimZ;
-        int y = std::clamp(state.sliceIndices.y, 0, dimY - 1);
-
-        pixelBuf_.resize(w * h);
-        int yOff = y * dimX;
-        for (int z = 0; z < h; ++z) {
-            int zOff = z * dimY * dimX + yOff;
-            int dstOff = (h - 1 - z) * w;
-            for (int x = 0; x < w; ++x) {
-                pixelBuf_[dstOff + x] = voxelToColour(vdata[zOff + x]);
-            }
-        }
-    }
-
-    std::unique_ptr<Texture>& tex = state.sliceTextures[viewIndex];
-    if (!tex) {
-        tex = backend_.createTexture(w, h, pixelBuf_.data());
-    } else {
-        if (tex->width != w || tex->height != h) {
-            backend_.destroyTexture(tex.get());
-            tex = backend_.createTexture(w, h, pixelBuf_.data());
-        } else {
-            backend_.updateTexture(tex.get(), pixelBuf_.data());
-        }
-    }
+    RenderedSlice slice = renderSlice(vol, renderParamsOf(state), viewIndex,
+                                      sliceAlong(state.sliceIndices, viewIndex));
+    uploadTexture(state.sliceTextures[viewIndex], slice);
 }
 
 void ViewManager::updateOverlayTexture(int viewIndex) {
@@ -253,418 +82,23 @@ void ViewManager::updateOverlayTexture(int viewIndex) {
         return;
 
     const Volume& ref = state_.volumes_[0];
-    const VolumeViewState& refState = state_.viewStates_[0];
     if (ref.data.empty())
         return;
 
-    int w, h;
-    if (viewIndex == 0) {
-        w = ref.dimensions.x;
-        h = ref.dimensions.y;
-    } else if (viewIndex == 1) {
-        w = ref.dimensions.y;
-        h = ref.dimensions.z;
-    } else {
-        w = ref.dimensions.x;
-        h = ref.dimensions.z;
-    }
-
-    int sliceIdx;
-    if (viewIndex == 0)
-        sliceIdx = refState.sliceIndices.z;
-    else if (viewIndex == 1)
-        sliceIdx = refState.sliceIndices.x;
-    else
-        sliceIdx = refState.sliceIndices.y;
-
-    // --- Per-volume precomputed data ---
-    // For each volume we precompute:
-    //   combined = vol.worldToVoxel * ref.voxelToWorld  (ref-voxel -> target-voxel)
-    //   LUT pointer, range params, under/over colours, overlay alpha
-    //
-    // When a valid tag-based transform exists for volume 1 (the second volume),
-    // the transform is inserted into the chain:
-    //   Linear: combined = vol1.worldToVoxel * T^{-1} * ref.voxelToWorld
-    //   TPS:    per-pixel world-space inversion (no scanline optimization)
-    struct PerVolInfo {
-        glm::dmat4 combined;         // ref-voxel -> target-voxel transform
-        const float* vdata;          // pointer to volume data
-        glm::ivec3 dims;             // target volume dimensions
-        size_t dimXY;                // dims.x * dims.y
-        float rangeMin, rangeMax, invSpan;
-        float logRangeMin, logRangeMax;  // Log-transformed range values
-        const uint32_t* mainLut;
-        std::array<uint32_t, 256> ownedLut{};  // storage when invertColourMap
-        uint32_t underColour, overColour;
-        bool underTransparent, overTransparent;
-        float alpha;
-        bool useTPSInverse = false;  // true if TPS per-pixel inversion needed
-        glm::dmat4 targetWorldToVox; // for TPS path: target vol worldToVoxel
-        bool isLabelVolume = false;  // true if this is a label/segmentation volume
-        bool useLogTransform = false;  // Apply log10 transform before colour mapping
-        const std::unordered_map<int, LabelInfo>* labelLUT = nullptr;  // label colour lookup
-        bool useColourMapForLabel = false;  // use colour map instead of label LUT
-        const std::unordered_map<int, int>* labelToIndex = nullptr;  // label ID to colour map index
-        size_t labelCacheSize = 0;  // number of unique labels
-    };
-
-    int numMaps = colourMapCount();
-    std::vector<PerVolInfo> infos;
-    infos.reserve(numVols);
-
-    // Check if a valid tag-based transform is available for volume 1
-    const TransformResult& xfmResult = state_.transformResult_;
-    bool hasTransform = (xfmResult.valid && numVols >= 2);
-    bool hasLinearTransform = hasTransform && (xfmResult.type != TransformType::TPS);
-    bool hasTPSTransform = hasTransform && (xfmResult.type == TransformType::TPS);
-
-    // Precompute the inverse linear matrix when available
-    glm::dmat4 invLinear{1.0};
-    if (hasLinearTransform)
-        invLinear = glm::inverse(xfmResult.linearMatrix);
-
+    // All volumes are resampled into volume 0's grid; volume 1 goes through
+    // the tag-based transform when one is valid.
+    std::vector<const Volume*> volumes;
+    std::vector<VolumeRenderParams> params;
     for (int vi = 0; vi < numVols; ++vi) {
-        const Volume& vol = state_.volumes_[vi];
-        const VolumeViewState& st = state_.viewStates_[vi];
-        if (vol.data.empty() || st.overlayAlpha <= 0.0f)
-            continue;
-
-        PerVolInfo info;
-
-        if (vi == 1 && hasLinearTransform)
-        {
-            // Insert inverse linear transform: ref-voxel -> world -> vol1-world -> vol1-voxel
-            info.combined = vol.worldToVoxel * invLinear * ref.voxelToWorld;
-        }
-        else if (vi == 1 && hasTPSTransform)
-        {
-            // TPS needs per-pixel world-space inversion; combined is not used
-            // for the scanline path.  We still set a combined for the scanline
-            // precomputation, but flag this volume for per-pixel handling.
-            info.combined = vol.worldToVoxel * ref.voxelToWorld;  // unused in pixel loop
-            info.useTPSInverse = true;
-            info.targetWorldToVox = vol.worldToVoxel;
-        }
-        else
-        {
-            info.combined = vol.worldToVoxel * ref.voxelToWorld;
-        }
-
-        info.vdata = vol.data.data();
-        info.dims = vol.dimensions;
-        info.dimXY = static_cast<size_t>(vol.dimensions.x) * vol.dimensions.y;
-        info.rangeMin = static_cast<float>(st.valueRange[0]);
-        info.rangeMax = static_cast<float>(st.valueRange[1]);
-
-        // Defense in depth against non-finite range values from caller.
-        if (!std::isfinite(info.rangeMin)) info.rangeMin = 0.0f;
-        if (!std::isfinite(info.rangeMax)) info.rangeMax = 1.0f;
-        if (info.rangeMin >= info.rangeMax)
-        {
-            info.rangeMin = 0.0f;
-            info.rangeMax = 1.0f;
-        }
-
-        // Log-transform the range if log transform is enabled
-        float logRangeMin = info.rangeMin;
-        float logRangeMax = info.rangeMax;
-
-        if (st.useLogTransform)
-        {
-            float logLowerThreshold = -10.0f;
-            logRangeMin = (info.rangeMin <= 0.0f) ? logLowerThreshold : std::log10(info.rangeMin);
-            logRangeMax = (info.rangeMax <= 0.0f) ? logLowerThreshold : std::log10(info.rangeMax);
-        }
-
-        float span = logRangeMax - logRangeMin;
-        if (!std::isfinite(span) || span < 1e-12f) span = 1e-12f;
-        info.invSpan = 1.0f / span;
-        info.logRangeMin = logRangeMin;
-        info.logRangeMax = logRangeMax;
-        info.useLogTransform = st.useLogTransform;
-
-        // Use inverted LUT if invert flag is enabled
-        if (st.invertColourMap)
-            info.ownedLut = invertColourLut(colourMapLut(st.colourMap)).table;
-        else
-            info.mainLut = colourMapLut(st.colourMap).table.data();
-        info.alpha = st.overlayAlpha;
-
-        // Pre-resolve under/over colours
-        // Pre-resolve under/over colours
-        int underMode = st.underColourMode;
-        info.underTransparent = (underMode == kClampTransparent);
-        info.underColour = info.underTransparent ? 0x00000000
-            : resolveClampColour(underMode, st.colourMap, false, st.invertColourMap);
-
-        int overMode = st.overColourMode;
-        info.overTransparent = (overMode == kClampTransparent);
-        info.overColour = info.overTransparent ? 0x00000000
-            : resolveClampColour(overMode, st.colourMap, true, st.invertColourMap);
-
-        // Label volume support
-        info.isLabelVolume = vol.isLabelVolume();
-        if (info.isLabelVolume) {
-            info.labelLUT = &vol.getLabelLUT();
-            // Use the colour map unless a description file provides colours
-            if (info.labelLUT->empty()) {
-                info.useColourMapForLabel = true;
-                info.labelToIndex = &vol.getLabelIndexMap();
-                info.labelCacheSize = vol.getUniqueLabelIds().size();
-            }
-        }
-
-        infos.push_back(std::move(info));
-        // Point at the stored element's own copy of the inverted LUT.
-        if (st.invertColourMap)
-            infos.back().mainLut = infos.back().ownedLut.data();
+        volumes.push_back(&state_.volumes_[vi]);
+        params.push_back(renderParamsOf(state_.viewStates_[vi]));
     }
 
-    pixelBuf_.resize(w * h);
-
-    // Precompute the ref-voxel base and row/col deltas for the 2D scan.
-    // This avoids a full 4x4 matrix multiply per pixel per volume.
-    // ref-voxel as doubles: base is the corner of the slice, dPx/dPy are deltas.
-    glm::dvec3 refBase, refDpx, refDpy;
-    if (viewIndex == 0) {
-        // Transverse: px=refX, py=refY, refZ=sliceIdx
-        int z = std::clamp(sliceIdx, 0, ref.dimensions.z - 1);
-        refBase = glm::dvec3(0.0, 0.0, static_cast<double>(z));
-        refDpx = glm::dvec3(1.0, 0.0, 0.0);
-        refDpy = glm::dvec3(0.0, 1.0, 0.0);
-    } else if (viewIndex == 1) {
-        // Sagittal: px=refY, py=refZ, refX=sliceIdx
-        int x = std::clamp(sliceIdx, 0, ref.dimensions.x - 1);
-        refBase = glm::dvec3(static_cast<double>(x), 0.0, 0.0);
-        refDpx = glm::dvec3(0.0, 1.0, 0.0);
-        refDpy = glm::dvec3(0.0, 0.0, 1.0);
-    } else {
-        // Coronal: px=refX, py=refZ, refY=sliceIdx
-        int y = std::clamp(sliceIdx, 0, ref.dimensions.y - 1);
-        refBase = glm::dvec3(0.0, static_cast<double>(y), 0.0);
-        refDpx = glm::dvec3(1.0, 0.0, 0.0);
-        refDpy = glm::dvec3(0.0, 0.0, 1.0);
-    }
-
-    // For each target volume, precompute the combined scanline parameters:
-    //   targetBase  = combined * (refBase, 1)
-    //   targetDpx   = combined * (refDpx, 0)  (direction, no translation)
-    //   targetDpy   = combined * (refDpy, 0)
-    // For TPS volumes these are unused; we compute world coords per-pixel.
-    struct ScanInfo {
-        glm::dvec3 base;   // target-voxel at (px=0, py=0)
-        glm::dvec3 dpx;    // target-voxel delta per px++
-        glm::dvec3 dpy;    // target-voxel delta per py++
-    };
-    std::vector<ScanInfo> scans(infos.size());
-    for (size_t i = 0; i < infos.size(); ++i) {
-        if (infos[i].useTPSInverse)
-            continue;  // scanline not used for TPS volumes
-        const auto& M = infos[i].combined;
-        glm::dvec4 bH = M * glm::dvec4(refBase, 1.0);
-        glm::dvec4 dxH = M * glm::dvec4(refDpx, 0.0);
-        glm::dvec4 dyH = M * glm::dvec4(refDpy, 0.0);
-        scans[i].base = glm::dvec3(bH);
-        scans[i].dpx = glm::dvec3(dxH);
-        scans[i].dpy = glm::dvec3(dyH);
-    }
-
-    // For TPS per-pixel path: precompute ref-voxel -> world scanline params
-    // so we can efficiently compute the world coordinate for each pixel.
-    glm::dvec3 worldBase(0.0), worldDpx(0.0), worldDpy(0.0);
-    bool anyTPS = false;
-    for (const auto& info : infos)
-    {
-        if (info.useTPSInverse)
-        {
-            anyTPS = true;
-            break;
-        }
-    }
-    if (anyTPS)
-    {
-        const auto& V2W = ref.voxelToWorld;
-        glm::dvec4 bH  = V2W * glm::dvec4(refBase, 1.0);
-        glm::dvec4 dxH = V2W * glm::dvec4(refDpx, 0.0);
-        glm::dvec4 dyH = V2W * glm::dvec4(refDpy, 0.0);
-        worldBase = glm::dvec3(bH);
-        worldDpx  = glm::dvec3(dxH);
-        worldDpy  = glm::dvec3(dyH);
-    }
-
-    for (int py = 0; py < h; ++py) {
-        int dstRowOff = (h - 1 - py) * w;
-
-        for (int px = 0; px < w; ++px) {
-            float accR = 0.0f, accG = 0.0f, accB = 0.0f;
-            float totalWeight = 0.0f;
-
-            for (size_t vi = 0; vi < infos.size(); ++vi) {
-                const auto& info = infos[vi];
-
-                glm::dvec3 tv;
-                if (info.useTPSInverse)
-                {
-                    // TPS per-pixel path: ref-voxel -> world -> TPS inverse -> target-world -> target-voxel
-                    glm::dvec3 worldPt = worldBase + static_cast<double>(px) * worldDpx
-                                                   + static_cast<double>(py) * worldDpy;
-                    glm::dvec3 vol1World = xfmResult.inverseTransformPoint(worldPt);
-                    glm::dvec4 vox = info.targetWorldToVox * glm::dvec4(vol1World, 1.0);
-                    tv = glm::dvec3(vox);
-                }
-                else
-                {
-                    // Scanline-optimized path (linear or identity)
-                    const auto& sc = scans[vi];
-                    tv = sc.base + static_cast<double>(px) * sc.dpx
-                                 + static_cast<double>(py) * sc.dpy;
-                }
-
-                int tx = static_cast<int>(std::round(tv.x));
-                int ty = static_cast<int>(std::round(tv.y));
-                int tz = static_cast<int>(std::round(tv.z));
-
-                // Bounds check
-                if (tx < 0 || tx >= info.dims.x ||
-                    ty < 0 || ty >= info.dims.y ||
-                    tz < 0 || tz >= info.dims.z)
-                    continue;
-
-                float raw = info.vdata[tz * info.dimXY + static_cast<size_t>(ty) * info.dims.x + tx];
-
-                uint32_t packed;
-                // Non-finite voxels: +Inf -> over, -Inf/NaN -> under.
-                // Handled before label-volume / log paths to avoid
-                // `static_cast<int>(NaN)` UB and NaN-cast LUT indexing.
-                if (!std::isfinite(raw)) {
-                    if (raw > 0.0f) {  // +Inf
-                        if (info.overTransparent) continue;
-                        packed = info.overColour;
-                    } else {  // -Inf or NaN
-                        if (info.underTransparent) continue;
-                        packed = info.underColour;
-                    }
-                } else if (info.isLabelVolume) {
-                    int labelId = static_cast<int>(raw + 0.5f);
-                    if (labelId == 0) {
-                        continue;  // transparent background
-                    }
-                    // Use colour map if selected
-                    if (info.useColourMapForLabel) {
-                        auto it = info.labelToIndex->find(labelId);
-                        if (it != info.labelToIndex->end() && info.labelCacheSize > 0) {
-                            int idx = (it->second + 1) * 255 / static_cast<int>(info.labelCacheSize);
-                            packed = info.mainLut[idx];
-                        } else {
-                            continue;  // unknown label
-                        }
-                    } else if (info.labelLUT) {
-                        // Use label LUT
-                        auto it = info.labelLUT->find(labelId);
-                        if (it != info.labelLUT->end()) {
-                            const LabelInfo& lbl = it->second;
-                            if (!lbl.visible) {
-                                continue;  // invisible label
-                            }
-                            packed = static_cast<uint32_t>(lbl.r) |
-                                     (static_cast<uint32_t>(lbl.g) << 8) |
-                                     (static_cast<uint32_t>(lbl.b) << 16) |
-                                     (static_cast<uint32_t>(lbl.a) << 24);
-                            if (lbl.a == 0) continue;
-                        } else {
-                            // Label not in LUT: use grayscale based on label ID
-                            int gray = (labelId * 17) % 256;
-                            packed = static_cast<uint32_t>(gray) |
-                                     (static_cast<uint32_t>(gray) << 8) |
-                                     (static_cast<uint32_t>(gray) << 16) |
-                                     0xFF000000;
-                        }
-                    } else {
-                        // No label LUT: use grayscale based on label ID
-                        int gray = (labelId * 17) % 256;
-                        packed = static_cast<uint32_t>(gray) |
-                                 (static_cast<uint32_t>(gray) << 8) |
-                                 (static_cast<uint32_t>(gray) << 16) |
-                                 0xFF000000;
-                    }
-                } else {
-                    float displayVal = raw;
-
-                    // Apply log transform if enabled
-                    if (info.useLogTransform)
-                    {
-                        // Values <= 0 use under-colour setting
-                        if (raw <= 0.0f)
-                        {
-                            if (info.underTransparent)
-                                continue;
-                            packed = info.underColour;
-                            goto skip_lut_lookup;
-                        }
-                        displayVal = std::log10(raw);
-                    }
-
-                    if (displayVal < info.logRangeMin) {
-                        if (info.underTransparent) continue;
-                        packed = info.underColour;
-                    } else if (displayVal > info.logRangeMax) {
-                        if (info.overTransparent) continue;
-                        packed = info.overColour;
-                    } else {
-                        int lutIdx = static_cast<int>(
-                            (displayVal - info.logRangeMin) * info.invSpan * 255.0f + 0.5f);
-                        if (lutIdx < 0) lutIdx = 0;
-                        if (lutIdx > 255) lutIdx = 255;
-                        packed = info.mainLut[lutIdx];
-                    }
-
-skip_lut_lookup:
-                    ;
-                }
-
-                if ((packed >> 24) == 0)
-                    continue;
-
-                float srcR = static_cast<float>((packed >> 0) & 0xFF) * (1.0f / 255.0f);
-                float srcG = static_cast<float>((packed >> 8) & 0xFF) * (1.0f / 255.0f);
-                float srcB = static_cast<float>((packed >> 16) & 0xFF) * (1.0f / 255.0f);
-
-                accR += srcR * info.alpha;
-                accG += srcG * info.alpha;
-                accB += srcB * info.alpha;
-                totalWeight += info.alpha;
-            }
-
-            if (totalWeight > 0.0f) {
-                float inv = 1.0f / totalWeight;
-                accR *= inv;
-                accG *= inv;
-                accB *= inv;
-            }
-
-            auto toByte = [](float v) -> uint32_t {
-                int c = static_cast<int>(v * 255.0f + 0.5f);
-                return static_cast<uint32_t>(c < 0 ? 0 : (c > 255 ? 255 : c));
-            };
-
-            pixelBuf_[dstRowOff + px] = toByte(accR)
-                                       | (toByte(accG) << 8)
-                                       | (toByte(accB) << 16)
-                                       | (0xFFu << 24);
-        }
-    }
-
-    std::unique_ptr<Texture>& tex = state_.overlay_.textures[viewIndex];
-    if (!tex) {
-        tex = backend_.createTexture(w, h, pixelBuf_.data());
-    } else {
-        if (tex->width != w || tex->height != h) {
-            backend_.destroyTexture(tex.get());
-            tex = backend_.createTexture(w, h, pixelBuf_.data());
-        } else {
-            backend_.updateTexture(tex.get(), pixelBuf_.data());
-        }
-    }
+    RenderedSlice slice = renderOverlaySlice(
+        volumes, params, viewIndex,
+        sliceAlong(state_.viewStates_[0].sliceIndices, viewIndex),
+        &state_.transformResult_);
+    uploadTexture(state_.overlay_.textures[viewIndex], slice);
 }
 
 void ViewManager::updateAllOverlayTextures() {

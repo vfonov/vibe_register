@@ -333,7 +333,10 @@ RenderedSlice renderOverlaySlice(
     // --- Per-volume precomputed data ---
     struct PerVolInfo
     {
-        glm::dmat4 worldToVox;       // vol.worldToVoxel, applied per-pixel
+        glm::dmat4 worldToVox;       // vol.worldToVoxel (TPS path)
+        glm::dvec3 rowStep{0.0};     // non-TPS: target voxel step per px / per py
+        glm::dvec3 colStep{0.0};
+        glm::dvec3 sliceOrigin{0.0}; // non-TPS: target voxel at px = py = 0
         const float* vdata;
         glm::ivec3 dims;
         size_t dimXY;
@@ -381,6 +384,35 @@ RenderedSlice renderOverlaySlice(
         info.isRef      = (vi == 0);
         info.useTPS     = (vi == 1 && hasTPSTransform);
         info.volIndex   = vi;
+
+        // Without TPS, ref voxel -> target voxel is one affine map; split it
+        // into an origin plus per-pixel steps along the slice.
+        if (!info.useTPS)
+        {
+            glm::dmat4 refToVox = vol.worldToVoxel * ref.voxelToWorld;
+            if (vi == 1 && hasLinearTransform)
+                refToVox = vol.worldToVoxel * invLinear * ref.voxelToWorld;
+            const glm::dvec3 ax(refToVox[0]), ay(refToVox[1]), az(refToVox[2]);
+            const glm::dvec3 t(refToVox[3]);
+            if (viewIndex == 0)
+            {
+                info.rowStep = ax;
+                info.colStep = ay;
+                info.sliceOrigin = t + az * static_cast<double>(sliceIndex);
+            }
+            else if (viewIndex == 1)
+            {
+                info.rowStep = ay;
+                info.colStep = az;
+                info.sliceOrigin = t + ax * static_cast<double>(sliceIndex);
+            }
+            else
+            {
+                info.rowStep = ax;
+                info.colStep = az;
+                info.sliceOrigin = t + ay * static_cast<double>(sliceIndex);
+            }
+        }
 
         info.vdata = vol.data.data();
         info.dims = vol.dimensions;
@@ -527,10 +559,6 @@ RenderedSlice renderOverlaySlice(
             else if (viewIndex == 1) { rx = sliceIndex; ry = px; rz = py; }
             else                     { rx = px; ry = sliceIndex; rz = py; }
 
-            // World position of this ref voxel — computed once, reused for all volumes
-            glm::dvec4 world = refV2W * glm::dvec4(
-                static_cast<double>(rx), static_cast<double>(ry),
-                static_cast<double>(rz), 1.0);
 
             for (size_t vi = 0; vi < infos.size(); ++vi)
             {
@@ -542,18 +570,18 @@ RenderedSlice renderOverlaySlice(
                 {
                     tv = glm::dvec3(rx, ry, rz);
                 }
-                else if (info.volIndex == 1 && info.useTPS)
+                else if (info.useTPS)
                 {
+                    glm::dvec4 world = refV2W * glm::dvec4(
+                        static_cast<double>(rx), static_cast<double>(ry),
+                        static_cast<double>(rz), 1.0);
                     glm::dvec3 vw = transform->inverseTransformPoint(glm::dvec3(world));
                     tv = glm::dvec3(info.worldToVox * glm::dvec4(vw, 1.0));
                 }
-                else if (info.volIndex == 1 && hasLinearTransform)
-                {
-                    tv = glm::dvec3(info.worldToVox * (invLinear * world));
-                }
                 else
                 {
-                    tv = glm::dvec3(info.worldToVox * world);
+                    tv = info.sliceOrigin + info.rowStep * static_cast<double>(px) +
+                         info.colStep * static_cast<double>(py);
                 }
 
                 // ── Out-of-bounds → skip (no contribution) ───────────────
