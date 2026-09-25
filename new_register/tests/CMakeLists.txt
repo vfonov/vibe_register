@@ -136,6 +136,14 @@ add_nr_test(test_slice_coords CATCH2
 )
 add_test(NAME SliceCoordsTest COMMAND test_slice_coords)
 
+if(TARGET imgui)
+    add_nr_test(test_hotkeys CATCH2
+        INCLUDES  ${INC_DIR} ${imgui_SOURCE_DIR}
+        LINKS     imgui
+    )
+    add_test(NAME HotkeysTest COMMAND test_hotkeys)
+endif()
+
 # ------------------------------------------------------------------
 # Standalone MINC tests (no project source files)
 # ------------------------------------------------------------------

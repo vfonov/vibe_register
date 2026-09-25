@@ -247,6 +247,10 @@ Run in QC mode:
 | `[` | Previous QC dataset | QC only |
 | `1`..`9`, `0` | Set the row verdict (1st..10th option) and advance to the next row | `--qc1` only |
 
+Letter keys and `?` fire once per press — holding them does not repeat — and are ignored
+while Ctrl, Alt or Cmd is held (so e.g. Ctrl+C does not toggle clean mode). `+` / `-` repeat
+while held.
+
 ### Mouse Controls
 
 | Input | Action |

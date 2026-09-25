@@ -18,6 +18,7 @@
 #include "AppConfig.h"
 #include "ColourMap.h"
 #include "GraphicsBackend.h"
+#include "Hotkeys.h"
 #include "Prefetcher.h"
 #include "QCState.h"
 #include "SliceCoords.h"
@@ -313,19 +314,19 @@ void Interface::render(GraphicsBackend& backend) {
     }
 
     if (!ImGui::GetIO().WantTextInput) {
-        if (ImGui::IsKeyPressed(ImGuiKey_R)) {
+        if (hotkeyPressed(ImGuiKey_R)) {
             viewManager_.resetViews();
             if (hasOverlay)
                 viewManager_.updateAllOverlayTextures();
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_Q)) {
+        if (hotkeyPressed(ImGuiKey_Q)) {
             backend.requestClose();
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_C)) {
+        if (hotkeyPressed(ImGuiKey_C)) {
             state_.cleanMode_ = !state_.cleanMode_;
             state_.layoutInitialized_ = false;
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_P)) {
+        if (hotkeyPressed(ImGuiKey_P)) {
             saveScreenshot(backend);
         }
 
@@ -397,7 +398,7 @@ void Interface::render(GraphicsBackend& backend) {
 
     // Toggle hotkeys popup with '?' or 'H' - works even when popup is open
     if (!ImGui::GetIO().WantTextInput &&
-        (ImGui::IsKeyPressed(ImGuiKey_Slash) || ImGui::IsKeyPressed(ImGuiKey_H))) {
+        (hotkeyPressed(ImGuiKey_Slash) || hotkeyPressed(ImGuiKey_H))) {
         state_.showHotkeysPopup_ = !state_.showHotkeysPopup_;
     }
 
@@ -828,6 +829,7 @@ void Interface::renderToolsPanel(GraphicsBackend& backend) {
 
             ImGui::EndTable();
         }
+        ImGui::TextDisabled("Keys fire once per press, not with Ctrl/Alt/Cmd.");
     }
     ImGui::End();
 }
