@@ -82,13 +82,36 @@ void testDrawCrosshairBlendsRatherThanOverwrites()
     assert(((marked >> 24) & 0xFFu) == 0xFFu); // stays fully opaque
 }
 
-/// A coordinate outside the native size is clamped, not indexed out of the
-/// pixel buffer.
-void testDrawCrosshairClampsOutOfRangeCoordinates()
+/// A coordinate outside the native size means the cursor is off that edge
+/// of this volume: its line is left out rather than drawn along the edge,
+/// which would claim a position the volume does not have. The other line
+/// is still drawn if it is in range.
+void testDrawCrosshairOmitsOutOfRangeLines()
 {
-    auto image = makeImage(10, 10, kBackground);
-    CrosshairMark mark{999, -5, 10, 10};
-    drawCrosshair(image, mark); // must not crash
+    auto both = makeImage(10, 10, kBackground);
+    drawCrosshair(both, CrosshairMark{999, -5, 10, 10});
+    for (uint32_t pixel : both.pixels)
+        assert(pixel == kBackground);
+
+    // u out of range, v = 9 (the top native row, display row 0): only the
+    // row is marked.
+    auto rowOnly = makeImage(10, 10, kBackground);
+    drawCrosshair(rowOnly, CrosshairMark{-1, 9, 10, 10});
+    for (int x = 0; x < 10; ++x)
+        assert(rowOnly.pixels[static_cast<size_t>(x)] != kBackground);
+    for (int y = 1; y < 10; ++y)
+        for (int x = 0; x < 10; ++x)
+            assert(rowOnly.pixels[static_cast<size_t>(y) * 10 + x] == kBackground);
+
+    // v out of range, u = 0: only the column is marked.
+    auto columnOnly = makeImage(10, 10, kBackground);
+    drawCrosshair(columnOnly, CrosshairMark{0, 10, 10, 10});
+    for (int y = 0; y < 10; ++y)
+    {
+        assert(columnOnly.pixels[static_cast<size_t>(y) * 10] != kBackground);
+        for (int x = 1; x < 10; ++x)
+            assert(columnOnly.pixels[static_cast<size_t>(y) * 10 + x] == kBackground);
+    }
 }
 
 /// A degenerate image or native size is a no-op, not a crash.
@@ -110,7 +133,7 @@ int main()
     testDrawCrosshairMarksTheMappedRowAndColumn();
     testDrawCrosshairLeavesOtherPixelsAlone();
     testDrawCrosshairBlendsRatherThanOverwrites();
-    testDrawCrosshairClampsOutOfRangeCoordinates();
+    testDrawCrosshairOmitsOutOfRangeLines();
     testDrawCrosshairIsANoOpOnDegenerateInput();
     return 0;
 }

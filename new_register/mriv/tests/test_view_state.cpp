@@ -238,20 +238,52 @@ void testSyncFollowsTheWorldOriginNotTheIndex()
     assert(axial.u == 36 && axial.v == 58);
 }
 
-/// A cursor outside another volume's field of view pins that column to its
-/// nearest edge slice, as new_register does.
-void testSyncClampsOutsideAnotherVolume()
+/// A cursor outside another volume's field of view is reported as it falls
+/// in that volume, out of range, so the column can show background instead
+/// of repeating an edge slice.
+void testSyncReportsPositionsOutsideAnotherVolume()
 {
-    auto state = makeOffsetState(glm::dvec3(0.0, 0.0, 60.0));
-    // World z 48 is volume 1's z -12.
-    assert(state.sliceIndexFor(1, 0) == 0);
+    auto state = makeOffsetState(glm::dvec3(40.0, 0.0, 60.0));
+    // Cursor world (32, 64, 48) is volume 1's (-8, 64, -12).
+    assert(state.sliceIndexFor(1, 0) == -12);
+    assert(state.sliceIndexFor(1, 1) == -8);
 
-    // Past volume 0's top the cursor itself stops, and volume 1 has not yet
-    // reached its own top: world z 95 is its slice 35.
-    for (int i = 0; i < 100; ++i)
+    auto axial = state.crosshairFor(1, 0); // axes x, y
+    assert(axial.u == -8 && axial.v == 64);
+}
+
+/// Navigation spans every volume, not just the first: j keeps going past
+/// the end of volume 0 while volume 1 still has slices, and volume 0's
+/// column is then the one outside.
+void testNavigationRunsPastTheFirstVolumeToTheLast()
+{
+    // Volume 1 covers world z 60..155; volume 0 only 0..95.
+    auto state = makeOffsetState(glm::dvec3(0.0, 0.0, 60.0));
+    assert(state.sliceCount() == 156);
+
+    for (int i = 0; i < 200; ++i)
         state.handleKey('j');
-    assert(state.sliceIndexFor(0, 0) == 95);
-    assert(state.sliceIndexFor(1, 0) == 35);
+    assert(state.sliceIndexFor(0, 0) == 155);
+    assert(state.sliceIndexFor(1, 0) == 95);
+    assert(state.sliceIndex() == 155);
+    assert(state.handleKey('j') == KeyResult::Ignored);
+}
+
+/// The same below the first volume: k runs down to the lowest slice of any
+/// volume, and the status position counts from there.
+void testNavigationRunsBelowTheFirstVolume()
+{
+    // Volume 1 covers world z -30..65.
+    auto state = makeOffsetState(glm::dvec3(0.0, 0.0, -30.0));
+    assert(state.sliceCount() == 126);
+    assert(state.sliceIndex() == 78); // cursor z 48, counted from -30
+
+    for (int i = 0; i < 200; ++i)
+        state.handleKey('k');
+    assert(state.sliceIndexFor(0, 0) == -30);
+    assert(state.sliceIndexFor(1, 0) == 0);
+    assert(state.sliceIndex() == 0);
+    assert(state.handleKey('k') == KeyResult::Ignored);
 }
 
 void testTabCyclesTheActiveVolume()
@@ -599,7 +631,9 @@ int main()
     testCrosshairForMatchesCursorInFirstVolume();
     testCrosshairForMapsThroughWorldSpace();
     testSyncFollowsTheWorldOriginNotTheIndex();
-    testSyncClampsOutsideAnotherVolume();
+    testSyncReportsPositionsOutsideAnotherVolume();
+    testNavigationRunsPastTheFirstVolumeToTheLast();
+    testNavigationRunsBelowTheFirstVolume();
     testTabCyclesTheActiveVolume();
     testTabWithOneVolumeIsIgnored();
     testDigitsSelectAVolumeDirectly();

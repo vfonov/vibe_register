@@ -126,6 +126,33 @@ void testEmptyVolumeYieldsEmptyImage()
     assert(image.pixels.empty());
 }
 
+/// A slice index outside the volume -- a column whose volume does not reach
+/// the shared cursor -- renders as background, at the size an in-range
+/// slice would have, so the column neither collapses nor shows a
+/// repeated edge slice.
+void testSliceOutsideTheVolumeIsBackground()
+{
+    Volume vol = makeAnisotropicVolume(); // every voxel is 0.5
+
+    SliceRequest inside = makeRequest();
+    inside.valueMin = -10.0;
+    inside.valueMax = 0.5; // bright, so background is distinguishable
+    auto insideImage = renderSliceForDisplay(vol, inside);
+
+    for (int sliceIndex : {-1, 20, 500})
+    {
+        SliceRequest outside = inside;
+        outside.sliceIndex = sliceIndex;
+        auto outsideImage = renderSliceForDisplay(vol, outside);
+
+        assert(outsideImage.width == insideImage.width);
+        assert(outsideImage.height == insideImage.height);
+        assert(!outsideImage.pixels.empty());
+        for (uint32_t pixel : outsideImage.pixels)
+            assert(pixel == 0xFF000000u);
+    }
+}
+
 /// The intensity range reaches renderSlice(): a uniform volume rendered
 /// with the value at the bottom of the range is dark, and with the value at
 /// the top is bright. This is what the interactive '+'/'-' keys drive.
@@ -160,6 +187,7 @@ int main()
     testScaleMagnifiesTheFittedImage();
     testEmptyVolumeYieldsEmptyImage();
     testIntensityRangeReachesTheRenderer();
+    testSliceOutsideTheVolumeIsBackground();
 
     return 0;
 }

@@ -52,7 +52,9 @@ inline ResampledImage resampleToDisplay(
 /// Volume::slicePixelAspect() correction for the view's in-plane axes.
 /// Returns an empty image (width and height 0) when the slice is empty,
 /// which is what the parent's renderSlice() gives for an empty volume
-/// (mriv/HANDOFF.md sec 3.7).
+/// (mriv/HANDOFF.md sec 3.7). A sliceIndex outside the volume gives an
+/// opaque-black image of the size an in-range slice would have -- a column
+/// whose volume does not reach the shared cursor.
 ResampledImage renderSliceForDisplay(const Volume& vol, const SliceRequest& request);
 
 } // namespace mriv::term

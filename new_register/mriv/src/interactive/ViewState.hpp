@@ -43,7 +43,8 @@ class ViewState
 public:
     /// `geometries` has one entry per volume, in column order; `views` is
     /// the list of viewIndex values to display, in row order; `cursor` is a
-    /// voxel position in the first volume, clamped on entry; `displays` has
+    /// voxel position in the first volume, clamped on entry to the range
+    /// every volume together covers; `displays` has
     /// one entry per volume.
     ///
     /// `axis` is the axis j/k moves. If its view is not among `views` it
@@ -104,8 +105,10 @@ public:
     };
     CrosshairVoxel crosshairFor(int volume, int viewIndex) const;
 
-    /// The cursor's position along the active axis in the first volume --
-    /// the index space navigation happens in.
+    /// The cursor's position along the active axis, counted from the lowest
+    /// slice any volume has there, and the number of positions navigation
+    /// covers -- every volume's extent, not only the first's. For a single
+    /// volume these are its own slice index and count.
     int sliceIndex() const;
     int sliceCount() const;
 
@@ -118,8 +121,12 @@ private:
     int& cursorComponent(int viewIndex);
     const int& cursorComponent(int viewIndex) const;
 
-    /// The shared cursor in `volume`'s own index space.
+    /// The shared cursor in `volume`'s own index space. Not clamped: a
+    /// component outside the volume means its column shows background.
     glm::ivec3 cursorIn(int volume) const;
+
+    /// Sets lowBound_/highBound_ from every volume's extent.
+    void computeBounds();
 
     bool isDisplayed(int viewIndex) const;
 
@@ -135,6 +142,11 @@ private:
     std::vector<int> views_;
     std::vector<VolumeDisplay> displays_;
     glm::ivec3 cursor_;
+    /// The range the cursor can move over, in the first volume's index
+    /// space: the union of every volume's extent, so it can run past the
+    /// ends of the first one (negative, or beyond its dimensions).
+    glm::ivec3 lowBound_{0};
+    glm::ivec3 highBound_{0};
     char axis_;
     int viewIndex_;
     int activeVolume_ = 0;

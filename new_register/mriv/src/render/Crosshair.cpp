@@ -41,16 +41,23 @@ void drawCrosshair(ResampledImage& image, const CrosshairMark& mark)
     if (mark.nativeW <= 0 || mark.nativeH <= 0)
         return;
 
-    int col = mapNativeToDisplay(mark.u, mark.nativeW, image.width);
-    int row = mapNativeToDisplay(mark.nativeH - 1 - mark.v, mark.nativeH, image.height);
+    // Off an edge of this volume, a line would claim a position it does not
+    // have, so it is left out; the other line can still be in range.
+    if (mark.v >= 0 && mark.v < mark.nativeH)
+    {
+        int row = mapNativeToDisplay(mark.nativeH - 1 - mark.v, mark.nativeH, image.height);
+        for (int x = 0; x < image.width; ++x)
+            image.pixels[static_cast<size_t>(row) * image.width + x] =
+                blendPixel(image.pixels[static_cast<size_t>(row) * image.width + x]);
+    }
 
-    for (int x = 0; x < image.width; ++x)
-        image.pixels[static_cast<size_t>(row) * image.width + x] =
-            blendPixel(image.pixels[static_cast<size_t>(row) * image.width + x]);
-
-    for (int y = 0; y < image.height; ++y)
-        image.pixels[static_cast<size_t>(y) * image.width + col] =
-            blendPixel(image.pixels[static_cast<size_t>(y) * image.width + col]);
+    if (mark.u >= 0 && mark.u < mark.nativeW)
+    {
+        int col = mapNativeToDisplay(mark.u, mark.nativeW, image.width);
+        for (int y = 0; y < image.height; ++y)
+            image.pixels[static_cast<size_t>(y) * image.width + col] =
+                blendPixel(image.pixels[static_cast<size_t>(y) * image.width + col]);
+    }
 }
 
 } // namespace mriv::term

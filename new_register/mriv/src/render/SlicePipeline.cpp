@@ -1,5 +1,8 @@
 #include "render/SlicePipeline.hpp"
 
+#include <algorithm>
+#include <cstdint>
+
 #include "render/SliceGeometry.hpp"
 
 #include "SliceRenderer.h"
@@ -7,6 +10,15 @@
 
 namespace mriv::term
 {
+
+namespace
+{
+
+// The same opaque black composeGrid() fills its canvas with, so a slice
+// outside the volume reads as empty space rather than as a dark image.
+constexpr uint32_t kBackground = 0xFF000000u;
+
+} // namespace
 
 ResampledImage renderSliceForDisplay(const Volume& vol, const SliceRequest& request)
 {
@@ -23,7 +35,17 @@ ResampledImage renderSliceForDisplay(const Volume& vol, const SliceRequest& requ
     auto axes     = aspectAxesForView(request.viewIndex);
     double aspect = vol.slicePixelAspect(axes.u, axes.v);
 
-    return resampleToDisplay(slice, aspect, request.maxWidth, request.maxHeight, request.scale);
+    ResampledImage image =
+        resampleToDisplay(slice, aspect, request.maxWidth, request.maxHeight, request.scale);
+
+    // renderSlice() clamps the index itself, which is what gives this image
+    // the right size; a slice the volume does not have is then blanked, so
+    // its column shows background rather than a repeated edge slice.
+    int count = sliceCountForView(request.viewIndex, vol.dimensions);
+    if (request.sliceIndex < 0 || request.sliceIndex >= count)
+        std::fill(image.pixels.begin(), image.pixels.end(), kBackground);
+
+    return image;
 }
 
 } // namespace mriv::term

@@ -415,12 +415,16 @@ man page says it clears the screen first, which deletes placed Kitty-protocol im
 Position is a single 3D voxel cursor, held in the *first* volume's index space and mapped onto the
 others through world space by `mapVoxelThroughWorld()` (`render/SliceGeometry.hpp`): volume 0's voxel
 goes through its `voxelToWorld`, then the other volume's `worldToVoxel`, rounded to the nearest voxel
-and clamped to its grid — the same rule as `new_register`'s `ViewManager::syncCursors()`. So columns
-show the same anatomy whatever their resolution, origin or orientation, and a cursor outside a
-smaller volume's field of view pins that column to its edge slice. `ViewState` receives each
-volume's dimensions and the parent's precomputed matrices as a `VolumeGeometry`, not the `Volume`
-itself, so it stays free of IO. One cursor is what makes navigation synchronised, which is the
-point of showing columns side by side; j/k steps one slice of volume 0. Each axis keeps its own
+— the same mapping as `new_register`'s `ViewManager::syncCursors()`. So columns show the same
+anatomy whatever their resolution, origin or orientation. Unlike `new_register` the result is not
+clamped: navigation covers the union of every volume's extent (their corners mapped into volume 0's
+index space), so j/k keeps going past the end of a shorter volume — including volume 0 itself —
+and a column the cursor has left shows background (`renderSliceForDisplay()` blanks an
+out-of-range slice at full size) with its off-edge crosshair line omitted. The status line's `n/N`
+counts over that union; for a single volume it is the volume's own slice number. `ViewState`
+receives each volume's dimensions and the parent's precomputed matrices as a `VolumeGeometry`, not
+the `Volume` itself, so it stays free of IO. One cursor is what makes navigation synchronised, which
+is the point of showing columns side by side; j/k steps one slice of volume 0. Each axis keeps its own
 component, so leaving an axis and returning to it lands exactly where you left off — the three are
 geometrically independent and there is no meaningful way to carry a position between them.
 

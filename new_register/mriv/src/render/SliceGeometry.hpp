@@ -36,10 +36,11 @@ struct VolumeGeometry
 
 /// Map a voxel from one volume onto another through world space, for the
 /// synchronised cursor a multi-volume display shares: `voxel` in `from` goes
-/// to world coordinates, then to the nearest voxel of `to`, clamped to `to`'s
-/// grid. A point outside `to`'s field of view lands on its nearest edge
-/// slice. The same steps as Volume::transformWorldToVoxel() and
-/// new_register's ViewManager::syncCursors().
+/// to world coordinates, then to the nearest voxel of `to`. The same steps
+/// as Volume::transformWorldToVoxel(), except the result is *not* clamped
+/// to `to`'s grid: a point outside `to`'s field of view comes back out of
+/// range, so the caller can show background there instead of an edge
+/// slice.
 glm::ivec3 mapVoxelThroughWorld(const glm::ivec3& voxel,
                                 const VolumeGeometry& from,
                                 const VolumeGeometry& to);

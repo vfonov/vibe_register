@@ -29,8 +29,8 @@ struct CrosshairMark
 /// same bottom-up row flip renderSlice() itself uses (PLAN.md).
 ///
 /// A no-op on a degenerate image or a degenerate native size (nativeW/H
-/// <= 0); mapNativeToDisplay() clamps u/v on its own, so an out-of-range
-/// coordinate cannot index outside the buffer.
+/// <= 0). A u or v outside the native size means the cursor is off that
+/// edge of the volume, and its line is left out.
 void drawCrosshair(ResampledImage& image, const CrosshairMark& mark);
 
 } // namespace mriv::term

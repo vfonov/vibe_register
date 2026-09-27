@@ -5,16 +5,6 @@
 namespace mriv::term
 {
 
-namespace
-{
-
-int clampIndex(int index, int count)
-{
-    return std::clamp(index, 0, count > 0 ? count - 1 : 0);
-}
-
-} // namespace
-
 ViewState::ViewState(std::vector<VolumeGeometry> geometries,
                      std::vector<int> views,
                      char axis,
@@ -40,10 +30,33 @@ ViewState::ViewState(std::vector<VolumeGeometry> geometries,
         axis_ = axisForViewIndex(viewIndex_);
     }
 
-    const glm::ivec3& dims = geometries_.front().dimensions;
-    cursor_ = glm::ivec3(clampIndex(cursor.x, dims.x),
-                         clampIndex(cursor.y, dims.y),
-                         clampIndex(cursor.z, dims.z));
+    computeBounds();
+    cursor_ = glm::clamp(cursor, lowBound_, highBound_);
+}
+
+void ViewState::computeBounds()
+{
+    // Every volume's corners, in the first volume's index space: navigation
+    // covers all of them, so j/k keeps going while any column still has a
+    // slice to show, and the ones that have run out show background.
+    const VolumeGeometry& first = geometries_.front();
+    lowBound_  = glm::ivec3(0);
+    highBound_ = glm::max(first.dimensions - 1, glm::ivec3(0));
+
+    for (size_t volume = 1; volume < geometries_.size(); ++volume)
+    {
+        const VolumeGeometry& geometry = geometries_[volume];
+        glm::ivec3 last = glm::max(geometry.dimensions - 1, glm::ivec3(0));
+        for (int corner = 0; corner < 8; ++corner)
+        {
+            glm::ivec3 voxel((corner & 1) ? last.x : 0,
+                             (corner & 2) ? last.y : 0,
+                             (corner & 4) ? last.z : 0);
+            glm::ivec3 mapped = mapVoxelThroughWorld(voxel, geometry, first);
+            lowBound_  = glm::min(lowBound_, mapped);
+            highBound_ = glm::max(highBound_, mapped);
+        }
+    }
 }
 
 bool ViewState::isDisplayed(int viewIndex) const
@@ -110,12 +123,13 @@ ViewState::CrosshairVoxel ViewState::crosshairFor(int volume, int viewIndex) con
 
 int ViewState::sliceIndex() const
 {
-    return cursorComponent(viewIndex_);
+    return cursorComponent(viewIndex_) - lowBound_[cursorAxis(viewIndex_)];
 }
 
 int ViewState::sliceCount() const
 {
-    return sliceCountFor(0, viewIndex_);
+    int axis = cursorAxis(viewIndex_);
+    return highBound_[axis] - lowBound_[axis] + 1;
 }
 
 const VolumeDisplay& ViewState::display(int volume) const
@@ -126,8 +140,9 @@ const VolumeDisplay& ViewState::display(int volume) const
 
 KeyResult ViewState::moveSlice(int delta)
 {
-    int& position = cursorComponent(viewIndex_);
-    int wanted = clampIndex(position + delta, sliceCount());
+    int axis = cursorAxis(viewIndex_);
+    int& position = cursor_[axis];
+    int wanted = std::clamp(position + delta, lowBound_[axis], highBound_[axis]);
     if (wanted == position)
         return KeyResult::Ignored;
 

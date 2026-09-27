@@ -129,23 +129,16 @@ void testMapVoxelThroughWorldFollowsDirectionCosines()
     assert(mapVoxelThroughWorld(glm::ivec3(2, 7, 4), plain, permuted) == glm::ivec3(7, 2, 4));
 }
 
-/// Outside the target's field of view the cursor sticks to its nearest edge
-/// slice, the same as new_register's syncCursors().
-void testMapVoxelThroughWorldClampsOutsideTheTarget()
+/// Outside the target's field of view the index is reported as it falls,
+/// not clamped: a column past the end of a shorter volume shows background
+/// rather than repeating its edge slice, so the caller must see that it is
+/// outside.
+void testMapVoxelThroughWorldDoesNotClampOutsideTheTarget()
 {
     VolumeGeometry sq1 = sq1Geometry();
     VolumeGeometry small = makeGeometry(glm::ivec3(10), glm::dvec3(2.0), glm::dvec3(0.0));
     // World (-100, 0, 98): voxel (-50, 0, 49) of `small`.
-    assert(mapVoxelThroughWorld(glm::ivec3(0, 50, 99), sq1, small) == glm::ivec3(0, 0, 9));
-}
-
-/// An empty grid must not produce a negative index.
-void testMapVoxelThroughWorldHandlesEmptyDimensions()
-{
-    VolumeGeometry sq1 = sq1Geometry();
-    VolumeGeometry empty = sq1Geometry();
-    empty.dimensions = glm::ivec3(0);
-    assert(mapVoxelThroughWorld(glm::ivec3(48), sq1, empty) == glm::ivec3(0));
+    assert(mapVoxelThroughWorld(glm::ivec3(0, 50, 99), sq1, small) == glm::ivec3(-50, 0, 49));
 }
 
 void testAspectAxesTable()
@@ -199,8 +192,7 @@ int main(int argc, char** argv)
     testMapVoxelThroughWorldFollowsStep();
     testMapVoxelThroughWorldFollowsStart();
     testMapVoxelThroughWorldFollowsDirectionCosines();
-    testMapVoxelThroughWorldClampsOutsideTheTarget();
-    testMapVoxelThroughWorldHandlesEmptyDimensions();
+    testMapVoxelThroughWorldDoesNotClampOutsideTheTarget();
     testAspectAxesTable();
     testAspectAxesAgainstThickSlicesVolume(path);
 

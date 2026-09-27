@@ -44,13 +44,9 @@ glm::ivec3 mapVoxelThroughWorld(const glm::ivec3& voxel,
     glm::dvec4 world = from.voxelToWorld * glm::dvec4(glm::dvec3(voxel), 1.0);
     glm::dvec4 mapped = to.worldToVoxel * world;
 
-    glm::ivec3 result;
-    for (int axis = 0; axis < 3; ++axis)
-    {
-        int nearest = static_cast<int>(std::lround(mapped[axis]));
-        result[axis] = std::clamp(nearest, 0, std::max(to.dimensions[axis] - 1, 0));
-    }
-    return result;
+    return glm::ivec3(static_cast<int>(std::lround(mapped.x)),
+                      static_cast<int>(std::lround(mapped.y)),
+                      static_cast<int>(std::lround(mapped.z)));
 }
 
 AspectAxes aspectAxesForView(int viewIndex)
