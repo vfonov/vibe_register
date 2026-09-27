@@ -15,22 +15,22 @@ int clampIndex(int index, int count)
 
 } // namespace
 
-ViewState::ViewState(std::vector<glm::ivec3> dimensions,
+ViewState::ViewState(std::vector<VolumeGeometry> geometries,
                      std::vector<int> views,
                      char axis,
                      const glm::ivec3& cursor,
                      std::vector<VolumeDisplay> displays)
-    : dimensions_(std::move(dimensions))
+    : geometries_(std::move(geometries))
     , views_(std::move(views))
     , displays_(std::move(displays))
     , axis_(axis)
     , viewIndex_(viewIndexForAxis(axis).value_or(0))
 {
-    if (dimensions_.empty())
-        dimensions_.push_back(glm::ivec3(1));
+    if (geometries_.empty())
+        geometries_.push_back(VolumeGeometry{});
     if (views_.empty())
         views_.push_back(0);
-    displays_.resize(dimensions_.size());
+    displays_.resize(geometries_.size());
 
     // An active axis nobody can see would make j/k look broken, so it falls
     // back to the first displayed view.
@@ -40,7 +40,7 @@ ViewState::ViewState(std::vector<glm::ivec3> dimensions,
         axis_ = axisForViewIndex(viewIndex_);
     }
 
-    const glm::ivec3& dims = dimensions_.front();
+    const glm::ivec3& dims = geometries_.front().dimensions;
     cursor_ = glm::ivec3(clampIndex(cursor.x, dims.x),
                          clampIndex(cursor.y, dims.y),
                          clampIndex(cursor.z, dims.z));
@@ -51,14 +51,19 @@ bool ViewState::isDisplayed(int viewIndex) const
     return std::find(views_.begin(), views_.end(), viewIndex) != views_.end();
 }
 
-int& ViewState::cursorComponent(int viewIndex)
+int ViewState::cursorAxis(int viewIndex)
 {
     switch (viewIndex)
     {
-        case 1:  return cursor_.x;
-        case 2:  return cursor_.y;
-        default: return cursor_.z;
+        case 1:  return 0;
+        case 2:  return 1;
+        default: return 2;
     }
+}
+
+int& ViewState::cursorComponent(int viewIndex)
+{
+    return cursor_[cursorAxis(viewIndex)];
 }
 
 const int& ViewState::cursorComponent(int viewIndex) const
@@ -70,7 +75,19 @@ int ViewState::sliceCountFor(int volume, int viewIndex) const
 {
     if (volume < 0 || volume >= volumeCount())
         return 0;
-    return sliceCountForView(viewIndex, dimensions_[static_cast<size_t>(volume)]);
+    return sliceCountForView(viewIndex, geometries_[static_cast<size_t>(volume)].dimensions);
+}
+
+glm::ivec3 ViewState::cursorIn(int volume) const
+{
+    if (volume == 0)
+        return cursor_;
+
+    // Every other column shows the world position the first one's cursor
+    // is at, the same rule as new_register's ViewManager::syncCursors(): a
+    // position off the edge of a smaller volume pins it to the edge slice.
+    return mapVoxelThroughWorld(cursor_, geometries_[0],
+                                geometries_[static_cast<size_t>(volume)]);
 }
 
 int ViewState::sliceIndexFor(int volume, int viewIndex) const
@@ -78,14 +95,7 @@ int ViewState::sliceIndexFor(int volume, int viewIndex) const
     if (volume < 0 || volume >= volumeCount())
         return 0;
 
-    int index = cursorComponent(viewIndex);
-    if (volume == 0)
-        return index;
-
-    // Every other column tracks the first one's cursor proportionally, so
-    // identical volumes stay index-for-index aligned and mismatched ones
-    // still move together.
-    return mapSliceIndex(index, sliceCountFor(0, viewIndex), sliceCountFor(volume, viewIndex));
+    return cursorIn(volume)[cursorAxis(viewIndex)];
 }
 
 ViewState::CrosshairVoxel ViewState::crosshairFor(int volume, int viewIndex) const
@@ -94,17 +104,8 @@ ViewState::CrosshairVoxel ViewState::crosshairFor(int volume, int viewIndex) con
         return {0, 0};
 
     AspectAxes axes = aspectAxesForView(viewIndex);
-    int u = cursor_[axes.u];
-    int v = cursor_[axes.v];
-
-    if (volume == 0)
-        return {u, v};
-
-    const glm::ivec3& firstDims = dimensions_[0];
-    const glm::ivec3& dims = dimensions_[static_cast<size_t>(volume)];
-
-    return {mapSliceIndex(u, firstDims[axes.u], dims[axes.u]),
-            mapSliceIndex(v, firstDims[axes.v], dims[axes.v])};
+    glm::ivec3 voxel = cursorIn(volume);
+    return {voxel[axes.u], voxel[axes.v]};
 }
 
 int ViewState::sliceIndex() const

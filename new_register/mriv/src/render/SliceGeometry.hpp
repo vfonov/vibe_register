@@ -23,16 +23,26 @@ char axisForViewIndex(int viewIndex);
 /// aspectAxesForView()'s treatment of an out-of-range viewIndex.
 int sliceCountForView(int viewIndex, const glm::ivec3& dimensions);
 
-/// Map a slice index from one volume's axis to another's, for the
-/// synchronised cursor a multi-volume display shares. `index` is a position
-/// in an axis of `fromCount` slices; the result is the proportionally
-/// equivalent position in an axis of `toCount`, clamped to a valid index.
-///
-/// Equal counts give an exact identity, which is what makes the common case
-/// -- the same subject in two modalities -- behave the way a user expects:
-/// "the same slice" means the same index, not one rounded off by a pixel.
-/// A count of zero yields 0 rather than dividing by it.
-int mapSliceIndex(int index, int fromCount, int toCount);
+/// The part of a Volume's metadata the synchronised cursor needs: its grid
+/// and the parent's precomputed voxel<->world matrices (Volume::voxelToWorld
+/// and Volume::worldToVoxel), copied out so the interactive model stays free
+/// of Volume and its IO.
+struct VolumeGeometry
+{
+    glm::ivec3 dimensions{1, 1, 1};
+    glm::dmat4 voxelToWorld{1.0};
+    glm::dmat4 worldToVoxel{1.0};
+};
+
+/// Map a voxel from one volume onto another through world space, for the
+/// synchronised cursor a multi-volume display shares: `voxel` in `from` goes
+/// to world coordinates, then to the nearest voxel of `to`, clamped to `to`'s
+/// grid. A point outside `to`'s field of view lands on its nearest edge
+/// slice. The same steps as Volume::transformWorldToVoxel() and
+/// new_register's ViewManager::syncCursors().
+glm::ivec3 mapVoxelThroughWorld(const glm::ivec3& voxel,
+                                const VolumeGeometry& from,
+                                const VolumeGeometry& to);
 
 /// The two in-plane Volume axes (axisU, axisV) to pass to
 /// Volume::slicePixelAspect() for a given viewIndex. Not derivable from

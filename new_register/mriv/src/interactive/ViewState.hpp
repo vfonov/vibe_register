@@ -31,7 +31,8 @@ struct VolumeDisplay
 /// (mriv/HANDOFF.md sec 3.9).
 ///
 /// Position is a single 3D voxel cursor, held in the *first* volume's index
-/// space and mapped onto the others by mapSliceIndex(). One cursor is what
+/// space and mapped onto the others through world space by
+/// mapVoxelThroughWorld(), as new_register does. One cursor is what
 /// makes navigation synchronised: j/k moves every column at once, which is
 /// the point of showing them side by side. Each axis keeps its own
 /// component, so leaving an axis and returning to it lands exactly where it
@@ -40,7 +41,7 @@ struct VolumeDisplay
 class ViewState
 {
 public:
-    /// `dimensions` has one entry per volume, in column order; `views` is
+    /// `geometries` has one entry per volume, in column order; `views` is
     /// the list of viewIndex values to display, in row order; `cursor` is a
     /// voxel position in the first volume, clamped on entry; `displays` has
     /// one entry per volume.
@@ -48,7 +49,7 @@ public:
     /// `axis` is the axis j/k moves. If its view is not among `views` it
     /// falls back to the first displayed view, rather than leaving the
     /// user moving a slice they cannot see.
-    ViewState(std::vector<glm::ivec3> dimensions,
+    ViewState(std::vector<VolumeGeometry> geometries,
               std::vector<int> views,
               char axis,
               const glm::ivec3& cursor,
@@ -83,7 +84,7 @@ public:
     /// The displayed views, in row order.
     const std::vector<int>& views() const { return views_; }
 
-    int volumeCount() const { return static_cast<int>(dimensions_.size()); }
+    int volumeCount() const { return static_cast<int>(geometries_.size()); }
     int activeVolume() const { return activeVolume_; }
 
     /// The slice `volume` shows for `viewIndex`, and how many it has there.
@@ -93,8 +94,8 @@ public:
     /// The cursor's two in-plane voxel coordinates for `viewIndex`, in
     /// `volume`'s own index space -- what render/Crosshair.hpp needs to mark
     /// where the shared cursor sits within a rendered slice. Volume 0 reads
-    /// straight off the cursor; every other volume tracks it proportionally
-    /// on both in-plane axes, the same way sliceIndexFor() already does for
+    /// straight off the cursor; every other volume shows the cursor's world
+    /// position on both in-plane axes, the same way sliceIndexFor() does for
     /// the (single) out-of-plane one.
     struct CrosshairVoxel
     {
@@ -111,8 +112,14 @@ public:
     const VolumeDisplay& display(int volume) const;
 
 private:
+    /// The cursor component a view's slice index lives in: viewIndex 1
+    /// (sagittal) is X, 2 (coronal) is Y, anything else Z.
+    static int cursorAxis(int viewIndex);
     int& cursorComponent(int viewIndex);
     const int& cursorComponent(int viewIndex) const;
+
+    /// The shared cursor in `volume`'s own index space.
+    glm::ivec3 cursorIn(int volume) const;
 
     bool isDisplayed(int viewIndex) const;
 
@@ -124,7 +131,7 @@ private:
     KeyResult beginRangeEdit();
     KeyResult handleEditKey(char key);
 
-    std::vector<glm::ivec3> dimensions_;
+    std::vector<VolumeGeometry> geometries_;
     std::vector<int> views_;
     std::vector<VolumeDisplay> displays_;
     glm::ivec3 cursor_;

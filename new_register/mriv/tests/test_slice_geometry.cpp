@@ -50,46 +50,102 @@ void testSliceCountForView()
     assert(sliceCountForView(2, dims) == 229);
 }
 
-/// Cross-volume slice synchronisation. The cursor lives in the first
-/// volume's index space; every other volume tracks it proportionally.
-/// Equal counts must be an exact identity -- the common case is the same
-/// subject in two modalities, where "the same slice" has to mean the same
-/// index, not one rounded off by a pixel.
-void testMapSliceIndexIsIdentityForEqualCounts()
+/// A geometry built the way the parent builds one (Volume.h:
+/// world = dirCos * (start + index * step)), so the tests state volumes in
+/// the same terms --info prints.
+VolumeGeometry makeGeometry(const glm::ivec3& dims,
+                            const glm::dvec3& step,
+                            const glm::dvec3& start,
+                            const glm::dmat3& dirCos = glm::dmat3(1.0))
 {
-    for (int i = 0; i < 96; ++i)
-        assert(mapSliceIndex(i, 96, 96) == i);
+    VolumeGeometry geometry;
+    geometry.dimensions = dims;
+    geometry.voxelToWorld = glm::dmat4(glm::dvec4(dirCos[0] * step.x, 0.0),
+                                       glm::dvec4(dirCos[1] * step.y, 0.0),
+                                       glm::dvec4(dirCos[2] * step.z, 0.0),
+                                       glm::dvec4(dirCos * start, 1.0));
+    geometry.worldToVoxel = glm::inverse(geometry.voxelToWorld);
+    return geometry;
 }
 
-void testMapSliceIndexScalesProportionally()
+/// new_register/tests/sq1.mnc and sq2.mnc: the same 200 mm cube at 2 mm and
+/// 4 mm, both starting at -100.
+VolumeGeometry sq1Geometry()
 {
-    // Half the slices: index 50 of 100 lands mid-stack in a 50-slice volume.
-    assert(mapSliceIndex(50, 100, 50) == 25);
-    assert(mapSliceIndex(0, 100, 50) == 0);
-    // Twice the slices. Note 51, not 50: the scaling is by last index, so
-    // index 25 of 0..49 is 51% of the way up and lands at 51 of 0..99.
-    // That is the cost of aligning the two ends exactly, which matters more
-    // than a half-slice at the middle -- see testMapSliceIndexClampsAtBothEnds.
-    assert(mapSliceIndex(25, 50, 100) == 51);
+    return makeGeometry(glm::ivec3(100), glm::dvec3(2.0), glm::dvec3(-100.0));
 }
 
-/// The last slice of the source must map to the last slice of the target,
-/// not one past it: a cursor parked at the end of the reference volume
-/// still has to address a real slice in a shorter one.
-void testMapSliceIndexClampsAtBothEnds()
+VolumeGeometry sq2Geometry()
 {
-    assert(mapSliceIndex(99, 100, 50) == 49);
-    assert(mapSliceIndex(49, 50, 100) == 99);
-    assert(mapSliceIndex(1000, 100, 50) == 49);
-    assert(mapSliceIndex(-5, 100, 50) == 0);
+    return makeGeometry(glm::ivec3(50), glm::dvec3(4.0), glm::dvec3(-100.0));
 }
 
-/// Degenerate counts must not divide by zero or return a negative index.
-void testMapSliceIndexHandlesEmptyCounts()
+/// Cross-volume cursor synchronisation goes through world space, as
+/// new_register's does. The same grid on both sides must be an exact
+/// identity -- the same subject in two modalities, where "the same slice"
+/// has to mean the same index, not one rounded off by a voxel.
+void testMapVoxelThroughWorldIsIdentityForTheSameGrid()
 {
-    assert(mapSliceIndex(5, 0, 10) == 0);
-    assert(mapSliceIndex(5, 10, 0) == 0);
-    assert(mapSliceIndex(0, 1, 1) == 0);
+    VolumeGeometry sq1 = sq1Geometry();
+    for (int i = 0; i < 100; i += 7)
+    {
+        glm::ivec3 voxel(i, 99 - i, (i * 3) % 100);
+        assert(mapVoxelThroughWorld(voxel, sq1, sq1) == voxel);
+    }
+}
+
+/// Half the resolution over the same extent: voxel 48 of sq1 is world -4,
+/// which is voxel 24 of sq2.
+void testMapVoxelThroughWorldFollowsStep()
+{
+    VolumeGeometry sq1 = sq1Geometry();
+    VolumeGeometry sq2 = sq2Geometry();
+    assert(mapVoxelThroughWorld(glm::ivec3(48), sq1, sq2) == glm::ivec3(24));
+    assert(mapVoxelThroughWorld(glm::ivec3(0), sq1, sq2) == glm::ivec3(0));
+    assert(mapVoxelThroughWorld(glm::ivec3(24), sq2, sq1) == glm::ivec3(48));
+}
+
+/// A shifted origin shifts the index -- the case a proportional index
+/// mapping gets wrong, since the two grids have the same dimensions.
+void testMapVoxelThroughWorldFollowsStart()
+{
+    VolumeGeometry sq1 = sq1Geometry();
+    VolumeGeometry shifted = makeGeometry(glm::ivec3(100), glm::dvec3(2.0),
+                                          glm::dvec3(-90.0, -100.0, -110.0));
+    // World (-4, -4, -4).
+    assert(mapVoxelThroughWorld(glm::ivec3(48), sq1, shifted) == glm::ivec3(43, 48, 53));
+}
+
+/// Direction cosines are honoured: a volume whose first voxel axis runs
+/// along world Y and second along world X swaps those two components.
+void testMapVoxelThroughWorldFollowsDirectionCosines()
+{
+    VolumeGeometry plain = makeGeometry(glm::ivec3(10), glm::dvec3(1.0), glm::dvec3(0.0));
+    glm::dmat3 swapped(0.0, 1.0, 0.0,
+                       1.0, 0.0, 0.0,
+                       0.0, 0.0, 1.0);
+    VolumeGeometry permuted = makeGeometry(glm::ivec3(10), glm::dvec3(1.0), glm::dvec3(0.0),
+                                           swapped);
+    assert(mapVoxelThroughWorld(glm::ivec3(2, 7, 4), plain, permuted) == glm::ivec3(7, 2, 4));
+}
+
+/// Outside the target's field of view the cursor sticks to its nearest edge
+/// slice, the same as new_register's syncCursors().
+void testMapVoxelThroughWorldClampsOutsideTheTarget()
+{
+    VolumeGeometry sq1 = sq1Geometry();
+    VolumeGeometry small = makeGeometry(glm::ivec3(10), glm::dvec3(2.0), glm::dvec3(0.0));
+    // World (-100, 0, 98): voxel (-50, 0, 49) of `small`.
+    assert(mapVoxelThroughWorld(glm::ivec3(0, 50, 99), sq1, small) == glm::ivec3(0, 0, 9));
+}
+
+/// An empty grid must not produce a negative index.
+void testMapVoxelThroughWorldHandlesEmptyDimensions()
+{
+    VolumeGeometry sq1 = sq1Geometry();
+    VolumeGeometry empty = sq1Geometry();
+    empty.dimensions = glm::ivec3(0);
+    assert(mapVoxelThroughWorld(glm::ivec3(48), sq1, empty) == glm::ivec3(0));
 }
 
 void testAspectAxesTable()
@@ -139,10 +195,12 @@ int main(int argc, char** argv)
     testAxisToViewIndex();
     testAxisForViewIndex();
     testSliceCountForView();
-    testMapSliceIndexIsIdentityForEqualCounts();
-    testMapSliceIndexScalesProportionally();
-    testMapSliceIndexClampsAtBothEnds();
-    testMapSliceIndexHandlesEmptyCounts();
+    testMapVoxelThroughWorldIsIdentityForTheSameGrid();
+    testMapVoxelThroughWorldFollowsStep();
+    testMapVoxelThroughWorldFollowsStart();
+    testMapVoxelThroughWorldFollowsDirectionCosines();
+    testMapVoxelThroughWorldClampsOutsideTheTarget();
+    testMapVoxelThroughWorldHandlesEmptyDimensions();
     testAspectAxesTable();
     testAspectAxesAgainstThickSlicesVolume(path);
 

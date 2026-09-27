@@ -24,7 +24,8 @@ struct FramePane
     /// The slice to show for each entry of FrameRequest::views, in the same
     /// order. Supplied by the caller rather than derived here: the cursor
     /// lives in the first volume's index space and is mapped across volumes
-    /// by mapSliceIndex() (render/SliceGeometry.hpp), and the status line
+    /// through world space by mapVoxelThroughWorld()
+    /// (render/SliceGeometry.hpp), and the status line
     /// needs the same numbers, so they are computed once by the caller.
     std::vector<int> sliceIndices;
 

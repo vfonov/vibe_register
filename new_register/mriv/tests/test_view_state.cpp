@@ -27,21 +27,48 @@ std::vector<VolumeDisplay> displaysFor(size_t count)
     return displays;
 }
 
+/// A voxel grid with a diagonal voxel-to-world transform:
+/// world = start + index * step on each axis.
+VolumeGeometry grid(const glm::ivec3& dims,
+                    const glm::dvec3& step = glm::dvec3(1.0),
+                    const glm::dvec3& start = glm::dvec3(0.0))
+{
+    VolumeGeometry geometry;
+    geometry.dimensions = dims;
+    geometry.voxelToWorld = glm::dmat4(glm::dvec4(step.x, 0.0, 0.0, 0.0),
+                                       glm::dvec4(0.0, step.y, 0.0, 0.0),
+                                       glm::dvec4(0.0, 0.0, step.z, 0.0),
+                                       glm::dvec4(start, 1.0));
+    geometry.worldToVoxel = glm::inverse(geometry.voxelToWorld);
+    return geometry;
+}
+
 /// One volume, all three planes, cursor at the centre.
 ViewState makeState(const glm::ivec3& dims = glm::ivec3(64, 128, 96),
                     char axis = 'z')
 {
     glm::ivec3 cursor(dims.x / 2, dims.y / 2, dims.z / 2);
-    return ViewState({dims}, {0, 1, 2}, axis, cursor, displaysFor(1));
+    return ViewState({grid(dims)}, {0, 1, 2}, axis, cursor, displaysFor(1));
 }
 
-/// Two volumes of different depth, to pin the synchronised cursor.
+/// Two volumes over the same extent, the second at half the Z resolution,
+/// to pin the synchronised cursor.
 ViewState makeTwoVolumeState()
 {
-    glm::ivec3 first(64, 128, 96);
-    glm::ivec3 second(64, 128, 48);
+    VolumeGeometry first = grid(glm::ivec3(64, 128, 96));
+    VolumeGeometry second = grid(glm::ivec3(64, 128, 48), glm::dvec3(1.0, 1.0, 2.0));
     glm::ivec3 cursor(32, 64, 48);
     return ViewState({first, second}, {0, 1, 2}, 'z', cursor, displaysFor(2));
+}
+
+/// Two volumes of identical dimensions whose second starts `offset` further
+/// along each world axis -- the case index-based sync gets wrong.
+ViewState makeOffsetState(const glm::dvec3& offset)
+{
+    glm::ivec3 dims(64, 128, 96);
+    glm::ivec3 cursor(32, 64, 48);
+    return ViewState({grid(dims), grid(dims, glm::dvec3(1.0), offset)}, {0, 1, 2}, 'z',
+                     cursor, displaysFor(2));
 }
 
 void testViewsAndVolumeCount()
@@ -119,7 +146,7 @@ void testReselectingTheCurrentAxisIsIgnored()
 /// would silently move a slice the user cannot see.
 void testAxisNotDisplayedIsIgnored()
 {
-    ViewState state({glm::ivec3(64, 128, 96)}, {0}, 'z', glm::ivec3(32, 64, 48),
+    ViewState state({grid(glm::ivec3(64, 128, 96))}, {0}, 'z', glm::ivec3(32, 64, 48),
                     displaysFor(1));
     assert(state.handleKey('x') == KeyResult::Ignored);
     assert(state.axis() == 'z');
@@ -129,23 +156,25 @@ void testAxisNotDisplayedIsIgnored()
 /// back to the first displayed view rather than being stranded off screen.
 void testActiveAxisFallsBackToADisplayedView()
 {
-    ViewState state({glm::ivec3(64, 128, 96)}, {2}, 'z', glm::ivec3(32, 64, 48),
+    ViewState state({grid(glm::ivec3(64, 128, 96))}, {2}, 'z', glm::ivec3(32, 64, 48),
                     displaysFor(1));
     assert(state.viewIndex() == 2);
     assert(state.axis() == 'y');
 }
 
-/// Every column moves together. Volume 1 has half the slices of volume 0,
-/// so it tracks proportionally rather than stalling or running off the end.
+/// Every column moves together, through world space. Volume 1 has half the
+/// Z resolution over the same extent, so it shows the slice at the same
+/// world position: world z 48 is its slice 24, and z 49 falls between its
+/// slices 24 and 25, rounding to 25.
 void testSliceNavigationIsSynchronisedAcrossVolumes()
 {
     auto state = makeTwoVolumeState();
     assert(state.sliceIndexFor(0, 0) == 48);
-    assert(state.sliceIndexFor(1, 0) == mapSliceIndex(48, 96, 48));
+    assert(state.sliceIndexFor(1, 0) == 24);
 
     state.handleKey('j');
     assert(state.sliceIndexFor(0, 0) == 49);
-    assert(state.sliceIndexFor(1, 0) == mapSliceIndex(49, 96, 48));
+    assert(state.sliceIndexFor(1, 0) == 25);
 
     // The axes the volumes share exactly stay index-for-index equal.
     assert(state.sliceIndexFor(0, 1) == state.sliceIndexFor(1, 1));
@@ -178,23 +207,51 @@ void testCrosshairForMatchesCursorInFirstVolume()
     assert(coronal.u == 32 && coronal.v == 48);
 }
 
-/// Other volumes track the cursor proportionally on the in-plane axes too,
-/// the same way sliceIndexFor() already does for the out-of-plane one --
-/// mismatched dimensions must not misplace the mark. makeTwoVolumeState()'s
-/// two volumes share X and Y but differ in Z (96 vs 48), so the shared axis
-/// must come through as an identity and the mismatched one through
-/// mapSliceIndex().
-void testCrosshairForMapsProportionallyAcrossVolumes()
+/// Other volumes place the crosshair at the cursor's world position too,
+/// the same way sliceIndexFor() does for the out-of-plane axis.
+/// makeTwoVolumeState()'s two volumes share X and Y but differ in Z step, so
+/// the shared axes come through as an identity and Z at half the index.
+void testCrosshairForMapsThroughWorldSpace()
 {
     auto state = makeTwoVolumeState();
 
     auto sagittal = state.crosshairFor(1, 1); // axes y, z
     assert(sagittal.u == 64);
-    assert(sagittal.v == mapSliceIndex(48, 96, 48));
+    assert(sagittal.v == 24);
 
     auto coronal = state.crosshairFor(1, 2); // axes x, z
     assert(coronal.u == 32);
-    assert(coronal.v == mapSliceIndex(48, 96, 48));
+    assert(coronal.v == 24);
+}
+
+/// Same dimensions, shifted origin: the columns must show the same world
+/// position, not the same index.
+void testSyncFollowsTheWorldOriginNotTheIndex()
+{
+    auto state = makeOffsetState(glm::dvec3(-4.0, 6.0, 10.0));
+    // Cursor (32, 64, 48) is world (32, 64, 48): volume 1's (36, 58, 38).
+    assert(state.sliceIndexFor(1, 0) == 38);
+    assert(state.sliceIndexFor(1, 1) == 36);
+    assert(state.sliceIndexFor(1, 2) == 58);
+
+    auto axial = state.crosshairFor(1, 0); // axes x, y
+    assert(axial.u == 36 && axial.v == 58);
+}
+
+/// A cursor outside another volume's field of view pins that column to its
+/// nearest edge slice, as new_register does.
+void testSyncClampsOutsideAnotherVolume()
+{
+    auto state = makeOffsetState(glm::dvec3(0.0, 0.0, 60.0));
+    // World z 48 is volume 1's z -12.
+    assert(state.sliceIndexFor(1, 0) == 0);
+
+    // Past volume 0's top the cursor itself stops, and volume 1 has not yet
+    // reached its own top: world z 95 is its slice 35.
+    for (int i = 0; i < 100; ++i)
+        state.handleKey('j');
+    assert(state.sliceIndexFor(0, 0) == 95);
+    assert(state.sliceIndexFor(1, 0) == 35);
 }
 
 void testTabCyclesTheActiveVolume()
@@ -399,7 +456,7 @@ void testSingleSliceAxisCannotMove()
 void testActiveViewRowIsAnIndexIntoTheDisplayedViews()
 {
     glm::ivec3 dims(64, 128, 96);
-    ViewState state({dims}, {2, 0}, 'y', glm::ivec3(32, 64, 48), displaysFor(1));
+    ViewState state({grid(dims)}, {2, 0}, 'y', glm::ivec3(32, 64, 48), displaysFor(1));
 
     assert(state.activeViewRow() == 0); // coronal is listed first
     assert(state.handleKey('z') == KeyResult::Changed);
@@ -437,7 +494,7 @@ void testVerticalArrowsWrap()
 void testVerticalArrowsWithOneViewAreIgnored()
 {
     glm::ivec3 dims(64, 128, 96);
-    ViewState state({dims}, {0}, 'z', glm::ivec3(32, 64, 48), displaysFor(1));
+    ViewState state({grid(dims)}, {0}, 'z', glm::ivec3(32, 64, 48), displaysFor(1));
     assert(state.handleKey(kKeyDown) == KeyResult::Ignored);
     assert(state.handleKey(kKeyUp) == KeyResult::Ignored);
 }
@@ -519,7 +576,7 @@ void testResizeDuringThePromptRepaintsWithoutTouchingTheText()
 void testConstructorClampsTheCursor()
 {
     glm::ivec3 dims(4, 4, 4);
-    ViewState state({dims}, {0, 1, 2}, 'z', glm::ivec3(99, -3, 99), displaysFor(1));
+    ViewState state({grid(dims)}, {0, 1, 2}, 'z', glm::ivec3(99, -3, 99), displaysFor(1));
     assert(state.sliceIndexFor(0, 0) == 3);
     assert(state.sliceIndexFor(0, 1) == 3);
     assert(state.sliceIndexFor(0, 2) == 0);
@@ -540,7 +597,9 @@ int main()
     testSliceNavigationIsSynchronisedAcrossVolumes();
     testSliceCountComesFromTheFirstVolume();
     testCrosshairForMatchesCursorInFirstVolume();
-    testCrosshairForMapsProportionallyAcrossVolumes();
+    testCrosshairForMapsThroughWorldSpace();
+    testSyncFollowsTheWorldOriginNotTheIndex();
+    testSyncClampsOutsideAnotherVolume();
     testTabCyclesTheActiveVolume();
     testTabWithOneVolumeIsIgnored();
     testDigitsSelectAVolumeDirectly();

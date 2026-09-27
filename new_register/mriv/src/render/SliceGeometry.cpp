@@ -37,24 +37,20 @@ int sliceCountForView(int viewIndex, const glm::ivec3& dimensions)
     }
 }
 
-int mapSliceIndex(int index, int fromCount, int toCount)
+glm::ivec3 mapVoxelThroughWorld(const glm::ivec3& voxel,
+                                const VolumeGeometry& from,
+                                const VolumeGeometry& to)
 {
-    if (fromCount <= 0 || toCount <= 0)
-        return 0;
+    glm::dvec4 world = from.voxelToWorld * glm::dvec4(glm::dvec3(voxel), 1.0);
+    glm::dvec4 mapped = to.worldToVoxel * world;
 
-    if (fromCount == toCount)
-        return std::clamp(index, 0, toCount - 1);
-
-    // Scaled by the last index rather than the count, so the ends line up:
-    // the final slice of one volume maps to the final slice of the other,
-    // which is what makes a cursor parked at the top of a stack stay there
-    // when the columns have different depths.
-    if (fromCount == 1)
-        return 0;
-
-    double fraction = static_cast<double>(index) / (fromCount - 1);
-    int mapped = static_cast<int>(std::lround(fraction * (toCount - 1)));
-    return std::clamp(mapped, 0, toCount - 1);
+    glm::ivec3 result;
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        int nearest = static_cast<int>(std::lround(mapped[axis]));
+        result[axis] = std::clamp(nearest, 0, std::max(to.dimensions[axis] - 1, 0));
+    }
+    return result;
 }
 
 AspectAxes aspectAxesForView(int viewIndex)

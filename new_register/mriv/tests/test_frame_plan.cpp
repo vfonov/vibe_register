@@ -21,7 +21,7 @@ ViewState makeState()
 {
     glm::ivec3 dims(20, 20, 20);
     glm::ivec3 cursor(10, 10, 10);
-    return ViewState({dims}, {0}, 'z', cursor, {VolumeDisplay{}});
+    return ViewState({VolumeGeometry{dims}}, {0}, 'z', cursor, {VolumeDisplay{}});
 }
 
 Volume makeVolume(int nx, int ny, int nz, float value)

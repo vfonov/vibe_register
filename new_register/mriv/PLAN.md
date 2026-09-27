@@ -413,18 +413,23 @@ man page says it clears the screen first, which deletes placed Kitty-protocol im
 `mriv/HANDOFF.md`).
 
 Position is a single 3D voxel cursor, held in the *first* volume's index space and mapped onto the
-others by `mapSliceIndex()`. One cursor is what makes navigation synchronised, which is the point of
-showing columns side by side; equal slice counts map index-for-index, and mismatched ones track
-proportionally. Each axis keeps its own component, so leaving an axis and returning to it lands
-exactly where you left off — the three are geometrically independent and there is no meaningful way
-to carry a position between them.
+others through world space by `mapVoxelThroughWorld()` (`render/SliceGeometry.hpp`): volume 0's voxel
+goes through its `voxelToWorld`, then the other volume's `worldToVoxel`, rounded to the nearest voxel
+and clamped to its grid — the same rule as `new_register`'s `ViewManager::syncCursors()`. So columns
+show the same anatomy whatever their resolution, origin or orientation, and a cursor outside a
+smaller volume's field of view pins that column to its edge slice. `ViewState` receives each
+volume's dimensions and the parent's precomputed matrices as a `VolumeGeometry`, not the `Volume`
+itself, so it stays free of IO. One cursor is what makes navigation synchronised, which is the
+point of showing columns side by side; j/k steps one slice of volume 0. Each axis keeps its own
+component, so leaving an axis and returning to it lands exactly where you left off — the three are
+geometrically independent and there is no meaningful way to carry a position between them.
 
 `--slice` sets that cursor's starting position, in one of two shapes `cli/SliceSelection.hpp`'s
 `parseSliceSpec()` tells apart: the bare "n"/"p%"/"mid" form positions whichever single axis
 `--axis` names (`Run.cpp`'s `resolveStartCursor()` resolving it no differently than before this
 form existed), while "x=...,y=...,z=..." positions each axis named directly, independent of
-`--axis` and of one another — the same three-independent-components model `mapSliceIndex()`
-already assumes, just set from the command line instead of by navigating there. The two shapes
+`--axis` and of one another — the same three-independent-components model the cursor
+already uses, just set from the command line instead of by navigating there. The two shapes
 are mutually exclusive within one `--slice`; mixing them (e.g. "10,x=20") is a parse error.
 
 The interactive loop marks that cursor's position inside every pane, the terminal-side analog of
@@ -432,8 +437,8 @@ The interactive loop marks that cursor's position inside every pane, the termina
 column and row, no gap at the intersection, baked directly into each cell's `ResampledImage` before
 `composeGrid()` runs rather than drawn on top of a texture. `ViewState::crosshairFor(volume,
 viewIndex)` gives the cursor's two in-plane voxel coordinates for that pane, mirroring how
-`sliceIndexFor()` already maps the out-of-plane one — identical for volume 0, proportional via
-`mapSliceIndex()` for the rest. `render/Crosshair.hpp`'s `drawCrosshair()` places the mark with
+`sliceIndexFor()` already maps the out-of-plane one — identical for volume 0, through world space via
+`mapVoxelThroughWorld()` for the rest. `render/Crosshair.hpp`'s `drawCrosshair()` places the mark with
 `mapNativeToDisplay()` (`render/Resample.hpp`), the inverse of `resamplePixelsNearest()`'s
 centre-of-source-pixel sampling, so it lands on the same display pixel the resampled slice itself
 came from. `planFrame()` only fills `FramePane::crosshairs` when its `showCrosshair` parameter is

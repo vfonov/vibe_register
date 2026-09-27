@@ -195,12 +195,15 @@ ViewState buildViewState(const Options& options,
                          const std::vector<LoadedVolume>& volumes,
                          std::vector<VolumeDisplay> displays)
 {
-    std::vector<glm::ivec3> dimensions;
-    dimensions.reserve(volumes.size());
+    std::vector<VolumeGeometry> geometries;
+    geometries.reserve(volumes.size());
     for (const auto& loaded : volumes)
-        dimensions.push_back(loaded.volume.dimensions);
+    {
+        const Volume& vol = loaded.volume;
+        geometries.push_back(VolumeGeometry{vol.dimensions, vol.voxelToWorld, vol.worldToVoxel});
+    }
 
-    return ViewState(std::move(dimensions),
+    return ViewState(std::move(geometries),
                      options.views,
                      options.axis,
                      resolveStartCursor(options, volumes.front().volume),

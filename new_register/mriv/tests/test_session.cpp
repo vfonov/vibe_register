@@ -35,7 +35,7 @@ ViewState makeViewState(const glm::ivec3& dims, char axis, int slice,
     VolumeDisplay display;
     display.rangeLow  = low;
     display.rangeHigh = high;
-    return ViewState({dims}, {0, 1, 2}, axis, cursor, {display});
+    return ViewState({VolumeGeometry{dims}}, {0, 1, 2}, axis, cursor, {display});
 }
 
 const glm::ivec3 kDims{64, 229, 96};

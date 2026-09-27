@@ -35,7 +35,7 @@ ViewState makeViewState(const glm::ivec3& dims, char axis, int slice,
     VolumeDisplay display;
     display.rangeLow  = low;
     display.rangeHigh = high;
-    return ViewState({dims}, {0, 1, 2}, axis, cursor, {display});
+    return ViewState({VolumeGeometry{dims}}, {0, 1, 2}, axis, cursor, {display});
 }
 
 bool contains(const std::string& haystack, const std::string& needle)
@@ -164,7 +164,7 @@ ViewState makeTwoVolumeState()
     second.rangeLow  = 0.0;
     second.rangeHigh = 400.0;
 
-    return ViewState({kDims, glm::ivec3(64, 229, 48)}, {0, 1, 2}, 'z',
+    return ViewState({VolumeGeometry{kDims}, VolumeGeometry{glm::ivec3(64, 229, 48)}}, {0, 1, 2}, 'z',
                      glm::ivec3(32, 114, 48), {first, second});
 }
 
