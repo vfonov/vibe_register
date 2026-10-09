@@ -16,7 +16,7 @@ The parent application is a full-featured ImGui-based viewer for local, interact
 
 ### Primary use cases
 
-1. Quickly inspect a MINC2 (`.mnc`) or NIfTI (`.nii`, `.nii.gz`) file on a remote HPC node over SSH.
+1. Quickly inspect a MINC2 (`.mnc`) or NIfTI (`.nii`, `.nii.gz`, or a `.hdr` + `.img` pair) file on a remote HPC node over SSH.
 2. Pipe or script slice extraction (e.g., dump the middle axial slice of every file in a directory to check a preprocessing pipeline).
 3. Eyeball a batch of outputs side by side, one column per file: `mriv out/*.mnc`.
 
@@ -46,7 +46,7 @@ The concrete API surface — this list replaces any need for a separate parent-A
 void Volume::load(const std::string& filename);   // throws std::runtime_error
 ```
 
-One entry point for every supported format. It dispatches on the filename: `isNiftiFile()` → `loadNiftiFile()` for `.nii` / `.nii.gz` (`include/NiftiVolume.h`), otherwise the MINC2 path via minc2-simple (`Volume::load()` in `src/Volume.cpp`). **`mriv` never sniffs formats, never opens a file itself, and never links a format library.**
+One entry point for every supported format. It dispatches on the filename: `isNiftiFile()` → `loadNiftiFile()` for `.nii` / `.nii.gz` and two-file `.hdr` / `.img` pairs (`include/NiftiVolume.h`), otherwise the MINC2 path via minc2-simple (`Volume::load()` in `src/Volume.cpp`). **`mriv` never sniffs formats, never opens a file itself, and never links a format library.**
 
 **Metadata — public members of `Volume`**
 
@@ -289,8 +289,9 @@ Single executable, scriptable first, interactive second:
 mriv [options] <file>...
 
 Positional:
-  file                    One or more MINC2 (.mnc) or NIfTI (.nii/.nii.gz)
-                          volumes, each opened via Volume::load().
+  file                    One or more MINC2 (.mnc) or NIfTI (.nii/.nii.gz,
+                          or a .hdr/.img pair) volumes, each opened via
+                          Volume::load().
 
 Slice selection:
   -v, --views <list>      Planes to show, stacked top to bottom: a comma-

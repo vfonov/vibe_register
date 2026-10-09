@@ -61,7 +61,14 @@ struct NiftiSpec
     double affine[3][4] = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}};
     float sclSlope = 0.0f;
     float sclInter = 0.0f;
+    std::array<float, 3> pixdim{1.0f, 1.0f, 1.0f};
+    bool analyze75 = false;  // write a plain ANALYZE 7.5 pair (no NIfTI magic, no affine)
 };
+
+bool endsWith(const std::string& s, const std::string& suffix)
+{
+    return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
 
 /// Write a NIfTI image whose voxel i (file order) holds values[i] cast to T.
 template <typename T>
@@ -86,9 +93,17 @@ void writeNifti(const std::string& path, const NiftiSpec& spec, const std::vecto
     nim->scl_slope = spec.sclSlope;
     nim->scl_inter = spec.sclInter;
 
-    const bool analyzePair = path.size() > 4 && path.compare(path.size() - 4, 4, ".hdr") == 0;
-    nim->nifti_type = analyzePair ? NIFTI_FTYPE_NIFTI1_2 : NIFTI_FTYPE_NIFTI1_1;
+    nim->dx = nim->pixdim[1] = spec.pixdim[0];
+    nim->dy = nim->pixdim[2] = spec.pixdim[1];
+    nim->dz = nim->pixdim[3] = spec.pixdim[2];
+
+    const bool gzipped = endsWith(path, ".gz");
+    const bool pair = endsWith(path, ".hdr") || endsWith(path, ".hdr.gz");
+    nim->nifti_type = spec.analyze75 ? NIFTI_FTYPE_ANALYZE
+                      : pair         ? NIFTI_FTYPE_NIFTI1_2
+                                     : NIFTI_FTYPE_NIFTI1_1;
     REQUIRE(nifti_set_filenames(nim, path.c_str(), 0, 1) == 0);
+    REQUIRE((nifti_is_gzfile(nim->iname) != 0) == gzipped);
     nifti_image_write(nim);
     nifti_image_free(nim);
 }
@@ -330,7 +345,11 @@ TEST_CASE("NIfTI file names are detected case-insensitively, including .hdr/.img
     CHECK(isNiftiFile("A.NII.GZ"));
     CHECK(isNiftiFile("a.hdr"));
     CHECK(isNiftiFile("a.img"));
+    CHECK(isNiftiFile("A.HDR"));
+    CHECK(isNiftiFile("a.hdr.gz"));
+    CHECK(isNiftiFile("a.img.gz"));
     CHECK_FALSE(isNiftiFile("a.mnc"));
+    CHECK_FALSE(isNiftiFile("a.mnc.gz"));
     CHECK_FALSE(isNiftiFile("nii"));
 }
 
@@ -345,4 +364,93 @@ TEST_CASE("NIfTI .hdr/.img pair loads", "[nifti][filename]")
     Volume vol;
     vol.load(path);
     CHECK(vol.get(2, 1, 0) == static_cast<float>(voxelValue(2, 1, 0)));
+}
+
+TEST_CASE("NIfTI pair loads the same through the .img name", "[nifti][pair]")
+{
+    TempDir tmp;
+    NiftiSpec spec;
+    spec.dims = {4, 5, 6, 1};
+    writeNifti<float>(tmp.file("pair.hdr"), spec, rampValues(spec.dims));
+
+    Volume viaHdr;
+    viaHdr.load(tmp.file("pair.hdr"));
+    Volume viaImg;
+    viaImg.load(tmp.file("pair.img"));
+    CHECK(viaImg.dimensions == viaHdr.dimensions);
+    CHECK(viaImg.data == viaHdr.data);
+}
+
+TEST_CASE("NIfTI pair with a permuted, flipped affine is reoriented like a .nii", "[nifti][pair]")
+{
+    TempDir tmp;
+    const std::string path = tmp.file("perm.hdr");
+    NiftiSpec spec;
+    spec.dims = {4, 5, 6, 1};
+    // File axes (i, j, k) run along world (-y, z, x) with spacings 1, 2, 3.
+    const double affine[3][4] = {{0, 0, 3, -10}, {-1, 0, 0, 20}, {0, 2, 0, 5}};
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 4; ++c)
+            spec.affine[r][c] = affine[r][c];
+    writeNifti<float>(path, spec, rampValues(spec.dims));
+
+    Volume vol;
+    vol.load(path);
+    CHECK(vol.dimensions == glm::ivec3(6, 4, 5));
+    requireGeometryMatchesAffine(vol, spec);
+}
+
+TEST_CASE("gzipped NIfTI pair loads through either name", "[nifti][pair]")
+{
+    TempDir tmp;
+    NiftiSpec spec;
+    writeNifti<float>(tmp.file("pair.hdr.gz"), spec, rampValues(spec.dims));
+    REQUIRE(fs::exists(tmp.file("pair.img.gz")));
+
+    const std::string name = GENERATE(std::string("pair.hdr.gz"), std::string("pair.img.gz"));
+    INFO(name);
+    Volume vol;
+    vol.load(tmp.file(name));
+    CHECK(vol.get(2, 1, 0) == static_cast<float>(voxelValue(2, 1, 0)));
+}
+
+TEST_CASE("NIfTI pair with a missing half names the missing file", "[nifti][pair]")
+{
+    TempDir tmp;
+    NiftiSpec spec;
+    writeNifti<float>(tmp.file("pair.hdr"), spec, rampValues(spec.dims));
+
+    SECTION("image missing")
+    {
+        fs::remove(tmp.file("pair.img"));
+        Volume vol;
+        REQUIRE_THROWS_WITH(vol.load(tmp.file("pair.hdr")),
+                            Catch::Matchers::ContainsSubstring("pair.img"));
+    }
+    SECTION("header missing")
+    {
+        fs::remove(tmp.file("pair.hdr"));
+        Volume vol;
+        REQUIRE_THROWS_WITH(vol.load(tmp.file("pair.img")),
+                            Catch::Matchers::ContainsSubstring("pair.hdr"));
+    }
+}
+
+TEST_CASE("plain ANALYZE 7.5 pair loads with voxel sizes and a zero origin", "[nifti][pair]")
+{
+    TempDir tmp;
+    const std::string path = tmp.file("old.hdr");
+    NiftiSpec spec;
+    spec.dims = {4, 5, 6, 1};
+    spec.pixdim = {1.5f, 2.0f, 2.5f};
+    spec.analyze75 = true;
+    writeNifti<float>(path, spec, rampValues(spec.dims));
+
+    Volume vol;
+    vol.load(path);
+    CHECK(vol.dimensions == glm::ivec3(4, 5, 6));
+    CHECK(vol.step == glm::dvec3(1.5, 2.0, 2.5));
+    CHECK(vol.start == glm::dvec3(0.0));
+    CHECK(vol.dirCos == glm::dmat3(1.0));
+    CHECK(vol.get(3, 2, 1) == static_cast<float>(voxelValue(3, 2, 1)));
 }

@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
@@ -39,18 +40,63 @@ void convertVoxels(const void* src, size_t count, std::vector<float>& dst)
         dst[i] = static_cast<float>(in[i]);
 }
 
+bool isPairHeaderName(const std::string& s)
+{
+    return endsWithNoCase(s, ".hdr") || endsWithNoCase(s, ".hdr.gz");
+}
+
+bool isPairImageName(const std::string& s)
+{
+    return endsWithNoCase(s, ".img") || endsWithNoCase(s, ".img.gz");
+}
+
+/// `filename` without its .hdr / .img (and optional .gz) extension.
+std::string pairBaseName(const std::string& filename)
+{
+    std::string base = filename;
+    if (endsWithNoCase(base, ".gz"))
+        base.erase(base.size() - 3);
+    base.erase(base.size() - 4);
+    return base;
+}
+
+/// A two-file image needs both halves. niftilib only reports a generic read
+/// failure when one is absent, so look for the partner first and name it.
+void requirePairPartner(const std::string& filename)
+{
+    using CString = std::unique_ptr<char, decltype(&std::free)>;
+    const bool headerGiven = isPairHeaderName(filename);
+    if (!headerGiven && !isPairImageName(filename))
+        return;
+
+    const std::string base = pairBaseName(filename);
+    if (!headerGiven)
+    {
+        CString header(nifti_findhdrname(filename.c_str()), &std::free);
+        if (!header)
+            throw std::runtime_error("NIfTI header file not found for image: " + filename +
+                                     " (expected " + base + ".hdr or .hdr.gz)");
+    }
+    CString image(nifti_findimgname(filename.c_str(), NIFTI_FTYPE_NIFTI1_2), &std::free);
+    if (!image)
+        throw std::runtime_error("NIfTI image file not found for header: " + filename +
+                                 " (expected " + base + ".img or .img.gz)");
+}
+
 } // namespace
 
 // Helper: determine if file is NIfTI (or an ANALYZE-style .hdr/.img pair) by extension
 bool isNiftiFile(const std::string& filename)
 {
     return endsWithNoCase(filename, ".nii.gz") || endsWithNoCase(filename, ".nii") ||
-           endsWithNoCase(filename, ".hdr") || endsWithNoCase(filename, ".img");
+           isPairHeaderName(filename) || isPairImageName(filename);
 }
 
 // Internal helper: load NIfTI data into Volume structure
 void loadNiftiIntoVolume(const std::string& filename, Volume& vol)
 {
+    requirePairPartner(filename);
+
     // Read NIfTI image with data; freed on every exit path.
     std::unique_ptr<nifti_image, decltype(&nifti_image_free)> nii(
         nifti_image_read(filename.c_str(), 1), &nifti_image_free);
@@ -100,6 +146,11 @@ void loadNiftiIntoVolume(const std::string& filename, Volume& vol)
     }
     else
     {
+        if (nii_ptr->nifti_type == NIFTI_FTYPE_ANALYZE)
+        {
+            std::cerr << "Warning: " << filename << " is an ANALYZE 7.5 image; its orientation "
+                      << "and origin are unknown, assuming voxel sizes with origin 0\n";
+        }
         // No valid transform — create identity matrix from pixdim
         for (int r = 0; r < 4; ++r)
             for (int c = 0; c < 4; ++c)

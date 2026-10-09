@@ -14,7 +14,7 @@ The same build also produces:
 
 ## Features
 
-- MINC2 (`.mnc`, via minc2-simple) and NIfTI (`.nii`, `.nii.gz`, via vendored niftilib) volume loading; any number of volumes side by side
+- MINC2 (`.mnc`, via minc2-simple) and NIfTI (`.nii`, `.nii.gz`, and two-file `.hdr` + `.img` pairs, via vendored niftilib) volume loading; any number of volumes side by side
 - Three orthogonal slice views per volume (axial, sagittal, coronal)
 - Crosshair navigation with optional cursor / zoom / pan sync across volumes
 - 18 colour maps (plus inversion), per-volume display range, zoom/pan per view
@@ -192,7 +192,7 @@ new_register [options] [volume1.mnc volume2.nii.gz ...]
 | `--sync-zoom` | | Synchronize zoom level across volumes |
 | `--sync-pan` | | Synchronize pan position across volumes |
 
-Positional arguments are volume file paths: `.mnc`, `.mnc.gz`, `.nii`, `.nii.gz`.
+Positional arguments are volume file paths: `.mnc`, `.mnc.gz`, `.nii`, `.nii.gz`, or either half of a two-file NIfTI / ANALYZE 7.5 pair (`.hdr` or `.img`, optionally `.gz`). A plain ANALYZE 7.5 header carries no orientation or origin, so it is shown with its voxel sizes and origin 0 (a warning is printed).
 4-D volumes (MINC or NIfTI) show only their first frame. MINC volumes with a vector
 dimension, such as RGB, are rejected.
 Colour-map, range and label flags apply to the next volume on the command line.

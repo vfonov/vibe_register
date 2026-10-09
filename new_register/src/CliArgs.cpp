@@ -18,7 +18,7 @@ void printUsage()
         "\n"
         "Medical imaging volume viewer (MINC and NIfTI formats).\n"
         "\n"
-        "Supported formats: .mnc, .mnc.gz, .nii, .nii.gz\n"
+        "Supported formats: .mnc, .mnc.gz, .nii, .nii.gz, .hdr/.img (NIfTI or ANALYZE pair)\n"
         "\n"
         "Volume display options (apply to the NEXT volume file):\n"
         "  -G, --gray           GrayScale colour map\n"

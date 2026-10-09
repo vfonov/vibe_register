@@ -275,6 +275,17 @@ if(VALGRIND_EXECUTABLE)
 endif()
 
 # ------------------------------------------------------------------
+# Two-file NIfTI (.hdr + .img) beside a .nii.gz — fixtures pair_t1.* and
+# pair_seg.nii.gz in this directory, written by generate_nifti_fixtures
+# ------------------------------------------------------------------
+add_nr_test(test_nifti_pair CATCH2
+    INCLUDES  ${INC_DIR}
+    LINKS     nr_core
+)
+add_test(NAME NiftiPairTest COMMAND test_nifti_pair
+    --src-dir ${CMAKE_CURRENT_SOURCE_DIR})
+
+# ------------------------------------------------------------------
 # NIfTI vs MINC coordinate matching test
 # ------------------------------------------------------------------
 add_nr_test(test_nifti_mnc_match
@@ -437,6 +448,15 @@ add_executable(generate_overlap_refs
 target_include_directories(generate_overlap_refs PRIVATE
     ${COMMON_INCLUDES} ${stb_SOURCE_DIR})
 target_link_libraries(generate_overlap_refs PRIVATE nr_core)
+
+# ------------------------------------------------------------------
+# NIfTI fixture generator for test_nifti_pair (run manually, not a ctest)
+# ------------------------------------------------------------------
+
+add_executable(generate_nifti_fixtures
+    ${CMAKE_CURRENT_SOURCE_DIR}/generate_nifti_fixtures.cpp)
+target_include_directories(generate_nifti_fixtures PRIVATE ${COMMON_INCLUDES})
+target_link_libraries(generate_nifti_fixtures PRIVATE nr_core)
 
 # ------------------------------------------------------------------
 # Visual regression test for new_register --test mode

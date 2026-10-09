@@ -6,7 +6,7 @@ Guidance for Claude Code working in this subproject. **Read `PLAN.md` for the de
 
 This directory is `new_register/mriv/`, a subproject of `new_register/` — a modern C++17 rewrite of the BIC `register` tool (Vulkan + ImGui + MINC2) — referred to below as the "parent project". The parent already has working, tested code for:
 
-- **Reading medical image volumes** — MINC2 (`.mnc`) via minc2-simple, and NIfTI (`.nii`, `.nii.gz`) via a vendored niftilib. One entry point: `Volume::load()`.
+- **Reading medical image volumes** — MINC2 (`.mnc`) via minc2-simple, and NIfTI (`.nii`, `.nii.gz`, two-file `.hdr` + `.img`) via a vendored niftilib. One entry point: `Volume::load()`.
 - **Extracting 2D slices** and rendering them to a **finished RGBA buffer** — `renderSlice()` in `include/SliceRenderer.h`.
 - **Intensity mapping** — a `valueMin`/`valueMax` range model, plus `Volume::computeQuantile()` for percentile-based defaults.
 - **Colour maps** — 18 of them, `enum class ColourMapType`.
