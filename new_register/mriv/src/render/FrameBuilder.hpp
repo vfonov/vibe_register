@@ -66,6 +66,13 @@ struct FrameRequest
 
     /// Integer pixel magnification, applied per pane after the fit.
     int scale = 1;
+
+    /// Adds one more column at the right: every pane's volume blended in
+    /// the first pane's grid (renderOverlayForDisplay()), each with its own
+    /// range and colour map. It follows the first pane's slice indices and
+    /// crosshairs. Needs at least two panes; with fewer it is ignored. A
+    /// pane without a volume leaves the overlay cells blank.
+    bool showOverlay = false;
 };
 
 /// Where the panes ended up in the finished frame: one entry per column

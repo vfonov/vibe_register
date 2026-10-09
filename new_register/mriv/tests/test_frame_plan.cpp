@@ -65,10 +65,30 @@ void testPlanFrameWiresCrosshairsWhenRequested()
     assert(request.panes[0].crosshairs[0].y == expected.v);
 }
 
+/// The overlay column is the state's decision: planFrame() only carries it
+/// into the request. Off unless 'o' turned it on, so the one-shot path --
+/// which never presses a key -- cannot grow a column.
+void testPlanFrameCarriesTheOverlaySwitch()
+{
+    glm::ivec3 dims(20, 20, 20);
+    ViewState state({VolumeGeometry{dims}, VolumeGeometry{dims}}, {0}, 'z',
+                    glm::ivec3(10, 10, 10), {VolumeDisplay{}, VolumeDisplay{}});
+    Volume a = makeVolume(20, 20, 20, 0.2f);
+    Volume b = makeVolume(20, 20, 20, 0.8f);
+
+    assert(!planFrame(state, {&a, &b}, 200, 200, 1).showOverlay);
+
+    state.handleKey('o');
+    auto request = planFrame(state, {&a, &b}, 200, 200, 1);
+    assert(request.showOverlay);
+    assert(request.panes.size() == 2); // the overlay is not a pane
+}
+
 } // namespace
 
 int main()
 {
+    testPlanFrameCarriesTheOverlaySwitch();
     testPlanFrameOmitsCrosshairsByDefault();
     testPlanFrameWiresCrosshairsWhenRequested();
     return 0;

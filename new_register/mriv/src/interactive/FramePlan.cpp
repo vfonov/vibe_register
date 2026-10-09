@@ -15,6 +15,7 @@ FrameRequest planFrame(const ViewState& state,
     request.boxWidth  = boxWidth;
     request.boxHeight = boxHeight;
     request.scale     = scale;
+    request.showOverlay = state.isOverlayVisible();
 
     request.panes.reserve(volumes.size());
     for (size_t i = 0; i < volumes.size(); ++i)

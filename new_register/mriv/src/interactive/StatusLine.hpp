@@ -15,9 +15,27 @@ namespace mriv::term
 /// the image is even on screen.
 std::vector<std::string> formatVolumeNameLines(const std::vector<std::string>& paths);
 
+/// The info block 'i' shows and hides, drawn above the status row in place
+/// of the plain names: one row per loaded volume, in column order, with the
+/// file name (no path) and the cursor in that volume's own voxels, then one
+/// row with the cursor's world position, which every volume shares. A
+/// volume the cursor has left -- navigation covers the union of them all --
+/// is marked "(outside)", since its column is showing background.
+///
+/// Names are padded to a common width so the voxel columns line up.
+std::vector<std::string> formatInfoLines(const ViewState& state,
+                                         const std::vector<std::string>& paths);
+
+/// The full-screen key list '?' opens: every binding ViewState::handleKey()
+/// acts on, one per line. formatHotkeyLine() is the one-row reminder; this
+/// is the complete reference, so a key added to handleKey() belongs here
+/// too. Keys that need more than one column are left out for a single
+/// volume, as they are in the legend.
+std::vector<std::string> formatHelpLines(const ViewState& state);
+
 /// The reserved row below the volume names: where the cursor is and how
 /// the active volume is mapped -- a plain summary while idle, or the
-/// range-edit prompt while one is open (the row is shared between the two
+/// range-edit or go-to-slice prompt while one is open (the row is shared
 /// because they never need to be on screen at once).
 ///
 /// The result never contains a newline -- it occupies exactly one terminal
@@ -30,8 +48,9 @@ std::string formatStatusLine(const ViewState& state, const std::vector<std::stri
 
 /// The reserved row below the status line: which keys do what.
 ///
-/// The key legend is not decoration. Interactive mode has no help panel, so
-/// this line is the only thing that makes the bindings discoverable. It is
+/// The key legend is not decoration: it is what makes the everyday bindings
+/// discoverable, and it is where '?' -- the full list, formatHelpLines() --
+/// is advertised. It is
 /// its own row (rather than appended to formatStatusLine(), as it used to
 /// be) so the legend stays visible even while the status row is showing the
 /// range-edit prompt instead of the summary. Never contains a newline, for

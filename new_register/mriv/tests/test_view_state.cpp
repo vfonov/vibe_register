@@ -614,6 +614,302 @@ void testConstructorClampsTheCursor()
     assert(state.sliceIndexFor(0, 2) == 0);
 }
 
+/// '?' opens the key list and any key closes it again -- including the ones
+/// that would otherwise navigate or quit, so a user reading the list cannot
+/// move the cursor or leave the application by accident.
+void testQuestionMarkOpensHelpAndAnyKeyClosesIt()
+{
+    ViewState state = makeState();
+    assert(!state.isHelpVisible());
+
+    assert(state.handleKey('?') == KeyResult::Changed);
+    assert(state.isHelpVisible());
+
+    int before = state.sliceIndex();
+    assert(state.handleKey('j') == KeyResult::Changed);
+    assert(!state.isHelpVisible());
+    assert(state.sliceIndex() == before);
+
+    state.handleKey('?');
+    assert(state.handleKey('q') == KeyResult::Changed);
+    assert(!state.isHelpVisible());
+
+    state.handleKey('?');
+    assert(state.handleKey('?') == KeyResult::Changed);
+    assert(!state.isHelpVisible());
+}
+
+/// A resize while the key list is up repaints it at the new size; it is not
+/// a keypress and must not close it.
+void testResizeKeepsHelpOpen()
+{
+    ViewState state = makeState();
+    state.handleKey('?');
+    assert(state.handleKey(kKeyResize) == KeyResult::Changed);
+    assert(state.isHelpVisible());
+}
+
+/// While the range prompt is open every key is text for it, '?' and 'i'
+/// included.
+void testHelpAndInfoKeysAreSwallowedByThePrompt()
+{
+    ViewState state = makeState();
+    state.handleKey('r');
+    state.handleKey('?');
+    state.handleKey('i');
+    assert(state.isEditing());
+    assert(!state.isHelpVisible());
+    assert(state.isInfoVisible());
+}
+
+/// The file list and cursor positions are on screen from the start, and 'i'
+/// hides and restores them.
+void testInfoKeyTogglesTheInfoBlock()
+{
+    ViewState state = makeState();
+    assert(state.isInfoVisible());
+    assert(state.handleKey('i') == KeyResult::Changed);
+    assert(!state.isInfoVisible());
+    assert(state.handleKey('i') == KeyResult::Changed);
+    assert(state.isInfoVisible());
+}
+
+/// The overlay column is off until asked for, and 'o' shows and hides it
+/// without touching the cursor or the active column.
+void testOverlayKeyTogglesTheOverlayColumn()
+{
+    ViewState state = makeTwoVolumeState();
+    state.handleKey('\t');
+    int slice = state.sliceIndex();
+
+    assert(!state.isOverlayVisible());
+    assert(state.handleKey('o') == KeyResult::Changed);
+    assert(state.isOverlayVisible());
+    assert(state.activeVolume() == 1);
+    assert(state.sliceIndex() == slice);
+    assert(state.handleKey('o') == KeyResult::Changed);
+    assert(!state.isOverlayVisible());
+}
+
+/// One volume has nothing to blend with: the key does nothing, and says so
+/// by not asking for a redraw.
+void testOverlayKeyNeedsTwoVolumes()
+{
+    ViewState state = makeState();
+    assert(state.handleKey('o') == KeyResult::Ignored);
+    assert(!state.isOverlayVisible());
+}
+
+/// Like every other key, 'o' belongs to an open prompt.
+void testOverlayKeyIsSwallowedByThePrompts()
+{
+    ViewState state = makeTwoVolumeState();
+    state.handleKey('r');
+    state.handleKey('o');
+    assert(state.isEditing());
+    assert(!state.isOverlayVisible());
+    state.handleKey('\x1b');
+
+    state.handleKey('g');
+    state.handleKey('o');
+    assert(state.isGoToOpen());
+    assert(!state.isOverlayVisible());
+}
+
+/// The cursor is reported per volume in that volume's own voxels, and once
+/// in world coordinates, which every volume shares.
+void testCursorVoxelAndWorldPositions()
+{
+    VolumeGeometry first = grid(glm::ivec3(10, 10, 10), glm::dvec3(2.0), glm::dvec3(-10.0));
+    VolumeGeometry second = grid(glm::ivec3(20, 20, 20), glm::dvec3(1.0), glm::dvec3(-10.0));
+    ViewState state({first, second}, {0, 1, 2}, 'z', glm::ivec3(3, 4, 5), displaysFor(2));
+
+    assert(state.cursorVoxel(0) == glm::ivec3(3, 4, 5));
+    assert(state.cursorVoxel(1) == glm::ivec3(6, 8, 10));
+
+    glm::dvec3 world = state.cursorWorld();
+    assert(world.x == -4.0 && world.y == -2.0 && world.z == 0.0);
+
+    assert(state.isCursorInside(0));
+    assert(state.isCursorInside(1));
+}
+
+/// Navigation covers the union of the volumes, so the cursor can be outside
+/// one of them; the info block says so instead of showing a bare index.
+void testCursorInsideReportsVolumesTheCursorHasLeft()
+{
+    VolumeGeometry first = grid(glm::ivec3(10, 10, 10));
+    VolumeGeometry second = grid(glm::ivec3(10, 10, 20));
+    ViewState state({first, second}, {0, 1, 2}, 'z', glm::ivec3(5, 5, 15), displaysFor(2));
+
+    assert(state.cursorVoxel(0).z == 15);
+    assert(!state.isCursorInside(0));
+    assert(state.isCursorInside(1));
+}
+
+/// 'h' opens the key list too: '?' needs Shift, and a terminal using the
+/// Kitty keyboard protocol can report that as '/' plus a modifier.
+void testHAlsoOpensHelp()
+{
+    ViewState state = makeState();
+    assert(state.handleKey('h') == KeyResult::Changed);
+    assert(state.isHelpVisible());
+}
+
+/// What Screen::readKey() does with a key reported as its unshifted
+/// codepoint plus a Shift modifier.
+void testShiftedKeyAppliesTheShiftModifier()
+{
+    assert(shiftedKey('/', true) == '?');
+    assert(shiftedKey('c', true) == 'C');
+    assert(shiftedKey('/', false) == '/');
+    assert(shiftedKey('c', false) == 'c');
+    // Already-shifted and unrelated keys pass through.
+    assert(shiftedKey('?', true) == '?');
+    assert(shiftedKey('C', true) == 'C');
+    assert(shiftedKey('1', true) == '1');
+}
+
+/// J and K move ten slices at a time, and stop at the ends rather than
+/// refusing a jump that would overshoot.
+void testShiftJAndKJumpTenSlices()
+{
+    ViewState state = makeState(); // 96 slices in z, cursor at 48
+    assert(state.handleKey('J') == KeyResult::Changed);
+    assert(state.sliceIndex() == 58);
+    assert(state.handleKey('K') == KeyResult::Changed);
+    assert(state.handleKey('K') == KeyResult::Changed);
+    assert(state.sliceIndex() == 38);
+
+    for (int i = 0; i < 5; ++i)
+        state.handleKey('K');
+    assert(state.sliceIndex() == 0);
+    assert(state.handleKey('K') == KeyResult::Ignored);
+
+    for (int i = 0; i < 9; ++i)
+        state.handleKey('J');
+    assert(state.sliceIndex() == 90);
+    assert(state.handleKey('J') == KeyResult::Changed);
+    assert(state.sliceIndex() == 95);
+    assert(state.handleKey('J') == KeyResult::Ignored);
+}
+
+/// 'm' puts the cursor in the middle of the volume on every axis at once,
+/// not just the active one.
+void testMCentresTheCursorOnEveryAxis()
+{
+    glm::ivec3 dims(64, 128, 96);
+    ViewState state({grid(dims)}, {0, 1, 2}, 'z', glm::ivec3(1, 2, 3), displaysFor(1));
+
+    assert(state.handleKey('m') == KeyResult::Changed);
+    assert(state.cursorVoxel(0) == glm::ivec3(32, 64, 48));
+    assert(state.handleKey('m') == KeyResult::Ignored);
+}
+
+/// With several volumes it is the active one that is centred, so the
+/// column being looked at is the one that ends up in the middle.
+void testMCentresTheActiveVolume()
+{
+    VolumeGeometry first = grid(glm::ivec3(10, 10, 10));
+    VolumeGeometry second = grid(glm::ivec3(10, 10, 10), glm::dvec3(1.0), glm::dvec3(0.0, 0.0, 20.0));
+    ViewState state({first, second}, {0, 1, 2}, 'z', glm::ivec3(0, 0, 0), displaysFor(2));
+
+    state.handleKey('\t');
+    assert(state.handleKey('m') == KeyResult::Changed);
+    assert(state.cursorVoxel(1) == glm::ivec3(5, 5, 5));
+    assert(state.cursorVoxel(0) == glm::ivec3(5, 5, 25));
+}
+
+void typeKeys(ViewState& state, const std::string& keys)
+{
+    for (char key : keys)
+        state.handleKey(key);
+}
+
+/// 'g' opens a prompt for a slice number on the active axis, 1-based like
+/// the n/N the status row shows.
+void testGoToSliceMovesTheActiveAxis()
+{
+    ViewState state = makeState();
+    assert(!state.isGoToOpen());
+    assert(state.handleKey('g') == KeyResult::Changed);
+    assert(state.isGoToOpen());
+
+    typeKeys(state, "12");
+    assert(state.goToText() == "12");
+    assert(state.handleKey('\r') == KeyResult::Changed);
+    assert(!state.isGoToOpen());
+    assert(state.sliceIndex() == 11);
+    // The other axes are untouched.
+    assert(state.cursorVoxel(0).x == 32 && state.cursorVoxel(0).y == 64);
+}
+
+/// The prompt owns the keyboard: digits are text, not column selection,
+/// letters are not navigation, and Esc closes it without quitting.
+void testGoToPromptSwallowsOtherKeys()
+{
+    ViewState state = makeTwoVolumeState();
+    int before = state.sliceIndex();
+    state.handleKey('g');
+    typeKeys(state, "2jq?");
+    assert(state.isGoToOpen());
+    assert(state.goToText() == "2");
+    assert(state.activeVolume() == 0);
+    assert(state.sliceIndex() == before);
+
+    state.handleKey('\b');
+    assert(state.goToText().empty());
+    state.handleKey('\b');
+    assert(state.isGoToOpen());
+
+    assert(state.handleKey('\x1b') == KeyResult::Changed);
+    assert(!state.isGoToOpen());
+    assert(state.sliceIndex() == before);
+}
+
+/// A number outside 1..N, or nothing at all, keeps the prompt open with a
+/// complaint instead of clamping to somewhere the user did not ask for.
+void testGoToRejectsOutOfRangeSlices()
+{
+    ViewState state = makeState();
+    int before = state.sliceIndex();
+
+    state.handleKey('g');
+    state.handleKey('\r');
+    assert(state.isGoToOpen() && state.goToHasError());
+
+    typeKeys(state, "97");
+    assert(!state.goToHasError());
+    state.handleKey('\r');
+    assert(state.isGoToOpen() && state.goToHasError());
+
+    state.handleKey('\b');
+    state.handleKey('\b');
+    typeKeys(state, "0\r");
+    assert(state.isGoToOpen() && state.goToHasError());
+    assert(state.sliceIndex() == before);
+
+    state.handleKey('\b');
+    typeKeys(state, "96\r");
+    assert(!state.isGoToOpen());
+    assert(state.sliceIndex() == 95);
+}
+
+/// Slice numbers count over everything navigation covers, so the last one
+/// is reachable even when it lies beyond the first volume.
+void testGoToCoversTheUnionOfTheVolumes()
+{
+    VolumeGeometry first = grid(glm::ivec3(10, 10, 10));
+    VolumeGeometry second = grid(glm::ivec3(10, 10, 20));
+    ViewState state({first, second}, {0, 1, 2}, 'z', glm::ivec3(5, 5, 5), displaysFor(2));
+
+    state.handleKey('g');
+    typeKeys(state, "20\r");
+    assert(!state.isGoToOpen());
+    assert(state.sliceIndex() == 19);
+    assert(state.sliceIndex() + 1 == state.sliceCount());
+}
+
 } // namespace
 
 int main()
@@ -659,5 +955,23 @@ int main()
     testArrowsDoNotEscapeTheRangePrompt();
     testResizeForcesARepaintWithoutChangingAnything();
     testResizeDuringThePromptRepaintsWithoutTouchingTheText();
+    testQuestionMarkOpensHelpAndAnyKeyClosesIt();
+    testResizeKeepsHelpOpen();
+    testHAlsoOpensHelp();
+    testShiftedKeyAppliesTheShiftModifier();
+    testShiftJAndKJumpTenSlices();
+    testMCentresTheCursorOnEveryAxis();
+    testMCentresTheActiveVolume();
+    testGoToSliceMovesTheActiveAxis();
+    testGoToPromptSwallowsOtherKeys();
+    testGoToRejectsOutOfRangeSlices();
+    testGoToCoversTheUnionOfTheVolumes();
+    testHelpAndInfoKeysAreSwallowedByThePrompt();
+    testInfoKeyTogglesTheInfoBlock();
+    testOverlayKeyTogglesTheOverlayColumn();
+    testOverlayKeyNeedsTwoVolumes();
+    testOverlayKeyIsSwallowedByThePrompts();
+    testCursorVoxelAndWorldPositions();
+    testCursorInsideReportsVolumesTheCursorHasLeft();
     return 0;
 }

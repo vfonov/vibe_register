@@ -4,6 +4,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 // Forward-declared only: this header must not force notcurses includes on
 // consumers (see mriv/CLAUDE.md, header hygiene).
@@ -88,6 +89,12 @@ public:
     /// plane is destroyed first so its bitmap is released rather than left
     /// stacked underneath.
     bool drawFrame(const FrameOverlay& overlay, const uint32_t* rgba, int w, int h);
+
+    /// Draw a screen of text and no image: one string per row from the
+    /// top-left corner. The previous frame's image plane is destroyed, as
+    /// in drawFrame(), so the text is not drawn underneath a bitmap. Rows
+    /// that do not fit the terminal are dropped.
+    bool drawText(const std::vector<std::string>& lines);
 
     /// Block until a key is pressed. Returns std::nullopt when input ends
     /// (EOF or a read error), which the session treats as a clean exit.

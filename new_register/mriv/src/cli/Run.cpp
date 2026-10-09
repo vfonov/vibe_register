@@ -288,10 +288,6 @@ int runInteractive(const Options& options, std::ostream& err)
         else
         {
             auto nameLines = formatVolumeNameLines(paths);
-            // One row per volume plus the status row and the hotkey row
-            // below them -- fixed for the whole session, so the image box
-            // does not shift underneath the header while navigating.
-            int headerRows = static_cast<int>(nameLines.size()) + 2;
 
             // Set by takeScreenshot() below, shown in place of the status
             // line's usual summary for exactly one draw() call, then
@@ -302,6 +298,21 @@ int runInteractive(const Options& options, std::ostream& err)
             std::string screenshotMessage;
 
             auto draw = [&](const ViewState& current) {
+                // The '?' key list takes the whole screen and needs no
+                // frame: nothing is rendered, and lastFrame stays what it
+                // was, so the picture comes back unchanged on the next key
+                // and is still what is left on the terminal after exit.
+                if (current.isHelpVisible())
+                    return screen.drawText(formatHelpLines(current));
+
+                // The info block ('i') above the status row and the hotkey
+                // row. Its height is part of what the image box is fitted
+                // around, so hiding it gives those rows to the picture.
+                std::vector<std::string> header;
+                if (current.isInfoVisible())
+                    header = formatInfoLines(current, paths);
+                int headerRows = static_cast<int>(header.size()) + 2;
+
                 // Queried fresh on every frame, not once before the loop:
                 // the terminal can be resized mid-session (kKeyResize,
                 // interactive/ViewState.hpp), and a box captured before the
@@ -322,7 +333,12 @@ int runInteractive(const Options& options, std::ostream& err)
                 if (frame.width <= 0 || frame.height <= 0)
                     return false;
 
-                auto header = nameLines;
+                // What is left on the terminal after exit: the info block
+                // if it was showing, otherwise at least the file names --
+                // with no interactive screen left, they are the only thing
+                // telling the columns apart.
+                auto exitHeader = current.isInfoVisible() ? header : nameLines;
+
                 if (screenshotMessage.empty())
                 {
                     header.push_back(formatStatusLine(current, paths));
@@ -342,7 +358,7 @@ int runInteractive(const Options& options, std::ostream& err)
                     return false;
 
                 lastFrame  = std::move(frame);
-                lastHeader = nameLines;
+                lastHeader = std::move(exitHeader);
                 lastHeader.push_back(formatSummaryLine(current, paths));
                 return true;
             };

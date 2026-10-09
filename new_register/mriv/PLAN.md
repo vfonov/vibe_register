@@ -387,17 +387,23 @@ several volumes become columns of one navigable grid, which is more use interact
 | Key | Effect |
 |-----|--------|
 | `j` / `k` | Move the cursor ±1 along the active axis — every column moves together |
+| `J` / `K` | Move ±10 slices, stopping at the ends |
+| `g` | Open the go-to prompt: type a slice number on the active axis (1-based, as in the status row's n/N), Enter applies, `Esc` cancels. A number outside 1..N keeps the prompt open with a complaint rather than clamping |
+| `m` | Centre the cursor in the active volume on all three axes |
 | `x` / `y` / `z` | Choose the axis `j`/`k` moves. Does **not** change which views are shown |
 | `↑` / `↓` | Step the active row through the displayed views, wrapping — an alternative to `x`/`y`/`z` for whatever `--views` put on screen |
 | `Tab`, `1`–`9`, `←` / `→` | Select the active column, wrapping |
+| `o` | Show / hide the overlay column: every volume blended in the first volume's grid. Off at start; needs two or more volumes |
 | `c` / `C` | Cycle the active column's colour map forward / back |
 | `r` | Open the range prompt for the active column |
 | `s` | Save the frame currently on screen as a PNG (`screenshotNNNNNN.png`, same naming as `new_register`'s `P`) |
+| `i` | Show / hide the info block: the loaded files and the cursor position in each. Shown at start |
+| `?`, `h` | Show every key on a full-screen list; any key returns to the picture |
 | `q`, `Esc` | Quit |
 | `Ctrl-L` | Redraw — also fires automatically on a terminal resize |
 | *in prompt* | printable → append, Backspace → delete, Enter → apply, `Esc` → cancel (arrows and letters are swallowed by the prompt, not acted on) |
 
-There is no `h`/`l` time navigation — see [Deferred work](#deferred-work--blocked-on-the-parent).
+There is no `h`/`l` time navigation (`h` is the key list instead) — see [Deferred work](#deferred-work--blocked-on-the-parent).
 
 A terminal resize is carried through the same key path as everything else: `Screen::readKey()`
 translates notcurses' `NCKEY_RESIZE` into the same control code as `Ctrl-L`, and `ViewState::handleKey()`
@@ -450,7 +456,32 @@ came from. `planFrame()` only fills `FramePane::crosshairs` when its `showCrossh
 true; the one-shot path leaves it at the default `false` so scripted, piped output stays exactly the
 clean image it always was, and only the interactive call site in `cli/Run.cpp` opts in.
 
-The loaded volumes' names are printed above the grid, one per line, followed by the status row and
+**Overlay column.** `o` adds one more column at the right of the grid in which every volume is
+blended, as `new_register`'s Overlay panel does; it is off at start and the key is ignored (and left
+out of the legend and the key list) with a single volume. The blend is the parent's
+`renderOverlaySlice()` (`SliceRenderer.h`), reached through `renderOverlayForDisplay()` in
+`render/SlicePipeline.hpp` — nothing is reimplemented here. Each volume keeps its own range and
+colour map, so `c` and `r` on a column change its share of the overlay too, and all volumes carry
+equal weight (there is no per-volume alpha key). It is drawn in the **first volume's grid**: same
+size and aspect as the first column, with that column's crosshair, and showing only what falls
+inside the first volume's in-plane extent. Along the slicing axis it is not blanked where the cursor
+has left the first volume — the other volumes are still drawn where they reach. The column is not a
+volume: `Tab`, `1`–`9`, the arrows and the `*` marker never land on it, and the info block names it
+with an `overlay  blend of N volumes` row while it is shown. `FrameRequest::showOverlay` carries the
+switch from `ViewState::isOverlayVisible()` through `planFrame()`; the one-shot path never sets it,
+so piped output is unchanged.
+
+The info block is printed above the grid (`formatInfoLines()`): one row per loaded volume with its
+file name and the cursor in that volume's own voxels — marked `(outside)` when the cursor has left
+its grid — then one row with the world position they share. `i` hides it and gives its rows to the
+image; the image box is refitted on every frame, so nothing else changes. `?` replaces the whole
+screen with the full key list (`formatHelpLines()`, drawn by `Screen::drawText()` with no bitmap);
+`h` is a second binding for it because `?` needs Shift, and under the Kitty keyboard protocol a
+shifted key can arrive as its unshifted codepoint plus a modifier; `Screen::readKey()` applies that
+modifier through `shiftedKey()` (`interactive/Keys.hpp`). The next key only closes the list, so the cursor cannot be moved, or the session quit, from a screen that
+does not show the picture. A new key belongs in `formatHelpLines()` as well as the table above.
+
+The info block is followed by the status row and
 then the hotkey row (`interactive/StatusLine.hpp`): `formatStatusLine()` gives the summary-or-prompt
 row, `formatHotkeyLine()` the key legend below it. They used to be one line (the legend appended to
 the summary), but that meant the legend vanished behind the range-edit prompt, since the two shared

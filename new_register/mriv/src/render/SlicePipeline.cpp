@@ -48,4 +48,29 @@ ResampledImage renderSliceForDisplay(const Volume& vol, const SliceRequest& requ
     return image;
 }
 
+ResampledImage renderOverlayForDisplay(const std::vector<const Volume*>& volumes,
+                                       const std::vector<VolumeRenderParams>& params,
+                                       const SliceRequest& request)
+{
+    // renderOverlaySlice() dereferences every entry and indexes params in
+    // step with them, so both are checked here rather than trusted.
+    if (volumes.size() < 2 || params.size() != volumes.size())
+        return ResampledImage{};
+    for (const Volume* vol : volumes)
+        if (!vol)
+            return ResampledImage{};
+
+    RenderedSlice slice =
+        renderOverlaySlice(volumes, params, request.viewIndex, request.sliceIndex);
+    if (slice.width <= 0 || slice.height <= 0)
+        return ResampledImage{};
+
+    // The blend is drawn in the first volume's grid, so that volume's voxel
+    // shape is the one to correct for.
+    auto axes     = aspectAxesForView(request.viewIndex);
+    double aspect = volumes.front()->slicePixelAspect(axes.u, axes.v);
+
+    return resampleToDisplay(slice, aspect, request.maxWidth, request.maxHeight, request.scale);
+}
+
 } // namespace mriv::term

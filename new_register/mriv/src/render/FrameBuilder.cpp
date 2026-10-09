@@ -53,8 +53,14 @@ ResampledImage buildFrame(const FrameRequest& request, FrameTracks* tracks)
     if (request.panes.empty() || request.views.empty())
         return ResampledImage{};
 
-    int cols = static_cast<int>(request.panes.size());
-    int rows = static_cast<int>(request.views.size());
+    int paneCount = static_cast<int>(request.panes.size());
+    int rows      = static_cast<int>(request.views.size());
+
+    // The overlay is one more column after the volumes' own. One volume has
+    // nothing to blend with, so the switch is ignored rather than adding a
+    // column that could only repeat the first.
+    const bool overlay = request.showOverlay && paneCount >= 2;
+    int cols = paneCount + (overlay ? 1 : 0);
 
     // The grid first divides the box into per-cell *budgets*. Each slice is
     // fitted into its budget, and the frame is then sized to what those
@@ -77,12 +83,36 @@ ResampledImage buildFrame(const FrameRequest& request, FrameTracks* tracks)
     std::vector<int> columnWidths(static_cast<size_t>(cols), 1);
     std::vector<int> rowHeights(static_cast<size_t>(rows), 1);
 
+    // What the overlay column blends: every pane's volume with that pane's
+    // own range and colour map. A pane that has no volume leaves the
+    // overlay blank rather than quietly blending fewer volumes than the
+    // columns beside it show.
+    std::vector<const Volume*> overlayVolumes;
+    std::vector<VolumeRenderParams> overlayParams;
+    if (overlay)
+    {
+        for (const FramePane& pane : request.panes)
+        {
+            VolumeRenderParams params;
+            params.valueMin        = pane.valueMin;
+            params.valueMax        = pane.valueMax;
+            params.colourMap       = pane.colourMap;
+            params.invertColourMap = pane.invertColourMap;
+            overlayVolumes.push_back(pane.volume);
+            overlayParams.push_back(params);
+        }
+    }
+
     for (int row = 0; row < rows; ++row)
     {
         for (int col = 0; col < cols; ++col)
         {
             size_t cell = static_cast<size_t>(row) * cols + col;
-            const FramePane& pane = request.panes[static_cast<size_t>(col)];
+
+            // The overlay column is drawn in the first pane's grid, so it
+            // takes that pane's slice, crosshair and dimensions.
+            const bool overlayCell = col >= paneCount;
+            const FramePane& pane = request.panes[overlayCell ? 0 : static_cast<size_t>(col)];
 
             if (pane.volume && static_cast<size_t>(row) < pane.sliceIndices.size())
             {
@@ -99,9 +129,12 @@ ResampledImage buildFrame(const FrameRequest& request, FrameTracks* tracks)
                 slice.maxHeight       = budget.h;
                 slice.scale           = request.scale;
 
-                images[cell] = renderSliceForDisplay(*pane.volume, slice);
+                images[cell] = overlayCell
+                                   ? renderOverlayForDisplay(overlayVolumes, overlayParams, slice)
+                                   : renderSliceForDisplay(*pane.volume, slice);
 
-                if (static_cast<size_t>(row) < pane.crosshairs.size())
+                if (images[cell].width > 0
+                    && static_cast<size_t>(row) < pane.crosshairs.size())
                 {
                     AspectAxes axes = aspectAxesForView(slice.viewIndex);
                     const glm::ivec2& voxel = pane.crosshairs[static_cast<size_t>(row)];

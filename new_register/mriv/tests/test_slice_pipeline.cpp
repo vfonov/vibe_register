@@ -177,10 +177,130 @@ void testIntensityRangeReachesTheRenderer()
     assert(brightRed > darkRed);
 }
 
+VolumeRenderParams greyParams()
+{
+    VolumeRenderParams params;
+    params.valueMin = 0.0;
+    params.valueMax = 1.0;
+    return params;
+}
+
+unsigned redOf(uint32_t pixel)
+{
+    return pixel & 0xFFu;
+}
+
+/// The overlay is drawn in the first volume's grid, so it is exactly the
+/// size that volume's own column has -- aspect correction included.
+void testOverlayHasTheFirstVolumesDisplaySize()
+{
+    Volume first = makeAnisotropicVolume();
+    Volume second = makeAnisotropicVolume();
+
+    SliceRequest request = makeRequest();
+    request.viewIndex = 2; // coronal: the anisotropic plane
+
+    auto alone   = renderSliceForDisplay(first, request);
+    auto overlay = renderOverlayForDisplay({&first, &second}, {greyParams(), greyParams()},
+                                           request);
+
+    assert(overlay.width > 0 && overlay.height > 0);
+    assert(overlay.width == alone.width);
+    assert(overlay.height == alone.height);
+}
+
+/// Two volumes are blended, not stacked: a dark and a bright one give a
+/// grey between the two.
+void testOverlayBlendsTheVolumes()
+{
+    Volume dark = makeAnisotropicVolume();
+    dark.data.assign(dark.data.size(), 0.1f);
+    Volume bright = makeAnisotropicVolume();
+    bright.data.assign(bright.data.size(), 0.9f);
+
+    SliceRequest request = makeRequest();
+    unsigned darkRed   = redOf(renderSliceForDisplay(dark, request).pixels.front());
+    unsigned brightRed = redOf(renderSliceForDisplay(bright, request).pixels.front());
+
+    auto overlay = renderOverlayForDisplay({&dark, &bright}, {greyParams(), greyParams()},
+                                           request);
+    assert(!overlay.pixels.empty());
+    unsigned blended = redOf(overlay.pixels.front());
+    assert(blended > darkRed && blended < brightRed);
+}
+
+/// Each volume keeps its own intensity range in the blend.
+void testOverlayUsesEachVolumesOwnParams()
+{
+    Volume first = makeAnisotropicVolume();  // every voxel is 0.5
+    Volume second = makeAnisotropicVolume();
+
+    VolumeRenderParams brightRange = greyParams();
+    brightRange.valueMin = -10.0;
+    brightRange.valueMax = 0.5;
+
+    SliceRequest request = makeRequest();
+    auto plain  = renderOverlayForDisplay({&first, &second}, {greyParams(), greyParams()},
+                                          request);
+    auto raised = renderOverlayForDisplay({&first, &second}, {greyParams(), brightRange},
+                                          request);
+    assert(!plain.pixels.empty() && !raised.pixels.empty());
+    assert(redOf(raised.pixels.front()) > redOf(plain.pixels.front()));
+}
+
+/// The cursor can leave the first volume while another still reaches it.
+/// Unlike a single column, the overlay must not go blank there: the other
+/// volume is still drawn where it lies.
+void testOverlayOutsideTheFirstVolumeStillShowsTheOthers()
+{
+    Volume first = makeAnisotropicVolume();
+    Volume second = makeAnisotropicVolume();
+    second.data.assign(second.data.size(), 0.9f);
+    // The second volume sits 15 voxels further along Z: it covers the
+    // first volume's slices 15..34.
+    second.voxelToWorld[3] = glm::dvec4(0.0, 0.0, 15.0, 1.0);
+    second.worldToVoxel = glm::inverse(second.voxelToWorld);
+
+    SliceRequest request = makeRequest();
+    request.sliceIndex = 25; // past the first volume's 20 slices
+
+    auto overlay = renderOverlayForDisplay({&first, &second}, {greyParams(), greyParams()},
+                                           request);
+    assert(overlay.width == 20 && overlay.height == 20);
+    assert(redOf(overlay.pixels.front()) > 200);
+
+    // Beyond both of them there is nothing to draw.
+    request.sliceIndex = 60;
+    auto nothing = renderOverlayForDisplay({&first, &second}, {greyParams(), greyParams()},
+                                           request);
+    assert(nothing.width == 20 && nothing.height == 20);
+    for (uint32_t pixel : nothing.pixels)
+        assert(pixel == 0xFF000000u);
+}
+
+/// Nothing to blend, or nothing to blend it with, is an empty image rather
+/// than a crash.
+void testOverlayNeedsTwoVolumes()
+{
+    Volume vol = makeAnisotropicVolume();
+    SliceRequest request = makeRequest();
+
+    assert(renderOverlayForDisplay({&vol}, {greyParams()}, request).pixels.empty());
+    assert(renderOverlayForDisplay({}, {}, request).pixels.empty());
+    assert(renderOverlayForDisplay({&vol, nullptr}, {greyParams(), greyParams()}, request)
+               .pixels.empty());
+    assert(renderOverlayForDisplay({&vol, &vol}, {greyParams()}, request).pixels.empty());
+}
+
 } // namespace
 
 int main()
 {
+    testOverlayHasTheFirstVolumesDisplaySize();
+    testOverlayBlendsTheVolumes();
+    testOverlayUsesEachVolumesOwnParams();
+    testOverlayOutsideTheFirstVolumeStillShowsTheOthers();
+    testOverlayNeedsTwoVolumes();
     testAxialSliceOfAnisotropicVolumeStaysSquare();
     testCoronalSliceIsAspectCorrected();
     testDisplayBoxCapsTheImage();

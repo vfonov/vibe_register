@@ -1,5 +1,6 @@
 #include "interactive/StatusLine.hpp"
 
+#include <algorithm>
 #include <iomanip>
 #include <sstream>
 
@@ -90,22 +91,111 @@ std::string formatStatusLine(const ViewState& state, const std::vector<std::stri
         return prompt.str();
     }
 
+    if (state.isGoToOpen())
+    {
+        std::ostringstream prompt;
+        prompt << "go to " << planeName(state.viewIndex()) << " slice [1-"
+               << state.sliceCount() << "]: " << state.goToText() << "_";
+        if (state.goToHasError())
+            prompt << "   (expected 1 to " << state.sliceCount() << ")";
+        return prompt.str();
+    }
+
     return formatSummaryLine(state, paths);
 }
 
 std::string formatHotkeyLine(const ViewState& state)
 {
     std::ostringstream out;
-    out << "j/k slice  x/y/z axis";
+    out << "j/k slice  g goto  x/y/z axis";
 
     // Keys that only mean something with more than one column. Offering Tab
     // when there is nothing to switch to is noise, not discoverability.
     if (state.volumeCount() > 1)
-        out << "  Tab volume";
+        out << "  Tab volume  o overlay";
 
-    out << "  c map  r range  s screenshot  q quit";
+    out << "  c map  r range  s screenshot  i info  ? help  q quit";
 
     return out.str();
+}
+
+std::vector<std::string> formatInfoLines(const ViewState& state,
+                                         const std::vector<std::string>& paths)
+{
+    size_t nameWidth = 0;
+    for (const auto& path : paths)
+        nameWidth = std::max(nameWidth, baseName(path).size());
+
+    std::vector<std::string> lines;
+    lines.reserve(paths.size() + 2);
+    for (size_t i = 0; i < paths.size(); ++i)
+    {
+        int volume = static_cast<int>(i);
+        glm::ivec3 voxel = state.cursorVoxel(volume);
+
+        std::ostringstream out;
+        out << std::left << std::setw(static_cast<int>(nameWidth)) << baseName(paths[i])
+            << "  voxel " << voxel.x << " " << voxel.y << " " << voxel.z;
+        if (!state.isCursorInside(volume))
+            out << "  (outside)";
+        lines.push_back(out.str());
+    }
+
+    // The overlay column has no file of its own to name it.
+    if (state.isOverlayVisible())
+    {
+        std::ostringstream overlay;
+        overlay << std::left << std::setw(static_cast<int>(nameWidth)) << "overlay"
+                << "  blend of " << state.volumeCount() << " volumes";
+        lines.push_back(overlay.str());
+    }
+
+    glm::dvec3 world = state.cursorWorld();
+    std::ostringstream out;
+    out << std::fixed << std::setprecision(2)
+        << "world " << world.x << " " << world.y << " " << world.z;
+    lines.push_back(out.str());
+
+    return lines;
+}
+
+std::vector<std::string> formatHelpLines(const ViewState& state)
+{
+    const bool columns = state.volumeCount() > 1;
+
+    std::vector<std::string> lines;
+    auto key = [&lines](const std::string& keys, const std::string& effect) {
+        std::ostringstream out;
+        out << "  " << std::left << std::setw(14) << keys << effect;
+        lines.push_back(out.str());
+    };
+
+    lines.push_back("mriv keys");
+    lines.push_back("");
+    key("j / k", "move the cursor one slice along the active axis");
+    key("J / K", "move ten slices");
+    key("g", "go to a slice number (Enter applies, Esc cancels)");
+    key("m", "centre the cursor in the active volume, on every axis");
+    key("x / y / z", "choose the axis j / k moves");
+    key("Up / Down", "step the active row through the displayed views");
+    if (columns)
+    {
+        key("Tab", "next column");
+        key("1-9", "select a column directly");
+        key("Left / Right", "previous / next column");
+        key("o", "show / hide the overlay column: all volumes blended");
+    }
+    key("c / C", "next / previous colour map for the active column");
+    key("r", "type a new intensity range (Enter applies, Esc cancels)");
+    key("s", "save the frame on screen as a PNG");
+    key("i", "show / hide the loaded files and cursor positions");
+    key("? / h", "this list");
+    key("Ctrl-L", "redraw");
+    key("q, Esc", "quit");
+    lines.push_back("");
+    lines.push_back("Press any key to return.");
+
+    return lines;
 }
 
 std::string formatCaption(const std::vector<std::string>& paths)

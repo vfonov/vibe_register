@@ -5,6 +5,12 @@
 namespace mriv::term
 {
 
+namespace
+{
+/// How far J and K move.
+constexpr int kSliceJump = 10;
+} // namespace
+
 ViewState::ViewState(std::vector<VolumeGeometry> geometries,
                      std::vector<int> views,
                      char axis,
@@ -138,6 +144,30 @@ const VolumeDisplay& ViewState::display(int volume) const
     return displays_[static_cast<size_t>(index)];
 }
 
+glm::ivec3 ViewState::cursorVoxel(int volume) const
+{
+    if (volume < 0 || volume >= volumeCount())
+        return glm::ivec3(0);
+    return cursorIn(volume);
+}
+
+bool ViewState::isCursorInside(int volume) const
+{
+    if (volume < 0 || volume >= volumeCount())
+        return false;
+
+    glm::ivec3 voxel = cursorIn(volume);
+    const glm::ivec3& dimensions = geometries_[static_cast<size_t>(volume)].dimensions;
+    return glm::all(glm::greaterThanEqual(voxel, glm::ivec3(0)))
+        && glm::all(glm::lessThan(voxel, dimensions));
+}
+
+glm::dvec3 ViewState::cursorWorld() const
+{
+    return glm::dvec3(geometries_.front().voxelToWorld
+                      * glm::dvec4(glm::dvec3(cursor_), 1.0));
+}
+
 KeyResult ViewState::moveSlice(int delta)
 {
     int axis = cursorAxis(viewIndex_);
@@ -147,6 +177,67 @@ KeyResult ViewState::moveSlice(int delta)
         return KeyResult::Ignored;
 
     position = wanted;
+    return KeyResult::Changed;
+}
+
+KeyResult ViewState::centreCursor()
+{
+    // The middle of the active volume, the same voxel a session starts on
+    // for the first one, carried into the cursor's index space (the first
+    // volume's) the way every other cross-volume position is.
+    const VolumeGeometry& active = geometries_[static_cast<size_t>(activeVolume_)];
+    glm::ivec3 centre = active.dimensions / 2;
+    if (activeVolume_ != 0)
+        centre = mapVoxelThroughWorld(centre, active, geometries_.front());
+    centre = glm::clamp(centre, lowBound_, highBound_);
+
+    if (centre == cursor_)
+        return KeyResult::Ignored;
+
+    cursor_ = centre;
+    return KeyResult::Changed;
+}
+
+KeyResult ViewState::handleGoToKey(char key)
+{
+    if (key == '\x1b')
+    {
+        goToOpen_ = false;
+    }
+    else if (key == '\r' || key == '\n')
+    {
+        // Short enough to be a slice number at all; anything longer is out
+        // of range whatever it says, and must not overflow the conversion.
+        int wanted = 0;
+        if (!goToText_.empty() && goToText_.size() <= 9)
+            wanted = std::stoi(goToText_);
+
+        if (wanted < 1 || wanted > sliceCount())
+        {
+            // Not clamped: landing somewhere other than the slice typed
+            // would be a wrong answer that looks like a right one.
+            goToError_ = true;
+        }
+        else
+        {
+            int axis = cursorAxis(viewIndex_);
+            cursor_[axis] = lowBound_[axis] + wanted - 1;
+            goToOpen_ = false;
+        }
+    }
+    else if (key == '\b' || key == '\x7f')
+    {
+        if (!goToText_.empty())
+            goToText_.pop_back();
+        goToError_ = false;
+    }
+    else if (key >= '0' && key <= '9')
+    {
+        goToText_.push_back(key);
+        goToError_ = false;
+    }
+
+    // As with the range prompt, every keystroke repaints the status row.
     return KeyResult::Changed;
 }
 
@@ -247,10 +338,30 @@ KeyResult ViewState::handleKey(char key)
     if (editing_)
         return handleEditKey(key);
 
+    if (goToOpen_)
+        return handleGoToKey(key);
+
+    // The key list covers the whole screen, so whatever is pressed next
+    // only puts the picture back: acting on it as well would move a cursor
+    // the user cannot see, or quit when they meant to dismiss.
+    if (helpVisible_)
+    {
+        helpVisible_ = false;
+        return KeyResult::Changed;
+    }
+
     switch (key)
     {
         case 'j': return moveSlice(1);
         case 'k': return moveSlice(-1);
+        case 'J': return moveSlice(kSliceJump);
+        case 'K': return moveSlice(-kSliceJump);
+        case 'g':
+            goToOpen_ = true;
+            goToError_ = false;
+            goToText_.clear();
+            return KeyResult::Changed;
+        case 'm': return centreCursor();
         case 'x':
         case 'y':
         case 'z': return selectAxis(key);
@@ -270,6 +381,22 @@ KeyResult ViewState::handleKey(char key)
         case 'C': return cycleColourMap(-1);
         case 'r': return beginRangeEdit();
         case 's': return KeyResult::Screenshot;
+        case 'o':
+            // Nothing to blend with a single volume.
+            if (volumeCount() < 2)
+                return KeyResult::Ignored;
+            overlayVisible_ = !overlayVisible_;
+            return KeyResult::Changed;
+        case 'i':
+            infoVisible_ = !infoVisible_;
+            return KeyResult::Changed;
+        // 'h' as well as '?': it needs no Shift, so it works whatever the
+        // terminal does with modifiers, and it is free here -- there is no
+        // time dimension for h/l to walk.
+        case 'h':
+        case '?':
+            helpVisible_ = true;
+            return KeyResult::Changed;
         // Esc quits, the same as 'q' -- it is the reflex for getting out of
         // a full-screen terminal application.
         case 'q':

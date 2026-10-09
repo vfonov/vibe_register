@@ -339,6 +339,131 @@ void testNoCrosshairMeansNoMark()
     assert(plain.pixels == stillPlain.pixels);
 }
 
+unsigned redOf(uint32_t pixel)
+{
+    return pixel & 0xFFu;
+}
+
+FrameRequest makeOverlayRequest(const Volume& first, const Volume& second)
+{
+    FrameRequest request;
+    request.panes       = {makePane(first, {10}), makePane(second, {10})};
+    request.views       = {0};
+    request.boxWidth    = 400;
+    request.boxHeight   = 100;
+    request.gap         = 0;
+    request.showOverlay = true;
+    return request;
+}
+
+/// The overlay is one more column at the right: the volumes keep their own
+/// columns and the tracks describe all three.
+void testOverlayAddsAColumnAtTheRight()
+{
+    Volume dark   = makeVolume(20, 20, 20, 0.1f);
+    Volume bright = makeVolume(20, 20, 20, 0.9f);
+    FrameRequest request = makeOverlayRequest(dark, bright);
+
+    FrameTracks tracks;
+    auto frame = buildFrame(request, &tracks);
+
+    assert(tracks.columnX.size() == 3);
+    assert(frame.width == 60 && frame.height == 20);
+
+    unsigned darkRed    = redOf(pixelAt(frame, 5, 5));
+    unsigned brightRed  = redOf(pixelAt(frame, 25, 5));
+    unsigned blendedRed = redOf(pixelAt(frame, 45, 5));
+    assert(darkRed < brightRed);
+    assert(blendedRed > darkRed && blendedRed < brightRed);
+
+    // Off, the same request is the plain two-column frame.
+    request.showOverlay = false;
+    auto plain = buildFrame(request, &tracks);
+    assert(tracks.columnX.size() == 2);
+    assert(plain.width == 40);
+}
+
+/// The overlay column takes its share of the box like any other, so the
+/// volumes' own columns shrink to make room rather than the frame
+/// overflowing the terminal.
+void testOverlayColumnIsFittedIntoTheBox()
+{
+    Volume a = makeVolume(100, 100, 20, 0.1f);
+    Volume b = makeVolume(100, 100, 20, 0.9f);
+    FrameRequest request = makeOverlayRequest(a, b);
+    request.boxWidth = 150;
+
+    FrameTracks tracks;
+    auto frame = buildFrame(request, &tracks);
+    assert(tracks.columnX.size() == 3);
+    assert(frame.width <= 150);
+    assert(tracks.columnWidths[2] == tracks.columnWidths[0]);
+}
+
+/// The overlay follows the first pane's cursor, so it carries that pane's
+/// crosshair.
+void testOverlayColumnCarriesTheCrosshair()
+{
+    Volume a = makeVolume(20, 20, 20, 0.5f);
+    Volume b = makeVolume(20, 20, 20, 0.5f);
+
+    FrameRequest request = makeOverlayRequest(a, b);
+    auto plain = buildFrame(request);
+
+    request.panes[0].crosshairs = {glm::ivec2(10, 10)};
+    auto marked = buildFrame(request);
+
+    bool overlayDiffers = false;
+    for (int y = 0; y < 20 && !overlayDiffers; ++y)
+        for (int x = 40; x < 60; ++x)
+            if (pixelAt(plain, x, y) != pixelAt(marked, x, y))
+            {
+                overlayDiffers = true;
+                break;
+            }
+    assert(overlayDiffers);
+
+    // The second pane was given no crosshair, and gets none.
+    for (int y = 0; y < 20; ++y)
+        for (int x = 20; x < 40; ++x)
+            assert(pixelAt(plain, x, y) == pixelAt(marked, x, y));
+}
+
+/// One volume has nothing to blend with, so the switch is ignored.
+void testOverlayWithOnePaneIsIgnored()
+{
+    Volume vol = makeVolume(20, 20, 20, 0.5f);
+    FrameRequest request;
+    request.panes     = {makePane(vol, {10})};
+    request.views     = {0};
+    request.boxWidth  = 200;
+    request.boxHeight = 100;
+
+    auto plain = buildFrame(request);
+    request.showOverlay = true;
+    FrameTracks tracks;
+    auto withSwitch = buildFrame(request, &tracks);
+
+    assert(tracks.columnX.size() == 1);
+    assert(withSwitch.pixels == plain.pixels);
+}
+
+/// A column that failed to load leaves the overlay cell blank; the rest of
+/// the frame is still drawn.
+void testOverlayWithAMissingVolumeIsBlank()
+{
+    Volume vol = makeVolume(20, 20, 20, 0.9f);
+    FrameRequest request = makeOverlayRequest(vol, vol);
+    request.panes[1].volume = nullptr;
+
+    FrameTracks tracks;
+    auto frame = buildFrame(request, &tracks);
+
+    assert(tracks.columnX.size() == 3);
+    assert(drawnPixelsInBand(frame, 0, 0, 20, 20) > 0);
+    assert(drawnPixelsInBand(frame, tracks.columnX[2], 0, frame.width, frame.height) == 0);
+}
+
 void testDegenerateRequestsYieldAnEmptyFrame()
 {
     Volume vol = makeVolume(20, 20, 20, 1.0f);
@@ -375,6 +500,13 @@ int main()
     testMissingPaneDataLeavesTheCellBlank();
     testTracksReportWhereThePanesLanded();
     testDegenerateRequestLeavesNoTracks();
+    testCrosshairIsDrawnIntoItsPane();
+    testNoCrosshairMeansNoMark();
+    testOverlayAddsAColumnAtTheRight();
+    testOverlayColumnIsFittedIntoTheBox();
+    testOverlayColumnCarriesTheCrosshair();
+    testOverlayWithOnePaneIsIgnored();
+    testOverlayWithAMissingVolumeIsBlank();
     testDegenerateRequestsYieldAnEmptyFrame();
     return 0;
 }

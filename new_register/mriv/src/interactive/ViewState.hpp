@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -56,12 +57,15 @@ public:
               const glm::ivec3& cursor,
               std::vector<VolumeDisplay> displays);
 
-    /// Apply one keypress: j/k slice, x/y/z or up/down axis, Tab, 1-9 and
-    /// left/right active volume, c/C colour map, r range prompt, s
-    /// screenshot, q or Esc quit. There is no
-    /// h/l -- the parent has no time dimension (PLAN.md, deferred work).
+    /// Apply one keypress: j/k slice, J/K ten slices, g go-to prompt, m
+    /// centre the cursor, x/y/z or up/down axis, Tab, 1-9 and
+    /// left/right active volume, o overlay column, c/C colour map, r range
+    /// prompt, s screenshot, i info block, ? or h key list, q or Esc quit.
+    /// There is no
+    /// h/l time navigation -- the parent has no time dimension (PLAN.md,
+    /// deferred work) -- which is what leaves h free for the key list.
     ///
-    /// While the range prompt is open every key belongs to it, including
+    /// While the range or go-to prompt is open every key belongs to it, including
     /// the navigation letters: typing a number must not also move a slice,
     /// and Esc must close the prompt rather than leave the application.
     KeyResult handleKey(char key);
@@ -114,6 +118,44 @@ public:
 
     const VolumeDisplay& display(int volume) const;
 
+    /// True while the go-to prompt ('g') is open: a slice number is being
+    /// typed for the active axis, 1-based over sliceCount() like the n/N
+    /// on the status row. Like the range prompt, it owns every key until
+    /// Enter or Esc.
+    bool isGoToOpen() const { return goToOpen_; }
+    const std::string& goToText() const { return goToText_; }
+
+    /// True when Enter was pressed on something that is not a slice number
+    /// from 1 to sliceCount(). Cleared by any edit.
+    bool goToHasError() const { return goToError_; }
+
+    /// True while the key list opened by '?' is up. It replaces the whole
+    /// screen, and the next key -- any key -- only closes it.
+    bool isHelpVisible() const { return helpVisible_; }
+
+    /// True while the info block -- the loaded files and where the cursor
+    /// is in each -- is shown above the status row. On from the start;
+    /// 'i' hides it, which gives its rows back to the image.
+    bool isInfoVisible() const { return infoVisible_; }
+
+    /// True while the overlay column is shown: one more column at the right
+    /// of the grid with every volume blended in the first volume's grid, as
+    /// new_register's Overlay panel does. Off at start; 'o' toggles it, and
+    /// only when there are at least two volumes to blend.
+    bool isOverlayVisible() const { return overlayVisible_; }
+
+    /// The shared cursor in `volume`'s own voxels. Not clamped: outside the
+    /// volume (see isCursorInside()) it is the index the cursor would have
+    /// if the grid went on.
+    glm::ivec3 cursorVoxel(int volume) const;
+
+    /// False when the cursor has left `volume`'s grid, which navigation
+    /// over the union of the volumes allows; its column shows background.
+    bool isCursorInside(int volume) const;
+
+    /// The cursor in world coordinates, the one position all volumes share.
+    glm::dvec3 cursorWorld() const;
+
 private:
     /// The cursor component a view's slice index lives in: viewIndex 1
     /// (sagittal) is X, 2 (coronal) is Y, anything else Z.
@@ -135,6 +177,8 @@ private:
     KeyResult selectViewRow(int delta);
     KeyResult selectVolume(int volume);
     KeyResult cycleColourMap(int delta);
+    KeyResult centreCursor();
+    KeyResult handleGoToKey(char key);
     KeyResult beginRangeEdit();
     KeyResult handleEditKey(char key);
 
@@ -152,6 +196,12 @@ private:
     int activeVolume_ = 0;
     RangeEditor editor_;
     bool editing_ = false;
+    bool goToOpen_ = false;
+    bool goToError_ = false;
+    std::string goToText_;
+    bool helpVisible_ = false;
+    bool infoVisible_ = true;
+    bool overlayVisible_ = false;
 };
 
 } // namespace mriv::term

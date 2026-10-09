@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "render/Resample.hpp"
 
 #include "ColourMap.h"
@@ -56,5 +58,22 @@ inline ResampledImage resampleToDisplay(
 /// opaque-black image of the size an in-range slice would have -- a column
 /// whose volume does not reach the shared cursor.
 ResampledImage renderSliceForDisplay(const Volume& vol, const SliceRequest& request);
+
+/// Blend several volumes into one image ready for the terminal: the
+/// parent's renderOverlaySlice(), which resamples every volume into the
+/// first one's grid, followed by the same aspect-correct resample
+/// renderSliceForDisplay() does. `params` is parallel to `volumes` and
+/// carries each one's range and colour map; of `request` only the view, the
+/// slice index (in the first volume), the display box and the scale are
+/// used.
+///
+/// The image has the size the first volume's slice would have. A slice
+/// index outside the first volume is not blanked: the other volumes are
+/// still drawn wherever they reach, which is what navigation over the
+/// union of the volumes needs. Returns an empty image for fewer than two
+/// volumes, a null entry, or mismatched `params`.
+ResampledImage renderOverlayForDisplay(const std::vector<const Volume*>& volumes,
+                                       const std::vector<VolumeRenderParams>& params,
+                                       const SliceRequest& request);
 
 } // namespace mriv::term

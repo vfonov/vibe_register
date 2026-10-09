@@ -243,6 +243,39 @@ bool Screen::drawFrame(const FrameOverlay& overlay, const uint32_t* rgba, int w,
     return true;
 }
 
+bool Screen::drawText(const std::vector<std::string>& lines)
+{
+    if (!nc_)
+    {
+        std::cerr << programName_ << ": drawText() called before a successful init()\n";
+        return false;
+    }
+
+    if (imagePlane_)
+    {
+        ncplane_destroy(imagePlane_);
+        imagePlane_ = nullptr;
+    }
+
+    ncplane* stdplane = notcurses_stdplane(nc_);
+    ncplane_erase(stdplane);
+    for (size_t row = 0; row < lines.size(); ++row)
+    {
+        if (lines[row].empty())
+            continue;
+        if (ncplane_putstr_yx(stdplane, static_cast<int>(row), 0, lines[row].c_str()) < 0)
+            debugLog("ncplane_putstr_yx failed for \"" + lines[row] + "\" (off-plane?)");
+    }
+
+    if (notcurses_render(nc_) < 0)
+    {
+        std::cerr << programName_ << ": failed to render the frame\n";
+        return false;
+    }
+
+    return true;
+}
+
 std::optional<char> Screen::readKey()
 {
     if (!nc_)
@@ -317,7 +350,9 @@ std::optional<char> Screen::readKey()
         if (id > 0x7f)
             continue;
 
-        return static_cast<char>(id);
+        // Shift can arrive as a modifier on the unshifted key rather than
+        // in the codepoint (Kitty keyboard protocol); see shiftedKey().
+        return shiftedKey(static_cast<char>(id), ncinput_shift_p(&input));
     }
 }
 

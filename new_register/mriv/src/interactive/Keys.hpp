@@ -60,4 +60,22 @@ constexpr char kKeyEnd      = '\x05';
 constexpr char kKeyPageUp   = '\x15';
 constexpr char kKeyPageDown = '\x04';
 
+/// Apply a Shift modifier that the terminal reported separately from the
+/// key. Under the Kitty keyboard protocol a shifted key can arrive as its
+/// unshifted codepoint plus a modifier -- Shift-/ as '/' rather than '?' --
+/// and the key maps here are written in terms of the character the user
+/// meant. Only the keys that are bound are translated: the letters, and
+/// '/' for '?'. Other punctuation depends on the keyboard layout, which is
+/// not known here, so it passes through.
+inline char shiftedKey(char key, bool shift)
+{
+    if (!shift)
+        return key;
+    if (key == '/')
+        return '?';
+    if (key >= 'a' && key <= 'z')
+        return static_cast<char>(key - 'a' + 'A');
+    return key;
+}
+
 } // namespace mriv::term

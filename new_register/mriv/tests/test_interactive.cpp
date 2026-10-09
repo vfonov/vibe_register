@@ -3,8 +3,9 @@
 /// the status line says.
 ///
 /// Both matter more than they look. The entry decision changes what plain
-/// `mriv file.mnc` does on a TTY, and the status line is the only thing
-/// telling a user which keys exist -- there is no help panel in this mode.
+/// `mriv file.mnc` does on a TTY, and the status and legend rows
+/// are what tell a user where they are and which keys exist, including
+/// '?' for the full list.
 
 #include <cassert>
 #include <string>
@@ -214,8 +215,8 @@ void testStatusLineSliceNumberIsOneBased()
     assert(contains(formatStatusLine(last, {"v.mnc"}), "96/96"));
 }
 
-/// The key legend has its own row: this mode has no help panel, so if it
-/// goes missing the keys become undiscoverable.
+/// The key legend has its own row: it is the only reminder of the keys
+/// on screen with the picture, '?' included.
 void testHotkeyLineListsTheKeys()
 {
     ViewState state = makeViewState(kDims, 'z', 0, 0.0, 1.0);
@@ -248,6 +249,161 @@ void testHotkeyLineIsASingleLine()
     std::string line = formatHotkeyLine(state);
     assert(line.find('\n') == std::string::npos);
     assert(line.find('\r') == std::string::npos);
+}
+
+/// The legend row only has room for the everyday keys, so it has to say how
+/// to reach the full list, and how to hide the info block above it.
+void testHotkeyLineAdvertisesHelpAndInfo()
+{
+    ViewState state = makeViewState(kDims, 'z', 0, 0.0, 1.0);
+    std::string line = formatHotkeyLine(state);
+    assert(contains(line, "? help"));
+    assert(contains(line, "i info"));
+}
+
+/// The info block: one row per loaded file with the cursor in that file's
+/// own voxels, then the world position they all share.
+void testInfoLinesListFilesAndCursorPositions()
+{
+    ViewState state = makeTwoVolumeState();
+    auto lines = formatInfoLines(state, {"/data/a.mnc", "/data/longer_b.mnc"});
+
+    assert(lines.size() == 3);
+    assert(contains(lines[0], "a.mnc"));
+    assert(!contains(lines[0], "/data"));
+    assert(contains(lines[0], "voxel 32 114 48"));
+    assert(contains(lines[1], "longer_b.mnc"));
+    assert(contains(lines[1], "voxel 32 114 48"));
+    assert(contains(lines[2], "world 32.00 114.00 48.00"));
+
+    // Names are padded to one width so the voxel columns line up.
+    assert(lines[0].find("voxel") == lines[1].find("voxel"));
+
+    for (const auto& line : lines)
+        assert(line.find('\n') == std::string::npos);
+}
+
+/// z = 48 is past the end of the 48-slice second volume: its column shows
+/// background there, and the info row says why.
+void testInfoLinesMarkAVolumeTheCursorIsOutside()
+{
+    ViewState state = makeTwoVolumeState();
+    auto lines = formatInfoLines(state, {"a.mnc", "b.mnc"});
+    assert(!contains(lines[0], "outside"));
+    assert(contains(lines[1], "outside"));
+}
+
+/// The info block follows the cursor.
+void testInfoLinesFollowTheCursor()
+{
+    ViewState state = makeViewState(kDims, 'z', 10, 0.0, 1.0);
+    state.handleKey('j');
+    auto lines = formatInfoLines(state, {"v.mnc"});
+    assert(lines.size() == 2);
+    assert(contains(lines[0], "voxel 32 114 11"));
+}
+
+/// The '?' screen has to cover every binding handleKey() acts on -- it is
+/// the only complete list the user gets.
+void testHelpLinesListEveryKey()
+{
+    ViewState state = makeTwoVolumeState();
+    auto lines = formatHelpLines(state);
+
+    std::string all;
+    for (const auto& line : lines)
+    {
+        assert(line.find('\n') == std::string::npos);
+        all += line + "\n";
+    }
+
+    for (const char* key : {"j / k", "x / y / z", "Up / Down", "Tab", "1-9", "Left / Right",
+                            "c / C", "r", "s", "i", "? / h", "q, Esc", "Ctrl-L"})
+        assert(contains(all, key));
+    assert(contains(all, "any key"));
+}
+
+/// With one volume there are no columns to switch between, so the column
+/// keys are left out, the same rule the legend row follows.
+void testHelpLinesOmitColumnKeysForOneVolume()
+{
+    ViewState one = makeViewState(kDims, 'z', 0, 0.0, 1.0);
+    std::string all;
+    for (const auto& line : formatHelpLines(one))
+        all += line + "\n";
+    assert(!contains(all, "Tab"));
+    assert(contains(all, "j / k"));
+}
+
+/// The overlay key is a column key: offered when there are volumes to
+/// blend, left out when there is only one.
+void testOverlayKeyIsListedOnlyWhenThereAreColumns()
+{
+    auto helpText = [](const ViewState& state) {
+        std::string all;
+        for (const auto& line : formatHelpLines(state))
+            all += line + "\n";
+        return all;
+    };
+
+    ViewState two = makeTwoVolumeState();
+    assert(contains(formatHotkeyLine(two), "o overlay"));
+    assert(contains(helpText(two), "overlay column"));
+
+    ViewState one = makeViewState(kDims, 'z', 0, 0.0, 1.0);
+    assert(!contains(formatHotkeyLine(one), "overlay"));
+    assert(!contains(helpText(one), "overlay"));
+}
+
+/// The overlay column has no file to name it, so while it is shown the
+/// info block says what the last column is.
+void testInfoLinesExplainTheOverlayColumn()
+{
+    ViewState state = makeTwoVolumeState();
+    auto before = formatInfoLines(state, {"a.mnc", "b.mnc"});
+    assert(before.size() == 3);
+    for (const auto& line : before)
+        assert(!contains(line, "overlay"));
+
+    state.handleKey('o');
+    auto lines = formatInfoLines(state, {"a.mnc", "b.mnc"});
+    assert(lines.size() == 4);
+    assert(contains(lines[2], "overlay"));
+    assert(contains(lines[2], "blend of 2 volumes"));
+    assert(contains(lines[3], "world"));
+}
+
+/// While the go-to prompt is open the status row shows it, with the plane
+/// and the valid range, so the user knows what the number means.
+void testStatusLineShowsTheGoToPrompt()
+{
+    ViewState state = makeViewState(kDims, 'z', 10, 0.0, 1.0);
+    state.handleKey('g');
+    state.handleKey('4');
+    state.handleKey('2');
+
+    std::string line = formatStatusLine(state, {"v.mnc"});
+    assert(contains(line, "go to axial slice"));
+    assert(contains(line, "1-96"));
+    assert(contains(line, "42_"));
+    assert(!contains(line, "range"));
+    assert(!contains(line, "expected"));
+
+    state.handleKey('0');
+    state.handleKey('\r');
+    assert(contains(formatStatusLine(state, {"v.mnc"}), "expected 1 to 96"));
+}
+
+void testHelpAndLegendCoverTheNewNavigationKeys()
+{
+    ViewState state = makeViewState(kDims, 'z', 0, 0.0, 1.0);
+    std::string all;
+    for (const auto& line : formatHelpLines(state))
+        all += line + "\n";
+    assert(contains(all, "J / K"));
+    assert(contains(all, "  g "));
+    assert(contains(all, "  m "));
+    assert(contains(formatHotkeyLine(state), "g goto"));
 }
 
 /// The range and colour map shown are the active volume's: they are what
@@ -399,6 +555,16 @@ int main()
     testHotkeyLineListsTheKeys();
     testHotkeyLineListsColumnKeysOnlyWhenThereAreColumns();
     testHotkeyLineIsASingleLine();
+    testHotkeyLineAdvertisesHelpAndInfo();
+    testInfoLinesListFilesAndCursorPositions();
+    testInfoLinesMarkAVolumeTheCursorIsOutside();
+    testInfoLinesFollowTheCursor();
+    testHelpLinesListEveryKey();
+    testHelpLinesOmitColumnKeysForOneVolume();
+    testOverlayKeyIsListedOnlyWhenThereAreColumns();
+    testInfoLinesExplainTheOverlayColumn();
+    testStatusLineShowsTheGoToPrompt();
+    testHelpAndLegendCoverTheNewNavigationKeys();
     testStatusLineShowsTheActiveVolumesDisplay();
     testVolumeNameLinesShowBaseNamesOnly();
     testVolumeNameLinesNameEachColumnInOrderWithNoMarker();
