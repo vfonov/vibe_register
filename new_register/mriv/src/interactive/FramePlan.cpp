@@ -16,6 +16,7 @@ FrameRequest planFrame(const ViewState& state,
     request.boxHeight = boxHeight;
     request.scale     = scale;
     request.showOverlay = state.isOverlayVisible();
+    request.zoom      = state.zoom();
 
     request.panes.reserve(volumes.size());
     for (size_t i = 0; i < volumes.size(); ++i)
@@ -36,15 +37,17 @@ FrameRequest planFrame(const ViewState& state,
         for (int viewIndex : state.views())
             pane.sliceIndices.push_back(state.sliceIndexFor(volume, viewIndex));
 
-        if (showCrosshair)
+        // Where the cursor is in each view: what a zoomed pane is centred
+        // on, and -- only when asked -- where the crosshair is drawn.
+        pane.focus.reserve(state.views().size());
+        for (int viewIndex : state.views())
         {
-            pane.crosshairs.reserve(state.views().size());
-            for (int viewIndex : state.views())
-            {
-                auto voxel = state.crosshairFor(volume, viewIndex);
-                pane.crosshairs.push_back(glm::ivec2(voxel.u, voxel.v));
-            }
+            auto voxel = state.crosshairFor(volume, viewIndex);
+            pane.focus.push_back(glm::ivec2(voxel.u, voxel.v));
         }
+
+        if (showCrosshair)
+            pane.crosshairs = pane.focus;
 
         request.panes.push_back(std::move(pane));
     }

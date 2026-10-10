@@ -71,6 +71,10 @@ std::string formatSummaryLine(const ViewState& state, const std::vector<std::str
         << " to " << formatValue(display.rangeHigh)
         << "  " << colourMapName(display.colourMap);
 
+    // Only while zoomed: at 1 the row is what it always was.
+    if (state.zoom() != 1.0)
+        out << "  zoom " << formatValue(state.zoom()) << "x";
+
     return out.str();
 }
 
@@ -107,7 +111,7 @@ std::string formatStatusLine(const ViewState& state, const std::vector<std::stri
 std::string formatHotkeyLine(const ViewState& state)
 {
     std::ostringstream out;
-    out << "j/k slice  g goto  x/y/z axis";
+    out << "j/k slice  g goto  x/y/z axis  +/- zoom";
 
     // Keys that only mean something with more than one column. Offering Tab
     // when there is nothing to switch to is noise, not discoverability.
@@ -178,6 +182,8 @@ std::vector<std::string> formatHelpLines(const ViewState& state)
     key("m", "centre the cursor in the active volume, on every axis");
     key("x / y / z", "choose the axis j / k moves");
     key("Up / Down", "step the active row through the displayed views");
+    key("+ / -", "zoom in / out around the cursor (= and _ work too)");
+    key("0", "reset the zoom");
     if (columns)
     {
         key("Tab", "next column");

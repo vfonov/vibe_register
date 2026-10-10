@@ -23,6 +23,9 @@ namespace mriv::term
 /// false (the default -- the one-shot path's call site), panes carry no
 /// crosshairs at all, so buildFrame() draws nothing extra and scripted
 /// output stays exactly as before this feature existed.
+///
+/// The state's zoom and, per pane, the cursor position it is centred on
+/// are always carried: --zoom applies to one-shot output too.
 FrameRequest planFrame(const ViewState& state,
                        const std::vector<const Volume*>& volumes,
                        int boxWidth,

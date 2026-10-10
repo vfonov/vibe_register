@@ -38,16 +38,28 @@ struct SliceRequest
 
     /// Integer pixel magnification applied after the fit (default 1).
     int scale = 1;
+
+    /// Zoom factor (render/Resample.hpp, ZoomView): 1 shows the whole
+    /// slice at its fitted size.
+    double zoom = 1.0;
+
+    /// The voxel a zoomed view is centred on, along the view's two in-plane
+    /// axes -- the same coordinates as a crosshair. Without one the view is
+    /// centred on the middle of the slice.
+    bool hasFocus = false;
+    int focusU = 0;
+    int focusV = 0;
 };
 
 /// resampleToDisplay() for a RenderedSlice from the parent's renderSlice().
 /// Lives here rather than in render/Resample.hpp so that Resample stays free
 /// of nr_core (it is part of mriv_term).
 inline ResampledImage resampleToDisplay(
-    const RenderedSlice& slice, double aspect, int maxW, int maxH, int scale = 1)
+    const RenderedSlice& slice, double aspect, int maxW, int maxH, int scale = 1,
+    const ZoomView& zoom = ZoomView{})
 {
     return resampleToDisplay(slice.pixels.data(), slice.width, slice.height,
-                             aspect, maxW, maxH, scale);
+                             aspect, maxW, maxH, scale, zoom);
 }
 
 /// Render one slice and resample it to the display box, applying the
@@ -64,8 +76,8 @@ ResampledImage renderSliceForDisplay(const Volume& vol, const SliceRequest& requ
 /// first one's grid, followed by the same aspect-correct resample
 /// renderSliceForDisplay() does. `params` is parallel to `volumes` and
 /// carries each one's range and colour map; of `request` only the view, the
-/// slice index (in the first volume), the display box and the scale are
-/// used.
+/// slice index (in the first volume), the display box, the scale and the
+/// zoom with its focus (a voxel of the first volume) are used.
 ///
 /// The image has the size the first volume's slice would have. A slice
 /// index outside the first volume is not blanked: the other volumes are

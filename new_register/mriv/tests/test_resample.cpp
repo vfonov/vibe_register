@@ -196,6 +196,146 @@ void testMapNativeToDisplay_degenerateSizesReturnZero()
     assert(mapNativeToDisplay(5, 10, 0) == 0);
 }
 
+// Zoom: the source is drawn zoom.factor times larger than the plain fit.
+// The image grows until it fills the box; after that the box stays full and
+// the source is cropped to a window around the zoom centre.
+
+/// A w x h image whose pixel value is its own index, so a test can tell
+/// which source pixel landed where.
+std::vector<uint32_t> indexedPixels(int w, int h)
+{
+    std::vector<uint32_t> pixels(static_cast<size_t>(w) * h);
+    for (size_t i = 0; i < pixels.size(); ++i)
+        pixels[i] = static_cast<uint32_t>(i);
+    return pixels;
+}
+
+void testZoom_oneIsThePlainFit()
+{
+    auto src = indexedPixels(10, 10);
+
+    auto plain  = resampleToDisplay(src.data(), 10, 10, 1.5, 7, 9);
+    auto zoomed = resampleToDisplay(src.data(), 10, 10, 1.5, 7, 9, 1, ZoomView{1.0, 2.0, 3.0});
+
+    assert(zoomed.width == plain.width);
+    assert(zoomed.height == plain.height);
+    assert(zoomed.pixels == plain.pixels);
+
+    // Nothing was cropped, and the window says so.
+    assert(zoomed.window.x == 0.0 && zoomed.window.y == 0.0);
+    assert(zoomed.window.width == 10.0 && zoomed.window.height == 10.0);
+    assert(plain.window.width == 10.0 && plain.window.height == 10.0);
+}
+
+void testZoom_enlargesWhileTheBoxHasRoom()
+{
+    // 4x4 in a box far bigger: zoom 2 draws it 8x8, every source pixel a
+    // 2x2 block, nothing cropped. The plain fit never enlarges; zoom does.
+    auto src = indexedPixels(4, 4);
+
+    auto out = resampleToDisplay(src.data(), 4, 4, 1.0, 100, 100, 1, ZoomView{2.0});
+    assert(out.width == 8);
+    assert(out.height == 8);
+    for (int y = 0; y < 8; ++y)
+        for (int x = 0; x < 8; ++x)
+            assert(out.pixels[y * 8 + x] == static_cast<uint32_t>((y / 2) * 4 + x / 2));
+
+    assert(out.window.x == 0.0 && out.window.y == 0.0);
+    assert(out.window.width == 4.0 && out.window.height == 4.0);
+}
+
+void testZoom_cropsOnceTheBoxIsFull()
+{
+    // 10x10 in a 10x10 box: zoom 2 cannot grow, so it shows the middle 5x5
+    // of the source at twice the size.
+    auto src = indexedPixels(10, 10);
+
+    auto out = resampleToDisplay(src.data(), 10, 10, 1.0, 10, 10, 1, ZoomView{2.0});
+    assert(out.width == 10);
+    assert(out.height == 10);
+    assert(out.window.x == 2.5 && out.window.y == 2.5);
+    assert(out.window.width == 5.0 && out.window.height == 5.0);
+
+    assert(out.pixels[0] == 2u * 10 + 2);  // source (2,2)
+    assert(out.pixels[99] == 7u * 10 + 7); // source (7,7)
+}
+
+void testZoom_windowFollowsTheCentreAndStaysInside()
+{
+    auto src = indexedPixels(10, 10);
+
+    // Centred on source pixel (6,3): the 5x5 window runs 4..9 and 1..6.
+    auto out = resampleToDisplay(src.data(), 10, 10, 1.0, 10, 10, 1, ZoomView{2.0, 6.5, 3.5});
+    assert(out.window.x == 4.0);
+    assert(out.window.y == 1.0);
+
+    // Near a corner the window slides back inside rather than showing
+    // nothing beyond the edge.
+    auto low = resampleToDisplay(src.data(), 10, 10, 1.0, 10, 10, 1, ZoomView{2.0, 0.5, 0.5});
+    assert(low.window.x == 0.0 && low.window.y == 0.0);
+    assert(low.pixels[0] == 0u);
+
+    auto high = resampleToDisplay(src.data(), 10, 10, 1.0, 10, 10, 1, ZoomView{2.0, 9.5, 9.5});
+    assert(high.window.x == 5.0 && high.window.y == 5.0);
+    assert(high.pixels[99] == 99u);
+}
+
+void testZoom_belowOneShrinks()
+{
+    auto src = indexedPixels(10, 10);
+
+    auto out = resampleToDisplay(src.data(), 10, 10, 1.0, 100, 100, 1, ZoomView{0.5});
+    assert(out.width == 5);
+    assert(out.height == 5);
+    assert(out.window.width == 10.0 && out.window.height == 10.0);
+}
+
+void testZoom_keepsTheAspectCorrection()
+{
+    // Voxels twice as wide as tall: 10x10 is 20x10 on screen. In a 20x10
+    // box zoom 2 crops to the 5x5 source window that fills it.
+    auto src = indexedPixels(10, 10);
+
+    auto out = resampleToDisplay(src.data(), 10, 10, 2.0, 20, 10, 1, ZoomView{2.0});
+    assert(out.width == 20);
+    assert(out.height == 10);
+    assert(out.window.width == 5.0);
+    assert(out.window.height == 5.0);
+}
+
+void testZoom_combinesWithScale()
+{
+    // --scale fits into box/scale and replicates; the zoom acts on that
+    // fit, so the result is still a multiple of the scale and inside the
+    // box.
+    auto src = indexedPixels(10, 10);
+
+    auto out = resampleToDisplay(src.data(), 10, 10, 1.0, 20, 20, 2, ZoomView{2.0});
+    assert(out.width == 20);
+    assert(out.height == 20);
+    assert(out.window.x == 2.5 && out.window.width == 5.0);
+    assert(out.pixels[0] == 22u);
+    assert(out.pixels[1] == 22u); // replicated by the scale
+}
+
+void testMapSourceToWindow()
+{
+    // The whole source: the same answer mapNativeToDisplay() gives.
+    assert(mapSourceToWindow(5, 0.0, 10.0, 10) == mapNativeToDisplay(5, 10, 10));
+    assert(mapSourceToWindow(3, 0.0, 10.0, 20) == mapNativeToDisplay(3, 10, 20));
+
+    // A 5-pixel window starting at 2.5, drawn 10 pixels wide.
+    assert(mapSourceToWindow(5, 2.5, 5.0, 10) == 6);
+    assert(mapSourceToWindow(3, 2.5, 5.0, 10) == 2);
+
+    // Outside the window on either side: not on screen.
+    assert(mapSourceToWindow(1, 2.5, 5.0, 10) == -1);
+    assert(mapSourceToWindow(8, 2.5, 5.0, 10) == -1);
+
+    assert(mapSourceToWindow(5, 0.0, 0.0, 10) == -1);
+    assert(mapSourceToWindow(5, 0.0, 10.0, 0) == -1);
+}
+
 } // namespace
 
 int main()
@@ -216,5 +356,13 @@ int main()
     testMapNativeToDisplay_downsample();
     testMapNativeToDisplay_clampsToTheLastPixel();
     testMapNativeToDisplay_degenerateSizesReturnZero();
+    testZoom_oneIsThePlainFit();
+    testZoom_enlargesWhileTheBoxHasRoom();
+    testZoom_cropsOnceTheBoxIsFull();
+    testZoom_windowFollowsTheCentreAndStaysInside();
+    testZoom_belowOneShrinks();
+    testZoom_keepsTheAspectCorrection();
+    testZoom_combinesWithScale();
+    testMapSourceToWindow();
     return 0;
 }

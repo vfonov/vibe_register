@@ -11,8 +11,10 @@ namespace mriv::term
 /// and the native pixel size renderSlice() produced for those same axes
 /// (RenderedSlice::width/height, before resampleToDisplay() fits it into
 /// the terminal's pixel box). drawCrosshair() maps u/v through
-/// mapNativeToDisplay() itself, so the caller never has to know the
-/// display image's actual size ahead of time.
+/// mapSourceToWindow() itself, using the window the image recorded
+/// (ResampledImage::window -- the whole slice unless it was zoomed), so
+/// the caller never has to know the display image's actual size, or what
+/// a zoom cropped, ahead of time.
 struct CrosshairMark
 {
     int u;
@@ -30,7 +32,8 @@ struct CrosshairMark
 ///
 /// A no-op on a degenerate image or a degenerate native size (nativeW/H
 /// <= 0). A u or v outside the native size means the cursor is off that
-/// edge of the volume, and its line is left out.
+/// edge of the volume, and its line is left out; so is a line that falls
+/// outside a zoomed image's window.
 void drawCrosshair(ResampledImage& image, const CrosshairMark& mark);
 
 } // namespace mriv::term

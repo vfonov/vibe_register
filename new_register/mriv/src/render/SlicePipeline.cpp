@@ -18,6 +18,21 @@ namespace
 // outside the volume reads as empty space rather than as a dark image.
 constexpr uint32_t kBackground = 0xFF000000u;
 
+/// The request's zoom, with its focus voxel turned into a position in the
+/// rendered slice's pixels: the middle of that voxel, and counted from the
+/// top, since renderSlice() draws rows bottom-up.
+ZoomView zoomFor(const SliceRequest& request, const RenderedSlice& slice)
+{
+    ZoomView zoom;
+    zoom.factor = request.zoom;
+    if (request.hasFocus)
+    {
+        zoom.centreX = request.focusU + 0.5;
+        zoom.centreY = slice.height - 1 - request.focusV + 0.5;
+    }
+    return zoom;
+}
+
 } // namespace
 
 ResampledImage renderSliceForDisplay(const Volume& vol, const SliceRequest& request)
@@ -35,8 +50,8 @@ ResampledImage renderSliceForDisplay(const Volume& vol, const SliceRequest& requ
     auto axes     = aspectAxesForView(request.viewIndex);
     double aspect = vol.slicePixelAspect(axes.u, axes.v);
 
-    ResampledImage image =
-        resampleToDisplay(slice, aspect, request.maxWidth, request.maxHeight, request.scale);
+    ResampledImage image = resampleToDisplay(slice, aspect, request.maxWidth, request.maxHeight,
+                                             request.scale, zoomFor(request, slice));
 
     // renderSlice() clamps the index itself, which is what gives this image
     // the right size; a slice the volume does not have is then blanked, so
@@ -70,7 +85,8 @@ ResampledImage renderOverlayForDisplay(const std::vector<const Volume*>& volumes
     auto axes     = aspectAxesForView(request.viewIndex);
     double aspect = volumes.front()->slicePixelAspect(axes.u, axes.v);
 
-    return resampleToDisplay(slice, aspect, request.maxWidth, request.maxHeight, request.scale);
+    return resampleToDisplay(slice, aspect, request.maxWidth, request.maxHeight, request.scale,
+                             zoomFor(request, slice));
 }
 
 } // namespace mriv::term

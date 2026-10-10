@@ -72,6 +72,14 @@ struct Options
     /// nearest-neighbour replication -- see render/Resample.hpp. Must be
     /// >= 1; validated by parseArgs().
     int scale = 1;
+
+    /// --zoom: how much larger than its fitted size each slice is drawn
+    /// (default: 1). Above 1 the slice grows until it fills its cell and is
+    /// then cropped around the cursor; below 1 it shrinks. The starting
+    /// value for the + / - keys in interactive mode. Must be within
+    /// kMinZoom..kMaxZoom (interactive/ViewState.hpp); validated by
+    /// parseArgs().
+    double zoom = 1.0;
 };
 
 /// Outcome of parsing argv: the parsed Options, plus whether parsing

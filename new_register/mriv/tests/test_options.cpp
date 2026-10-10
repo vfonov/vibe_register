@@ -288,6 +288,32 @@ void testVersionFlag()
     assert(parse({"mriv", "--version"}).options.version);
 }
 
+void testZoomFlag()
+{
+    auto result = parse({"mriv", "--zoom", "2.5", "a.mnc"});
+    assert(result.ok);
+    assert(result.options.zoom == 2.5);
+
+    assert(parse({"mriv", "--zoom", "0.5", "a.mnc"}).options.zoom == 0.5);
+}
+
+void testZoomDefaultIsOne()
+{
+    auto result = parse({"mriv", "a.mnc"});
+    assert(result.ok);
+    assert(result.options.zoom == 1.0);
+}
+
+/// Outside the range the + / - keys can reach, or not a number at all.
+void testZoomOutOfRangeRejected()
+{
+    assert(!parse({"mriv", "--zoom", "0", "a.mnc"}).ok);
+    assert(!parse({"mriv", "--zoom", "-2", "a.mnc"}).ok);
+    assert(!parse({"mriv", "--zoom", "0.05", "a.mnc"}).ok);
+    assert(!parse({"mriv", "--zoom", "51", "a.mnc"}).ok);
+    assert(!parse({"mriv", "--zoom", "big", "a.mnc"}).ok);
+}
+
 } // namespace
 
 int main()
@@ -327,5 +353,8 @@ int main()
     testScaleNegativeRejected();
     testInfoFlag();
     testVersionFlag();
+    testZoomFlag();
+    testZoomDefaultIsOne();
+    testZoomOutOfRangeRejected();
     return 0;
 }

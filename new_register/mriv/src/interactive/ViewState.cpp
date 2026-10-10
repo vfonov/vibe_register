@@ -1,6 +1,7 @@
 #include "interactive/ViewState.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace mriv::term
 {
@@ -326,6 +327,27 @@ KeyResult ViewState::handleEditKey(char key)
     return KeyResult::Changed;
 }
 
+void ViewState::setZoom(double zoom)
+{
+    zoom_ = std::clamp(zoom, kMinZoom, kMaxZoom);
+}
+
+KeyResult ViewState::changeZoom(double zoom)
+{
+    double clamped = std::clamp(zoom, kMinZoom, kMaxZoom);
+
+    // Stepping in and back out again must land on 1 itself, not beside it:
+    // exactly 1 is what means "not zoomed" to the renderer and the status
+    // row.
+    if (std::abs(clamped - 1.0) < 1e-9)
+        clamped = 1.0;
+
+    if (clamped == zoom_)
+        return KeyResult::Ignored;
+    zoom_ = clamped;
+    return KeyResult::Changed;
+}
+
 KeyResult ViewState::handleKey(char key)
 {
     // Ahead of the edit-prompt dispatch: a resize is not text, and must not
@@ -387,6 +409,14 @@ KeyResult ViewState::handleKey(char key)
                 return KeyResult::Ignored;
             overlayVisible_ = !overlayVisible_;
             return KeyResult::Changed;
+        // '=' and '_' are '+' and '-' with the Shift the other way round, so
+        // zooming works on any layout and however the terminal reports the
+        // modifier (see shiftedKey() in interactive/Keys.hpp).
+        case '+':
+        case '=': return changeZoom(zoom_ * kZoomStep);
+        case '-':
+        case '_': return changeZoom(zoom_ / kZoomStep);
+        case '0': return changeZoom(1.0);
         case 'i':
             infoVisible_ = !infoVisible_;
             return KeyResult::Changed;

@@ -41,19 +41,31 @@ void drawCrosshair(ResampledImage& image, const CrosshairMark& mark)
     if (mark.nativeW <= 0 || mark.nativeH <= 0)
         return;
 
+    // What the image shows of the slice: all of it, unless a zoom cropped
+    // it. An image that never recorded a window is the whole slice.
+    SourceWindow window = image.window;
+    if (window.width <= 0.0 || window.height <= 0.0)
+        window = SourceWindow{0.0, 0.0, static_cast<double>(mark.nativeW),
+                              static_cast<double>(mark.nativeH)};
+
     // Off an edge of this volume, a line would claim a position it does not
-    // have, so it is left out; the other line can still be in range.
+    // have, so it is left out; the other line can still be in range. The
+    // same goes for a line the zoomed window does not reach.
+    int row = -1;
     if (mark.v >= 0 && mark.v < mark.nativeH)
+        row = mapSourceToWindow(mark.nativeH - 1 - mark.v, window.y, window.height, image.height);
+    if (row >= 0)
     {
-        int row = mapNativeToDisplay(mark.nativeH - 1 - mark.v, mark.nativeH, image.height);
         for (int x = 0; x < image.width; ++x)
             image.pixels[static_cast<size_t>(row) * image.width + x] =
                 blendPixel(image.pixels[static_cast<size_t>(row) * image.width + x]);
     }
 
+    int col = -1;
     if (mark.u >= 0 && mark.u < mark.nativeW)
+        col = mapSourceToWindow(mark.u, window.x, window.width, image.width);
+    if (col >= 0)
     {
-        int col = mapNativeToDisplay(mark.u, mark.nativeW, image.width);
         for (int y = 0; y < image.height; ++y)
             image.pixels[static_cast<size_t>(y) * image.width + col] =
                 blendPixel(image.pixels[static_cast<size_t>(y) * image.width + col]);

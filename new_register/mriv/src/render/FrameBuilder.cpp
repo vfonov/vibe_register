@@ -128,6 +128,13 @@ ResampledImage buildFrame(const FrameRequest& request, FrameTracks* tracks)
                 slice.maxWidth        = budget.w;
                 slice.maxHeight       = budget.h;
                 slice.scale           = request.scale;
+                slice.zoom            = request.zoom;
+                if (static_cast<size_t>(row) < pane.focus.size())
+                {
+                    slice.hasFocus = true;
+                    slice.focusU   = pane.focus[static_cast<size_t>(row)].x;
+                    slice.focusV   = pane.focus[static_cast<size_t>(row)].y;
+                }
 
                 images[cell] = overlayCell
                                    ? renderOverlayForDisplay(overlayVolumes, overlayParams, slice)

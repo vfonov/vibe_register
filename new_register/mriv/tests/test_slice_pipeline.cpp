@@ -292,6 +292,91 @@ void testOverlayNeedsTwoVolumes()
     assert(renderOverlayForDisplay({&vol, &vol}, {greyParams()}, request).pixels.empty());
 }
 
+/// A 20^3 isotropic volume whose value rises with X, so the red channel of
+/// a grey render says which column of the slice a pixel came from.
+Volume makeRampVolume()
+{
+    Volume vol = makeAnisotropicVolume();
+    vol.step = glm::dvec3(1.0);
+    for (int z = 0; z < 20; ++z)
+        for (int y = 0; y < 20; ++y)
+            for (int x = 0; x < 20; ++x)
+                vol.data[static_cast<size_t>(z) * 400 + y * 20 + x] = x / 19.0f;
+    return vol;
+}
+
+/// Zoom draws the slice larger than its fit while the box has room.
+void testZoomEnlargesTheSlice()
+{
+    Volume vol = makeRampVolume();
+
+    SliceRequest request = makeRequest();
+    request.zoom = 2.0;
+
+    auto image = renderSliceForDisplay(vol, request);
+    assert(image.width == 40);
+    assert(image.height == 40);
+}
+
+/// Once the box is full, zoom crops around the focus voxel. The focus is a
+/// voxel position like the crosshair, so v counts up from the bottom row.
+void testZoomCropsAroundTheFocus()
+{
+    Volume vol = makeRampVolume();
+
+    SliceRequest request = makeRequest();
+    request.maxWidth  = 20;
+    request.maxHeight = 20;
+    request.zoom      = 2.0;
+
+    // No focus: the middle of the slice.
+    auto centred = renderSliceForDisplay(vol, request);
+    assert(centred.width == 20 && centred.height == 20);
+    assert(centred.window.x == 5.0 && centred.window.y == 5.0);
+
+    request.hasFocus = true;
+    request.focusU   = 15;
+    request.focusV   = 15;
+    auto right = renderSliceForDisplay(vol, request);
+    // u=15 -> window 10.5..20.5 slides back to 10..20; v=15 is native row
+    // 4, so the window is at the top.
+    assert(right.window.x == 10.0);
+    assert(right.window.y == 0.0);
+    assert(right.window.width == 10.0 && right.window.height == 10.0);
+
+    request.focusU = 2;
+    request.focusV = 2;
+    auto left = renderSliceForDisplay(vol, request);
+    assert(left.window.x == 0.0);
+    assert(left.window.y == 10.0);
+
+    // And the pixels really are different parts of the ramp.
+    assert(redOf(right.pixels[0]) > redOf(left.pixels[0]));
+}
+
+/// The overlay zooms the same way, in the first volume's grid, so its
+/// column lines up with the first volume's.
+void testZoomAppliesToTheOverlay()
+{
+    Volume first  = makeRampVolume();
+    Volume second = makeRampVolume();
+
+    SliceRequest request = makeRequest();
+    request.maxWidth  = 20;
+    request.maxHeight = 20;
+    request.zoom      = 2.0;
+    request.hasFocus  = true;
+    request.focusU    = 15;
+    request.focusV    = 15;
+
+    auto single  = renderSliceForDisplay(first, request);
+    auto overlay = renderOverlayForDisplay({&first, &second}, {greyParams(), greyParams()}, request);
+
+    assert(overlay.width == single.width && overlay.height == single.height);
+    assert(overlay.window.x == single.window.x && overlay.window.y == single.window.y);
+    assert(overlay.window.width == single.window.width);
+}
+
 } // namespace
 
 int main()
@@ -308,6 +393,9 @@ int main()
     testEmptyVolumeYieldsEmptyImage();
     testIntensityRangeReachesTheRenderer();
     testSliceOutsideTheVolumeIsBackground();
+    testZoomEnlargesTheSlice();
+    testZoomCropsAroundTheFocus();
+    testZoomAppliesToTheOverlay();
 
     return 0;
 }

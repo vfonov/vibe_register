@@ -538,6 +538,38 @@ void testCaptionNumbersEveryColumnInOrder()
     assert(caption.find('\n') == std::string::npos);
 }
 
+/// The zoom is on the status row only while it is not 1, so the row is
+/// unchanged for anyone who never zooms.
+void testStatusLineShowsTheZoomWhenZoomed()
+{
+    ViewState state = makeViewState(kDims, 'z', 48, 0.0, 100.0);
+    assert(!contains(formatStatusLine(state, {"brain.mnc"}), "zoom"));
+
+    state.setZoom(2.0);
+    assert(contains(formatStatusLine(state, {"brain.mnc"}), "zoom 2x"));
+
+    state.setZoom(1.0);
+    state.handleKey('-');
+    assert(contains(formatStatusLine(state, {"brain.mnc"}), "zoom 0.8x"));
+}
+
+void testLegendAndHelpListTheZoomKeys()
+{
+    ViewState state = makeViewState(kDims, 'z', 48, 0.0, 100.0);
+
+    assert(contains(formatHotkeyLine(state), "+/- zoom"));
+
+    bool zoomRow = false;
+    bool resetRow = false;
+    for (const auto& line : formatHelpLines(state))
+    {
+        zoomRow  = zoomRow || (contains(line, "+ / -") && contains(line, "zoom"));
+        resetRow = resetRow || (contains(line, "  0 ") && contains(line, "zoom"));
+    }
+    assert(zoomRow);
+    assert(resetRow);
+}
+
 } // namespace
 
 int main()
@@ -576,6 +608,8 @@ int main()
     testSummaryLineKeepsThePositionAndDropsTheLegend();
     testStatusLineEqualsSummaryLineWhenNotEditing();
     testCaptionNumbersEveryColumnInOrder();
+    testStatusLineShowsTheZoomWhenZoomed();
+    testLegendAndHelpListTheZoomKeys();
 
     return 0;
 }

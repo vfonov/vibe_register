@@ -39,6 +39,14 @@ struct FramePane
     /// cell blank.
     std::vector<glm::ivec2> crosshairs;
 
+    /// The in-plane voxel a zoomed view is centred on, one per entry of
+    /// FrameRequest::views like crosshairs -- and the same positions, but
+    /// supplied whether or not a mark is drawn, so one-shot output can be
+    /// zoomed onto the --slice position without gaining a crosshair. A row
+    /// past the end is centred on the middle of its slice. Unused at
+    /// zoom 1.
+    std::vector<glm::ivec2> focus;
+
     double valueMin = 0.0;
     double valueMax = 1.0;
     ColourMapType colourMap = ColourMapType::GrayScale;
@@ -66,6 +74,11 @@ struct FrameRequest
 
     /// Integer pixel magnification, applied per pane after the fit.
     int scale = 1;
+
+    /// Zoom factor, the same for every cell: each slice is drawn this many
+    /// times larger than its fit, growing until its cell is full and then
+    /// cropped around FramePane::focus (render/Resample.hpp, ZoomView).
+    double zoom = 1.0;
 
     /// Adds one more column at the right: every pane's volume blended in
     /// the first pane's grid (renderOverlayForDisplay()), each with its own

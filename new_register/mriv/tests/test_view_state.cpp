@@ -441,9 +441,6 @@ void testQuitAndUnknownKeys()
     assert(state.handleKey('\x1b') == KeyResult::Quit);
     assert(state.handleKey('Z') == KeyResult::Ignored);
     assert(state.handleKey('\0') == KeyResult::Ignored);
-    // The window keys are gone: ranges are typed in, not scaled.
-    assert(state.handleKey('+') == KeyResult::Ignored);
-    assert(state.handleKey('-') == KeyResult::Ignored);
 }
 
 /// 's' asks the caller to save a screenshot of the frame already on
@@ -910,6 +907,99 @@ void testGoToCoversTheUnionOfTheVolumes()
     assert(state.sliceIndex() + 1 == state.sliceCount());
 }
 
+/// '+' and '-' step the zoom by kZoomStep; '=' and '_' are the same keys
+/// without / with Shift, so the zoom works whichever way the terminal
+/// reports the modifier.
+void testPlusAndMinusZoom()
+{
+    auto state = makeState();
+    assert(state.zoom() == 1.0);
+
+    assert(state.handleKey('+') == KeyResult::Changed);
+    assert(state.zoom() == kZoomStep);
+    assert(state.handleKey('=') == KeyResult::Changed);
+    assert(state.zoom() > kZoomStep);
+
+    assert(state.handleKey('-') == KeyResult::Changed);
+    assert(state.handleKey('_') == KeyResult::Changed);
+    // Back where it started, exactly: a step in and a step out must not
+    // leave a zoom of 0.9999 that still counts as zoomed.
+    assert(state.zoom() == 1.0);
+
+    assert(state.handleKey('-') == KeyResult::Changed);
+    assert(state.zoom() < 1.0);
+}
+
+void testZoomLeavesTheCursorAlone()
+{
+    auto state = makeTwoVolumeState();
+    glm::ivec3 before = state.cursorVoxel(0);
+    int volume = state.activeVolume();
+
+    state.handleKey('+');
+    state.handleKey('+');
+
+    assert(state.cursorVoxel(0) == before);
+    assert(state.activeVolume() == volume);
+}
+
+void testZoomStopsAtItsLimits()
+{
+    auto state = makeState();
+
+    for (int i = 0; i < 100; ++i)
+        state.handleKey('+');
+    assert(state.zoom() == kMaxZoom);
+    assert(state.handleKey('+') == KeyResult::Ignored);
+
+    for (int i = 0; i < 200; ++i)
+        state.handleKey('-');
+    assert(state.zoom() == kMinZoom);
+    assert(state.handleKey('-') == KeyResult::Ignored);
+}
+
+/// '0' puts the zoom back to 1 -- the only way back to exactly 1 from a
+/// --zoom value that is not a whole number of steps away.
+void testZeroResetsTheZoom()
+{
+    auto state = makeState();
+    assert(state.handleKey('0') == KeyResult::Ignored); // already 1
+
+    state.setZoom(3.7);
+    assert(state.zoom() == 3.7);
+    assert(state.handleKey('0') == KeyResult::Changed);
+    assert(state.zoom() == 1.0);
+}
+
+void testSetZoomClamps()
+{
+    auto state = makeState();
+    state.setZoom(1000.0);
+    assert(state.zoom() == kMaxZoom);
+    state.setZoom(0.0);
+    assert(state.zoom() == kMinZoom);
+}
+
+/// '-' is part of a negative range and '0' of any number: in a prompt they
+/// are text, not zoom keys.
+void testZoomKeysAreSwallowedByThePrompts()
+{
+    auto state = makeState();
+
+    state.handleKey('r');
+    state.handleKey('-');
+    state.handleKey('+');
+    state.handleKey('\x1b');
+    assert(state.zoom() == 1.0);
+
+    state.setZoom(2.0);
+    state.handleKey('g');
+    state.handleKey('0');
+    state.handleKey('+');
+    state.handleKey('\x1b');
+    assert(state.zoom() == 2.0);
+}
+
 } // namespace
 
 int main()
@@ -973,5 +1063,11 @@ int main()
     testOverlayKeyIsSwallowedByThePrompts();
     testCursorVoxelAndWorldPositions();
     testCursorInsideReportsVolumesTheCursorHasLeft();
+    testPlusAndMinusZoom();
+    testZoomLeavesTheCursorAlone();
+    testZoomStopsAtItsLimits();
+    testZeroResetsTheZoom();
+    testSetZoomClamps();
+    testZoomKeysAreSwallowedByThePrompts();
     return 0;
 }

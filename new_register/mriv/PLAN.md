@@ -315,6 +315,9 @@ Display:
       --invert            Invert the colour map.
       --max-width <px>    Cap the rendered image width in pixels.
       --scale <n>         Integer pixel magnification factor (default: 1).
+      --zoom <f>          Zoom factor: draw each slice f times larger than its
+                          fitted size, cropped around the cursor once it fills
+                          its cell; below 1 shrinks (default: 1, 0.1 to 50).
 
 Interactive:
       --interactive       Navigate with the keyboard. Default when stdout is
@@ -342,6 +345,19 @@ instead; it is an error to combine the two.
 pixel replication (each display pixel becomes an `n x n` block), applied *after* the
 aspect-correct fit into the terminal's pixel box — see `render/Resample.hpp`'s
 `resampleToDisplay()`. A `--scale` of 1 (the default) is a no-op.
+
+`--zoom` is a different thing: `--scale` replicates pixels of a picture that still shows whole
+slices, while `--zoom` changes how much of each slice is shown. Every slice is drawn `f` times
+larger than its fit (`ZoomView` in `render/Resample.hpp`). While its grid cell has room the pane
+simply grows — this is the one case where a slice is enlarged beyond its native size — and once the
+cell is full the pane stays that size and the slice is cropped to a window around the cursor, slid
+back inside the slice where the cursor is near an edge. Below 1 the panes shrink. The factor is the
+same for every view and column, and each column is centred on the shared cursor in its own voxels,
+so zoomed columns keep showing the same place. It applies to one-shot output as well, centred on
+the `--slice` position, without adding a crosshair; a factor of exactly 1 takes the unzoomed code
+path, so default output is unchanged pixel for pixel. The two flags combine: the zoom acts on the
+fit into `box / scale`, and the result is then replicated. Limits are the parent's
+(`kMinZoom` / `kMaxZoom`, 0.1 to 50).
 
 ### The display grid
 
@@ -390,6 +406,8 @@ several volumes become columns of one navigable grid, which is more use interact
 | `J` / `K` | Move ±10 slices, stopping at the ends |
 | `g` | Open the go-to prompt: type a slice number on the active axis (1-based, as in the status row's n/N), Enter applies, `Esc` cancels. A number outside 1..N keeps the prompt open with a complaint rather than clamping |
 | `m` | Centre the cursor in the active volume on all three axes |
+| `+` / `-` | Zoom in / out by a factor of 1.25 around the cursor, between 0.1 and 50; starts at `--zoom`. `=` and `_` do the same, so it works whichever way the terminal reports Shift |
+| `0` | Reset the zoom to 1 |
 | `x` / `y` / `z` | Choose the axis `j`/`k` moves. Does **not** change which views are shown |
 | `↑` / `↓` | Step the active row through the displayed views, wrapping — an alternative to `x`/`y`/`z` for whatever `--views` put on screen |
 | `Tab`, `1`–`9`, `←` / `→` | Select the active column, wrapping |
@@ -455,6 +473,14 @@ centre-of-source-pixel sampling, so it lands on the same display pixel the resam
 came from. `planFrame()` only fills `FramePane::crosshairs` when its `showCrosshair` parameter is
 true; the one-shot path leaves it at the default `false` so scripted, piped output stays exactly the
 clean image it always was, and only the interactive call site in `cli/Run.cpp` opts in.
+
+**Zoom.** `+` / `-` change the `--zoom` factor described under the CLI surface, and `0` resets it;
+the state holds one factor (`ViewState::zoom()`), `planFrame()` carries it and each pane's cursor
+position (`FramePane::focus`) into the request, and the crop happens in `resampleToDisplay()`. A
+zoomed image records which part of its slice it shows (`ResampledImage::window`), which is how
+`drawCrosshair()` keeps the mark on the cursor; the status row shows `zoom Nx` while the factor is
+not 1. The window follows the cursor, so a zoomed view is panned by moving the cursor: `j`/`k` on
+one axis slides the window in the other two views. There is no separate pan key.
 
 **Overlay column.** `o` adds one more column at the right of the grid in which every volume is
 blended, as `new_register`'s Overlay panel does; it is off at start and the key is ignored (and left

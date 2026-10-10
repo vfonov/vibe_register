@@ -10,6 +10,7 @@
 #include "cli/ColourMapArg.hpp"
 #include "cli/SliceSelection.hpp"
 #include "cli/ViewList.hpp"
+#include "interactive/ViewState.hpp"
 
 namespace mriv::term
 {
@@ -75,6 +76,10 @@ cxxopts::Options buildParser()
         ("max-width", "Cap the rendered image width in pixels", cxxopts::value<int>())
         ("scale", "Integer pixel magnification factor (default: 1)",
             cxxopts::value<int>()->default_value("1"))
+        ("zoom", "Zoom factor: draw each slice this many times larger than "
+            "its fitted size, cropped around the cursor once it fills its "
+            "cell; below 1 shrinks (range 0.1 to 50)",
+            cxxopts::value<double>()->default_value("1"))
         ("file", "Volume file(s) to view", cxxopts::value<std::vector<std::string>>());
     opts.positional_help("<file>...");
     opts.parse_positional({"file"});
@@ -213,6 +218,16 @@ ParseResult parseArgs(int argc, char** argv, std::ostream& err)
         if (result.options.scale < 1)
         {
             err << "mriv: --scale must be >= 1 (got " << result.options.scale << ")\n";
+            result.ok = false;
+            return result;
+        }
+
+        result.options.zoom = parsed["zoom"].as<double>();
+        // Written so that NaN fails too.
+        if (!(result.options.zoom >= kMinZoom && result.options.zoom <= kMaxZoom))
+        {
+            err << "mriv: --zoom must be between " << kMinZoom << " and " << kMaxZoom
+                << " (got " << result.options.zoom << ")\n";
             result.ok = false;
             return result;
         }

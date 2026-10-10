@@ -487,6 +487,96 @@ void testDegenerateRequestsYieldAnEmptyFrame()
     assert(buildFrame(noViews).pixels.empty());
 }
 
+/// FrameRequest::zoom enlarges every pane while the box has room for it...
+void testZoomEnlargesThePanes()
+{
+    Volume vol = makeVolume(20, 20, 20, 1.0f);
+
+    FrameRequest request;
+    request.panes     = {makePane(vol, {10})};
+    request.views     = {0};
+    request.boxWidth  = 400;
+    request.boxHeight = 400;
+    request.zoom      = 2.0;
+
+    auto frame = buildFrame(request);
+    assert(frame.width == 40);
+    assert(frame.height == 40);
+}
+
+/// ...and never past it: a zoomed pane is cropped to its cell, so the frame
+/// still fits the terminal.
+void testZoomNeverOutgrowsTheBox()
+{
+    Volume vol = makeVolume(20, 20, 20, 1.0f);
+
+    FrameRequest request;
+    request.panes     = {makePane(vol, {10}), makePane(vol, {10})};
+    request.views     = {0};
+    request.boxWidth  = 44;
+    request.boxHeight = 20;
+    request.zoom      = 8.0;
+
+    auto frame = buildFrame(request);
+    assert(frame.width == 44); // two full 20px cells and the 4px gap
+    assert(frame.height == 20);
+}
+
+/// The crosshair marks the cursor inside the zoomed window, and the window
+/// is centred on FramePane::focus.
+void testZoomedPaneKeepsTheCrosshairOnTheCursor()
+{
+    Volume vol = makeVolume(20, 20, 20, 1.0f);
+
+    FramePane marked = makePane(vol, {10});
+    marked.focus      = {glm::ivec2(2, 10)};
+    marked.crosshairs = {glm::ivec2(2, 10)};
+
+    FramePane plain = makePane(vol, {10});
+    plain.focus = {glm::ivec2(2, 10)};
+
+    FrameRequest request;
+    request.views     = {0};
+    request.boxWidth  = 20;
+    request.boxHeight = 20;
+    request.zoom      = 4.0;
+
+    request.panes = {marked};
+    auto withMark = buildFrame(request);
+    request.panes = {plain};
+    auto without = buildFrame(request);
+
+    assert(withMark.width == 20 && withMark.height == 20);
+    assert(without.width == 20 && without.height == 20);
+
+    // The window is 5 voxels wide. u=2 is too close to the left edge to be
+    // centred: the window starts at 0 and the cursor is 2.5 voxels in, at
+    // 4 px per voxel. v=10 is native row 9, centred: also 2.5 voxels in.
+    for (int y = 0; y < 20; ++y)
+        for (int x = 0; x < 20; ++x)
+            assert((pixelAt(withMark, x, y) != pixelAt(without, x, y)) == (x == 10 || y == 10));
+}
+
+/// The overlay column zooms with the first pane, so it stays the same size
+/// and shows the same window.
+void testZoomAppliesToTheOverlayColumn()
+{
+    Volume first  = makeVolume(20, 20, 20, 0.2f);
+    Volume second = makeVolume(20, 20, 20, 0.8f);
+
+    FrameRequest request = makeOverlayRequest(first, second);
+    request.gap  = 0;
+    request.zoom = 2.0;
+
+    FrameTracks tracks;
+    auto frame = buildFrame(request, &tracks);
+
+    assert(tracks.columnWidths.size() == 3);
+    assert(tracks.columnWidths[0] == 40);
+    assert(tracks.columnWidths[2] == 40);
+    assert(frame.height == 40);
+}
+
 } // namespace
 
 int main()
@@ -508,5 +598,9 @@ int main()
     testOverlayWithOnePaneIsIgnored();
     testOverlayWithAMissingVolumeIsBlank();
     testDegenerateRequestsYieldAnEmptyFrame();
+    testZoomEnlargesThePanes();
+    testZoomNeverOutgrowsTheBox();
+    testZoomedPaneKeepsTheCrosshairOnTheCursor();
+    testZoomAppliesToTheOverlayColumn();
     return 0;
 }

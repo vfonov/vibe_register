@@ -126,6 +126,37 @@ void testDrawCrosshairIsANoOpOnDegenerateInput()
         assert(p == kBackground);
 }
 
+/// A zoomed image shows only a window of its slice (ResampledImage::window);
+/// the mark goes where the cursor is within that window, not where it would
+/// be if the whole slice were on screen.
+void testDrawCrosshairFollowsAZoomedWindow()
+{
+    auto image = makeImage(10, 10, kBackground);
+    image.window = SourceWindow{2.5, 2.5, 5.0, 5.0};
+
+    // u=5 is 3 source pixels into the window at 2 display pixels each; v=4
+    // is native row 10-1-4 = 5, the same distance down.
+    drawCrosshair(image, CrosshairMark{5, 4, 10, 10});
+
+    for (int y = 0; y < 10; ++y)
+        for (int x = 0; x < 10; ++x)
+            assert((pixelAt(image, x, y) != kBackground) == (x == 6 || y == 6));
+}
+
+/// A cursor inside the volume but outside the zoomed window has no place
+/// on screen, so its line is left out -- not pinned to the nearest edge.
+void testDrawCrosshairOmitsLinesOutsideTheWindow()
+{
+    auto image = makeImage(10, 10, kBackground);
+    image.window = SourceWindow{2.5, 2.5, 5.0, 5.0};
+
+    drawCrosshair(image, CrosshairMark{0, 4, 10, 10}); // u left of the window
+
+    for (int y = 0; y < 10; ++y)
+        for (int x = 0; x < 10; ++x)
+            assert((pixelAt(image, x, y) != kBackground) == (y == 6));
+}
+
 } // namespace
 
 int main()
@@ -135,5 +166,7 @@ int main()
     testDrawCrosshairBlendsRatherThanOverwrites();
     testDrawCrosshairOmitsOutOfRangeLines();
     testDrawCrosshairIsANoOpOnDegenerateInput();
+    testDrawCrosshairFollowsAZoomedWindow();
+    testDrawCrosshairOmitsLinesOutsideTheWindow();
     return 0;
 }

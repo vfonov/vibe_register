@@ -635,6 +635,42 @@ void testNoInteractiveStillRendersOneShot(const char* fixture)
     unsetenv("MRIV_TEST_RENDER");
 }
 
+void testZoomFlagEnlargesImage(const char* fixturePath)
+{
+    // Like --scale above, the test-mode box is far bigger than sq1.mnc, so
+    // there is room to grow: --zoom 2 doubles the blitted width and height
+    // (give or take the rounding of each pane and the fixed gutters
+    // between them). In a real terminal the frame stops at the window and
+    // the panes are cropped instead.
+    setenv("MRIV_TEST_RENDER", "1", 1);
+
+    std::istringstream in1;
+    std::ostringstream out1, err1;
+    Args base{"mriv", "--views", "z", fixturePath};
+    int rc1 = run(base.argc(), base.data(), in1, out1, err1);
+    assert(rc1 == 0);
+    auto baseEvents = parseEscapeStream(out1.str());
+    assert(baseEvents.size() == 1);
+
+    std::istringstream in2;
+    std::ostringstream out2, err2;
+    Args zoomed{"mriv", "--views", "z", "--zoom", "2", fixturePath};
+    int rc2 = run(zoomed.argc(), zoomed.data(), in2, out2, err2);
+    assert(rc2 == 0);
+    auto zoomedEvents = parseEscapeStream(out2.str());
+    assert(zoomedEvents.size() == 1);
+
+    int baseW = std::stoi(baseEvents[0].params.at("s"));
+    int baseH = std::stoi(baseEvents[0].params.at("v"));
+    int zoomedW = std::stoi(zoomedEvents[0].params.at("s"));
+    int zoomedH = std::stoi(zoomedEvents[0].params.at("v"));
+
+    assert(zoomedW == baseW * 2);
+    assert(zoomedH == baseH * 2);
+
+    unsetenv("MRIV_TEST_RENDER");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -678,6 +714,7 @@ int main(int argc, char** argv)
     testInteractiveWithInfoIsRefused(fixturePath);
     testInteractiveAndNoInteractiveTogetherIsRefused(fixturePath);
     testNoInteractiveStillRendersOneShot(fixturePath);
+    testZoomFlagEnlargesImage(fixturePath);
 
     return 0;
 }

@@ -203,11 +203,13 @@ ViewState buildViewState(const Options& options,
         geometries.push_back(VolumeGeometry{vol.dimensions, vol.voxelToWorld, vol.worldToVoxel});
     }
 
-    return ViewState(std::move(geometries),
-                     options.views,
-                     options.axis,
-                     resolveStartCursor(options, volumes.front().volume),
-                     std::move(displays));
+    ViewState state(std::move(geometries),
+                    options.views,
+                    options.axis,
+                    resolveStartCursor(options, volumes.front().volume),
+                    std::move(displays));
+    state.setZoom(options.zoom);
+    return state;
 }
 
 std::vector<const Volume*> volumePointers(const std::vector<LoadedVolume>& volumes)

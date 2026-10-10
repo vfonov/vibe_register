@@ -84,6 +84,29 @@ void testPlanFrameCarriesTheOverlaySwitch()
     assert(request.panes.size() == 2); // the overlay is not a pane
 }
 
+/// The zoom and what it is centred on are the state's: planFrame() carries
+/// both. The focus is filled whether or not a crosshair is drawn, so
+/// one-shot output zooms onto the same place without gaining a mark.
+void testPlanFrameCarriesTheZoomAndItsFocus()
+{
+    auto state = makeState();
+    Volume vol = makeVolume(20, 20, 20, 1.0f);
+
+    assert(planFrame(state, {&vol}, 200, 200, 1).zoom == 1.0);
+
+    state.setZoom(2.5);
+    state.handleKey('j'); // somewhere other than where it started
+
+    auto request = planFrame(state, {&vol}, 200, 200, 1);
+    assert(request.zoom == 2.5);
+    assert(request.panes[0].crosshairs.empty());
+    assert(request.panes[0].focus.size() == 1);
+
+    auto expected = state.crosshairFor(0, 0);
+    assert(request.panes[0].focus[0].x == expected.u);
+    assert(request.panes[0].focus[0].y == expected.v);
+}
+
 } // namespace
 
 int main()
@@ -91,5 +114,6 @@ int main()
     testPlanFrameCarriesTheOverlaySwitch();
     testPlanFrameOmitsCrosshairsByDefault();
     testPlanFrameWiresCrosshairsWhenRequested();
+    testPlanFrameCarriesTheZoomAndItsFocus();
     return 0;
 }

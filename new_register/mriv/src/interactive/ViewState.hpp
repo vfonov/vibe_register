@@ -25,6 +25,13 @@ struct VolumeDisplay
     bool invertColourMap = false;
 };
 
+/// Zoom limits and the factor one press of + or - applies. The limits are
+/// the parent's (kMinZoom / kMaxZoom in AppState.h, which is not part of
+/// nr_core); --zoom is checked against them too.
+constexpr double kMinZoom = 0.1;
+constexpr double kMaxZoom = 50.0;
+constexpr double kZoomStep = 1.25;
+
 /// The interactive session's model: where the cursor is in the volumes and
 /// how each one's intensities are mapped. Deliberately free of notcurses,
 /// Volume and IO -- this is the part that can be tested without a TTY, so
@@ -59,8 +66,9 @@ public:
 
     /// Apply one keypress: j/k slice, J/K ten slices, g go-to prompt, m
     /// centre the cursor, x/y/z or up/down axis, Tab, 1-9 and
-    /// left/right active volume, o overlay column, c/C colour map, r range
-    /// prompt, s screenshot, i info block, ? or h key list, q or Esc quit.
+    /// left/right active volume, o overlay column, + / - zoom, 0 zoom
+    /// reset, c/C colour map, r range prompt, s screenshot, i info block,
+    /// ? or h key list, q or Esc quit.
     /// There is no
     /// h/l time navigation -- the parent has no time dimension (PLAN.md,
     /// deferred work) -- which is what leaves h free for the key list.
@@ -144,6 +152,16 @@ public:
     /// only when there are at least two volumes to blend.
     bool isOverlayVisible() const { return overlayVisible_; }
 
+    /// How much larger than its fitted size every slice is drawn; 1 shows
+    /// whole slices. '+' and '-' multiply and divide it by kZoomStep, '0'
+    /// puts it back to 1. One factor for every view and column: zoomed
+    /// panes stay centred on the shared cursor, so they keep showing the
+    /// same place.
+    double zoom() const { return zoom_; }
+
+    /// Set the zoom directly (--zoom), clamped to kMinZoom..kMaxZoom.
+    void setZoom(double zoom);
+
     /// The shared cursor in `volume`'s own voxels. Not clamped: outside the
     /// volume (see isCursorInside()) it is the index the cursor would have
     /// if the grid went on.
@@ -178,6 +196,7 @@ private:
     KeyResult selectVolume(int volume);
     KeyResult cycleColourMap(int delta);
     KeyResult centreCursor();
+    KeyResult changeZoom(double zoom);
     KeyResult handleGoToKey(char key);
     KeyResult beginRangeEdit();
     KeyResult handleEditKey(char key);
@@ -202,6 +221,7 @@ private:
     bool helpVisible_ = false;
     bool infoVisible_ = true;
     bool overlayVisible_ = false;
+    double zoom_ = 1.0;
 };
 
 } // namespace mriv::term
